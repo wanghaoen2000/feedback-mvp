@@ -1,11 +1,10 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { trpc } from "@/lib/trpc";
 import { 
   Loader2, 
@@ -16,13 +15,7 @@ import {
   Circle,
   XCircle,
   ExternalLink,
-  RefreshCw,
-  Settings,
-  ChevronDown,
-  ChevronRight,
-  Save,
-  Play,
-  History
+  RefreshCw
 } from "lucide-react";
 
 // 步骤状态类型
@@ -69,6 +62,8 @@ export default function Home() {
   // 基本信息
   const [studentName, setStudentName] = useState("");
   const [lessonNumber, setLessonNumber] = useState("");
+  const [lessonDate, setLessonDate] = useState("");
+  const [nextLessonDate, setNextLessonDate] = useState("");
   
   // 三段文本
   const [lastFeedback, setLastFeedback] = useState("");
@@ -79,14 +74,6 @@ export default function Home() {
   const [isFirstLesson, setIsFirstLesson] = useState(false);
   const [specialRequirements, setSpecialRequirements] = useState("");
 
-  // 高级设置
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [apiModel, setApiModel] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [apiUrl, setApiUrl] = useState("");
-  const [configLoaded, setConfigLoaded] = useState(false);
-  const [savingConfig, setSavingConfig] = useState(false);
-
   // 生成状态
   const [isGenerating, setIsGenerating] = useState(false);
   const [steps, setSteps] = useState<StepStatus[]>(initialSteps);
@@ -96,58 +83,12 @@ export default function Home() {
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
 
-  // 断点续传状态
-  const [taskKey, setTaskKey] = useState<string | null>(null);
-  const [hasPendingTask, setHasPendingTask] = useState(false);
-  const [pendingTaskInfo, setPendingTaskInfo] = useState<{
-    studentName: string;
-    currentStep: number;
-    dateStr: string | null;
-  } | null>(null);
-
-  // tRPC queries and mutations
-  const configQuery = trpc.config.getAll.useQuery();
-  const updateConfigMutation = trpc.config.update.useMutation();
-  
+  // tRPC mutations
   const generateFeedbackMutation = trpc.feedback.generateFeedback.useMutation();
   const generateReviewMutation = trpc.feedback.generateReview.useMutation();
   const generateTestMutation = trpc.feedback.generateTest.useMutation();
   const generateExtractionMutation = trpc.feedback.generateExtraction.useMutation();
   const generateBubbleChartMutation = trpc.feedback.generateBubbleChart.useMutation();
-
-  // 断点续传API
-  const getOrCreateTaskMutation = trpc.task.getOrCreate.useMutation();
-  const updateTaskStepMutation = trpc.task.updateStep.useMutation();
-  const deleteTaskMutation = trpc.task.delete.useMutation();
-
-  // 加载配置
-  useEffect(() => {
-    if (configQuery.data && !configLoaded) {
-      setApiModel(configQuery.data.apiModel);
-      setApiKey(configQuery.data.apiKey);
-      setApiUrl(configQuery.data.apiUrl);
-      setConfigLoaded(true);
-    }
-  }, [configQuery.data, configLoaded]);
-
-  // 保存配置
-  const handleSaveConfig = async () => {
-    setSavingConfig(true);
-    try {
-      await updateConfigMutation.mutateAsync({
-        apiModel: apiModel.trim() || undefined,
-        apiKey: apiKey.trim() || undefined,
-        apiUrl: apiUrl.trim() || undefined,
-      });
-      // 刷新配置
-      await configQuery.refetch();
-      alert("配置已保存！");
-    } catch (error) {
-      alert("保存失败：" + (error instanceof Error ? error.message : "未知错误"));
-    } finally {
-      setSavingConfig(false);
-    }
-  };
 
   // 更新步骤状态
   const updateStep = useCallback((stepIndex: number, updates: Partial<StepStatus>) => {
@@ -156,250 +97,25 @@ export default function Home() {
     ));
   }, []);
 
-  // 从已保存的步骤结果恢复状态
-  const restoreFromTask = useCallback((taskData: any) => {
-    const newSteps = [...initialSteps];
-    
-    if (taskData.steps.step1) {
-      const step1 = taskData.steps.step1;
-      newSteps[0] = { ...newSteps[0], status: 'success', uploadResult: step1.uploadResult };
-      if (step1.feedbackContent) setFeedbackContent(step1.feedbackContent);
-      if (step1.dateStr) setDateStr(step1.dateStr);
-    }
-    if (taskData.steps.step2) {
-      newSteps[1] = { ...newSteps[1], status: 'success', uploadResult: taskData.steps.step2.uploadResult };
-    }
-    if (taskData.steps.step3) {
-      newSteps[2] = { ...newSteps[2], status: 'success', uploadResult: taskData.steps.step3.uploadResult };
-    }
-    if (taskData.steps.step4) {
-      newSteps[3] = { ...newSteps[3], status: 'success', uploadResult: taskData.steps.step4.uploadResult };
-    }
-    if (taskData.steps.step5) {
-      newSteps[4] = { ...newSteps[4], status: 'success', uploadResult: taskData.steps.step5.uploadResult };
-    }
-    
-    setSteps(newSteps);
-    setCurrentStep(taskData.currentStep);
-    if (taskData.dateStr) setDateStr(taskData.dateStr);
-    
-    // 检查是否全部完成
-    if (taskData.status === 'completed' || taskData.currentStep === 5) {
-      setIsComplete(true);
-    }
-  }, []);
-
-  // 执行单个步骤
-  const executeStep = useCallback(async (
-    stepNum: number, 
-    content: string, 
-    date: string, 
-    configOverride: any,
-    currentTaskKey: string
-  ): Promise<{ content: string; date: string; success: boolean }> => {
-    const stepIndex = stepNum - 1;
-    updateStep(stepIndex, { status: 'running', message: '正在生成...' });
-
-    try {
-      let result;
-      let stepResult: any = {};
-
-      switch (stepNum) {
-        case 1:
-          result = await generateFeedbackMutation.mutateAsync({
-            studentName: studentName.trim(),
-            lessonNumber: lessonNumber.trim(),
-            lastFeedback: lastFeedback.trim(),
-            currentNotes: currentNotes.trim(),
-            transcript: transcript.trim(),
-            isFirstLesson,
-            specialRequirements: specialRequirements.trim(),
-            ...configOverride,
-          });
-          content = result.feedbackContent;
-          date = result.dateStr;
-          setFeedbackContent(content);
-          setDateStr(date);
-          stepResult = { feedbackContent: content, dateStr: date, uploadResult: result.uploadResult };
-          break;
-
-        case 2:
-          result = await generateReviewMutation.mutateAsync({
-            studentName: studentName.trim(),
-            dateStr: date,
-            feedbackContent: content,
-            ...configOverride,
-          });
-          stepResult = { uploadResult: result.uploadResult };
-          break;
-
-        case 3:
-          result = await generateTestMutation.mutateAsync({
-            studentName: studentName.trim(),
-            dateStr: date,
-            feedbackContent: content,
-            ...configOverride,
-          });
-          stepResult = { uploadResult: result.uploadResult };
-          break;
-
-        case 4:
-          result = await generateExtractionMutation.mutateAsync({
-            studentName: studentName.trim(),
-            dateStr: date,
-            feedbackContent: content,
-            ...configOverride,
-          });
-          stepResult = { uploadResult: result.uploadResult };
-          break;
-
-        case 5:
-          result = await generateBubbleChartMutation.mutateAsync({
-            studentName: studentName.trim(),
-            dateStr: date,
-            lessonNumber: lessonNumber.trim(),
-            feedbackContent: content,
-            ...configOverride,
-          });
-          stepResult = { uploadResult: result.uploadResult };
-          break;
-      }
-
-      // 保存进度到数据库
-      await updateTaskStepMutation.mutateAsync({
-        taskKey: currentTaskKey,
-        step: stepNum,
-        result: JSON.stringify(stepResult),
-        dateStr: stepNum === 1 ? date : undefined,
-      });
-
-      updateStep(stepIndex, { 
-        status: 'success', 
-        message: '生成完成',
-        uploadResult: result?.uploadResult
-      });
-
-      return { content, date, success: true };
-    } catch (error) {
-      console.error(`步骤${stepNum}失败:`, error);
-      updateStep(stepIndex, { 
-        status: 'error', 
-        error: error instanceof Error ? error.message : '生成失败'
-      });
-      return { content, date, success: false };
-    }
-  }, [
-    studentName, lessonNumber, lastFeedback, currentNotes, transcript,
-    isFirstLesson, specialRequirements, updateStep,
-    generateFeedbackMutation, generateReviewMutation, generateTestMutation,
-    generateExtractionMutation, generateBubbleChartMutation, updateTaskStepMutation
-  ]);
-
-  // 执行生成流程（支持从指定步骤开始）
-  const runGeneration = useCallback(async (startFromStep: number = 1, existingContent?: string, existingDate?: string) => {
+  // 执行生成流程
+  const runGeneration = useCallback(async () => {
     setIsGenerating(true);
     setIsComplete(false);
     setHasError(false);
-    
-    if (startFromStep === 1) {
-      setSteps(initialSteps);
-    }
-    setCurrentStep(startFromStep);
+    setSteps(initialSteps);
+    setCurrentStep(1);
 
-    let content = existingContent || feedbackContent;
-    let date = existingDate || dateStr;
+    let content = "";
+    let date = "";
 
-    // 构建配置对象（只传非空值）
-    const configOverride = {
-      apiModel: apiModel.trim() || undefined,
-      apiKey: apiKey.trim() || undefined,
-      apiUrl: apiUrl.trim() || undefined,
-    };
-
-    // 获取或创建任务
-    let currentTaskKey = taskKey;
-    if (!currentTaskKey) {
-      try {
-        const inputData = JSON.stringify({
-          studentName: studentName.trim(),
-          lessonNumber: lessonNumber.trim(),
-          lastFeedback: lastFeedback.trim(),
-          currentNotes: currentNotes.trim(),
-          transcript: transcript.trim(),
-          isFirstLesson,
-          specialRequirements: specialRequirements.trim(),
-        });
-        
-        const taskResult = await getOrCreateTaskMutation.mutateAsync({
-          studentName: studentName.trim(),
-          inputData,
-        });
-        
-        currentTaskKey = taskResult.taskKey;
-        setTaskKey(currentTaskKey);
-
-        // 如果有未完成的任务，恢复状态
-        if (!taskResult.isNew && taskResult.currentStep > 0) {
-          restoreFromTask(taskResult);
-          content = taskResult.steps.step1?.feedbackContent || content;
-          date = taskResult.dateStr || date;
-          
-          // 从下一个未完成的步骤开始
-          const nextStep = taskResult.currentStep + 1;
-          if (nextStep <= 5) {
-            startFromStep = nextStep;
-            setCurrentStep(nextStep);
-          } else {
-            // 已全部完成
-            setIsComplete(true);
-            setIsGenerating(false);
-            return;
-          }
-        }
-      } catch (error) {
-        console.error("创建任务失败:", error);
-        setHasError(true);
-        setIsGenerating(false);
-        return;
-      }
-    }
-
-    // 执行步骤
-    for (let stepNum = startFromStep; stepNum <= 5; stepNum++) {
-      setCurrentStep(stepNum);
-      
-      const result = await executeStep(stepNum, content, date, configOverride, currentTaskKey!);
-      
-      if (!result.success) {
-        setHasError(true);
-        setIsGenerating(false);
-        return;
-      }
-      
-      content = result.content;
-      date = result.date;
-    }
-
-    setIsComplete(true);
-    setIsGenerating(false);
-  }, [
-    feedbackContent, dateStr, apiModel, apiKey, apiUrl, taskKey,
-    studentName, lessonNumber, lastFeedback, currentNotes, transcript,
-    isFirstLesson, specialRequirements,
-    getOrCreateTaskMutation, executeStep, restoreFromTask
-  ]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!studentName.trim() || !currentNotes.trim() || !transcript.trim()) {
-      return;
-    }
-    
-    // 检查是否有未完成的任务
     try {
-      const inputData = JSON.stringify({
+      // 步骤1: 生成学情反馈
+      updateStep(0, { status: 'running', message: '正在调用AI生成学情反馈...' });
+      const step1Result = await generateFeedbackMutation.mutateAsync({
         studentName: studentName.trim(),
         lessonNumber: lessonNumber.trim(),
+        lessonDate: lessonDate.trim(),
+        nextLessonDate: nextLessonDate.trim(),
         lastFeedback: lastFeedback.trim(),
         currentNotes: currentNotes.trim(),
         transcript: transcript.trim(),
@@ -407,93 +123,103 @@ export default function Home() {
         specialRequirements: specialRequirements.trim(),
       });
       
-      const taskResult = await getOrCreateTaskMutation.mutateAsync({
-        studentName: studentName.trim(),
-        inputData,
+      content = step1Result.feedbackContent;
+      date = step1Result.dateStr;
+      setFeedbackContent(content);
+      setDateStr(date);
+      updateStep(0, { 
+        status: 'success', 
+        message: '生成完成',
+        uploadResult: step1Result.uploadResult
       });
-      
-      setTaskKey(taskResult.taskKey);
-      
-      if (!taskResult.isNew && taskResult.currentStep > 0 && taskResult.status !== 'completed') {
-        // 有未完成的任务
-        setHasPendingTask(true);
-        setPendingTaskInfo({
-          studentName: taskResult.studentName,
-          currentStep: taskResult.currentStep,
-          dateStr: taskResult.dateStr,
-        });
-        restoreFromTask(taskResult);
-        return;
-      }
-      
-      // 没有未完成的任务，直接开始
-      await runGeneration(1);
+      setCurrentStep(2);
+
+      // 步骤2: 生成复习文档
+      updateStep(1, { status: 'running', message: '正在生成复习文档...' });
+      const step2Result = await generateReviewMutation.mutateAsync({
+        studentName: studentName.trim(),
+        dateStr: date,
+        feedbackContent: content,
+      });
+      updateStep(1, { 
+        status: 'success', 
+        message: '生成完成',
+        uploadResult: step2Result.uploadResult
+      });
+      setCurrentStep(3);
+
+      // 步骤3: 生成测试本
+      updateStep(2, { status: 'running', message: '正在生成测试本...' });
+      const step3Result = await generateTestMutation.mutateAsync({
+        studentName: studentName.trim(),
+        dateStr: date,
+        feedbackContent: content,
+      });
+      updateStep(2, { 
+        status: 'success', 
+        message: '生成完成',
+        uploadResult: step3Result.uploadResult
+      });
+      setCurrentStep(4);
+
+      // 步骤4: 生成课后信息提取
+      updateStep(3, { status: 'running', message: '正在生成课后信息提取...' });
+      const step4Result = await generateExtractionMutation.mutateAsync({
+        studentName: studentName.trim(),
+        dateStr: date,
+        nextLessonDate: nextLessonDate.trim(),
+        feedbackContent: content,
+      });
+      updateStep(3, { 
+        status: 'success', 
+        message: '生成完成',
+        uploadResult: step4Result.uploadResult
+      });
+      setCurrentStep(5);
+
+      // 步骤5: 生成气泡图
+      updateStep(4, { status: 'running', message: '正在生成气泡图...' });
+      const step5Result = await generateBubbleChartMutation.mutateAsync({
+        studentName: studentName.trim(),
+        dateStr: date,
+        lessonNumber: lessonNumber.trim(),
+        feedbackContent: content,
+      });
+      updateStep(4, { 
+        status: 'success', 
+        message: '生成完成',
+        uploadResult: step5Result.uploadResult
+      });
+
+      setIsComplete(true);
     } catch (error) {
-      console.error("检查任务失败:", error);
-      // 出错时直接开始新任务
-      await runGeneration(1);
-    }
-  };
-
-  // 继续未完成的任务
-  const handleContinueTask = async () => {
-    setHasPendingTask(false);
-    const nextStep = (pendingTaskInfo?.currentStep || 0) + 1;
-    await runGeneration(nextStep, feedbackContent, dateStr);
-  };
-
-  // 放弃未完成的任务，重新开始
-  const handleRestartTask = async () => {
-    if (taskKey) {
-      try {
-        await deleteTaskMutation.mutateAsync({ taskKey });
-      } catch (e) {
-        console.error("删除任务失败:", e);
+      console.error("生成失败:", error);
+      setHasError(true);
+      // 标记当前步骤为失败
+      const failedStepIndex = currentStep - 1;
+      if (failedStepIndex >= 0 && failedStepIndex < 5) {
+        updateStep(failedStepIndex, { 
+          status: 'error', 
+          error: error instanceof Error ? error.message : '生成失败'
+        });
       }
+    } finally {
+      setIsGenerating(false);
     }
-    setTaskKey(null);
-    setHasPendingTask(false);
-    setPendingTaskInfo(null);
-    setSteps(initialSteps);
-    setFeedbackContent("");
-    setDateStr("");
-    await runGeneration(1);
+  }, [
+    studentName, lessonNumber, lessonDate, nextLessonDate,
+    lastFeedback, currentNotes, transcript, isFirstLesson, specialRequirements,
+    generateFeedbackMutation, generateReviewMutation, generateTestMutation,
+    generateExtractionMutation, generateBubbleChartMutation, updateStep, currentStep
+  ]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!studentName.trim() || !currentNotes.trim() || !transcript.trim()) {
+      return;
+    }
+    await runGeneration();
   };
-
-  // 单步重试函数
-  const retryStep = useCallback(async (stepIndex: number) => {
-    if (isGenerating) return;
-    
-    setIsGenerating(true);
-    
-    const configOverride = {
-      apiModel: apiModel.trim() || undefined,
-      apiKey: apiKey.trim() || undefined,
-      apiUrl: apiUrl.trim() || undefined,
-    };
-
-    const result = await executeStep(
-      stepIndex + 1, 
-      feedbackContent, 
-      dateStr, 
-      configOverride,
-      taskKey!
-    );
-
-    if (result.success) {
-      // 检查是否所有步骤都成功
-      const updatedSteps = steps.map((s, i) => 
-        i === stepIndex ? { ...s, status: 'success' as const } : s
-      );
-      const allSuccess = updatedSteps.every(s => s.status === 'success');
-      if (allSuccess) {
-        setIsComplete(true);
-        setHasError(false);
-      }
-    }
-
-    setIsGenerating(false);
-  }, [isGenerating, feedbackContent, dateStr, apiModel, apiKey, apiUrl, taskKey, steps, executeStep]);
 
   const handleReset = () => {
     setSteps(initialSteps);
@@ -502,9 +228,6 @@ export default function Home() {
     setDateStr("");
     setIsComplete(false);
     setHasError(false);
-    setTaskKey(null);
-    setHasPendingTask(false);
-    setPendingTaskInfo(null);
   };
 
   const isFormValid = studentName.trim() && currentNotes.trim() && transcript.trim();
@@ -521,34 +244,6 @@ export default function Home() {
           <h1 className="text-3xl font-bold text-gray-800 mb-2">托福阅读学情反馈系统</h1>
           <p className="text-gray-600">输入课堂信息，自动生成5个文档并存储到Google Drive</p>
         </div>
-
-        {/* 未完成任务提示 */}
-        {hasPendingTask && pendingTaskInfo && (
-          <Card className="mb-6 border-yellow-300 bg-yellow-50">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-4">
-                <History className="w-8 h-8 text-yellow-600 flex-shrink-0" />
-                <div className="flex-1">
-                  <h3 className="font-semibold text-yellow-800 mb-2">发现未完成的任务</h3>
-                  <p className="text-sm text-yellow-700 mb-3">
-                    学生 <strong>{pendingTaskInfo.studentName}</strong> 的反馈生成已完成 {pendingTaskInfo.currentStep}/5 步
-                    {pendingTaskInfo.dateStr && `（${pendingTaskInfo.dateStr}）`}
-                  </p>
-                  <div className="flex gap-3">
-                    <Button onClick={handleContinueTask} className="bg-yellow-600 hover:bg-yellow-700">
-                      <Play className="w-4 h-4 mr-2" />
-                      继续生成（从第{pendingTaskInfo.currentStep + 1}步开始）
-                    </Button>
-                    <Button variant="outline" onClick={handleRestartTask}>
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      放弃并重新开始
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         <Card className="shadow-xl">
           <CardHeader>
@@ -591,6 +286,30 @@ export default function Home() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="lessonDate">本次课日期</Label>
+                    <Input
+                      id="lessonDate"
+                      placeholder="例如：1月15日"
+                      value={lessonDate}
+                      onChange={(e) => setLessonDate(e.target.value)}
+                      disabled={isGenerating}
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="nextLessonDate">下次课日期</Label>
+                    <Input
+                      id="nextLessonDate"
+                      placeholder="例如：1月22日"
+                      value={nextLessonDate}
+                      onChange={(e) => setNextLessonDate(e.target.value)}
+                      disabled={isGenerating}
+                    />
+                  </div>
+                </div>
+
                 <div className="flex items-center space-x-3 pt-2">
                   <Switch
                     id="isFirstLesson"
@@ -609,7 +328,7 @@ export default function Home() {
                 {/* 上次反馈 / 新生模板 */}
                 <div className="space-y-2">
                   <Label htmlFor="lastFeedback">
-                    {isFirstLesson ? "新生首次课模板（可选）" : "上次课反馈"}
+                    {isFirstLesson ? "新生首次课模板（可选）" : "上次课反馈 *"}
                   </Label>
                   <Textarea
                     id="lastFeedback"
@@ -635,14 +354,14 @@ export default function Home() {
                   <Label htmlFor="currentNotes">本次课笔记 *</Label>
                   <Textarea
                     id="currentNotes"
-                    placeholder="粘贴本次课的笔记内容...（请在笔记开头包含日期信息，AI会自动识别）"
+                    placeholder="粘贴本次课的笔记内容..."
                     value={currentNotes}
                     onChange={(e) => setCurrentNotes(e.target.value)}
                     className="min-h-[200px] font-mono text-sm"
                     disabled={isGenerating}
                   />
                   <p className="text-xs text-gray-500">
-                    包含课堂讲解的知识点、生词、长难句、错题等。请确保笔记中包含日期信息（上次课、本次课、下次课日期）
+                    包含课堂讲解的知识点、生词、长难句、错题等
                   </p>
                 </div>
 
@@ -676,94 +395,11 @@ export default function Home() {
                 />
               </div>
 
-              {/* 高级设置（折叠） */}
-              <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-                <CollapsibleTrigger asChild>
-                  <Button variant="ghost" className="w-full justify-between p-4 bg-gray-50 hover:bg-gray-100">
-                    <span className="flex items-center gap-2">
-                      <Settings className="w-4 h-4" />
-                      高级设置（API配置）
-                    </span>
-                    {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="bg-gray-50 p-4 rounded-b-lg space-y-4 border-t">
-                    <p className="text-sm text-gray-600 mb-4">
-                      修改后点击"保存配置"，下次打开网页会自动使用新配置。留空则使用默认值。
-                    </p>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="apiModel">模型名称</Label>
-                      <Input
-                        id="apiModel"
-                        placeholder="例如：claude-sonnet-4-5-20250929"
-                        value={apiModel}
-                        onChange={(e) => setApiModel(e.target.value)}
-                        disabled={isGenerating}
-                      />
-                      <p className="text-xs text-gray-500">
-                        直接复制API供应商提供的模型名称，不需要做任何修改
-                      </p>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="apiKey">API密钥</Label>
-                      <Input
-                        id="apiKey"
-                        type="password"
-                        placeholder="sk-xxxxxxxx"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        disabled={isGenerating}
-                      />
-                      <p className="text-xs text-gray-500">
-                        留空则使用默认密钥
-                      </p>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="apiUrl">API地址</Label>
-                      <Input
-                        id="apiUrl"
-                        placeholder="例如：https://api.whatai.cc/v1"
-                        value={apiUrl}
-                        onChange={(e) => setApiUrl(e.target.value)}
-                        disabled={isGenerating}
-                      />
-                      <p className="text-xs text-gray-500">
-                        留空则使用默认地址
-                      </p>
-                    </div>
-                    
-                    <Button 
-                      type="button" 
-                      variant="outline" 
-                      onClick={handleSaveConfig}
-                      disabled={savingConfig || isGenerating}
-                      className="w-full"
-                    >
-                      {savingConfig ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          保存中...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="mr-2 h-4 w-4" />
-                          保存配置
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-
               {/* 提交按钮 */}
               <Button 
                 type="submit" 
                 className="w-full h-12 text-lg"
-                disabled={isGenerating || !isFormValid || hasPendingTask}
+                disabled={isGenerating || !isFormValid}
               >
                 {isGenerating ? (
                   <>
@@ -804,7 +440,7 @@ export default function Home() {
                       }`}>
                         {isGenerating ? `正在生成第 ${currentStep} 个文档...` :
                          isComplete ? '✅ 全部完成！' :
-                         '⚠️ 生成过程中出错（已保存进度，可点击重试）'}
+                         '⚠️ 生成过程中出错'}
                       </span>
                     </div>
                     {(isComplete || hasError) && (
@@ -833,14 +469,6 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* 断点续传提示 */}
-                  {hasError && (
-                    <div className="bg-yellow-100 border border-yellow-300 rounded p-3 mb-4 text-sm text-yellow-800">
-                      <strong>💡 进度已保存：</strong>已完成的步骤不会重复执行，点击"重试"只会重新执行失败的步骤。
-                      即使关闭网页，下次打开也可以继续。
-                    </div>
-                  )}
-
                   {/* 步骤列表 */}
                   <div className="space-y-3">
                     {steps.map((step, index) => (
@@ -863,36 +491,21 @@ export default function Home() {
                           )}
                           {step.uploadResult && step.status === 'success' && (
                             <div className="flex items-center gap-2 mt-1">
-                              {step.uploadResult.url ? (
+                              <span className="text-xs text-gray-500">{step.uploadResult.fileName}</span>
+                              {step.uploadResult.url && (
                                 <a 
                                   href={step.uploadResult.url} 
                                   target="_blank" 
                                   rel="noopener noreferrer"
                                   className="text-xs text-blue-600 hover:underline flex items-center gap-1"
                                 >
-                                  <FileText className="w-3 h-3" />
-                                  {step.uploadResult.fileName}
                                   <ExternalLink className="w-3 h-3" />
+                                  查看
                                 </a>
-                              ) : (
-                                <span className="text-xs text-gray-500">{step.uploadResult.fileName}</span>
                               )}
                             </div>
                           )}
                         </div>
-                        {/* 重试按钮 */}
-                        {step.status === 'error' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => retryStep(index)}
-                            disabled={isGenerating}
-                            className="text-xs"
-                          >
-                            <RefreshCw className="w-3 h-3 mr-1" />
-                            重试
-                          </Button>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -919,8 +532,6 @@ export default function Home() {
                 {isGenerating && (
                   <p className="text-xs text-gray-500 text-center">
                     每个文档独立生成，预计每个需要1-2分钟，请耐心等待...
-                    <br />
-                    <span className="text-green-600">✓ 进度自动保存，即使网络中断也不会丢失已完成的步骤</span>
                   </p>
                 )}
               </div>
@@ -932,8 +543,6 @@ export default function Home() {
         <div className="mt-6 text-center text-sm text-gray-500">
           <p>系统会自动生成5个文档：学情反馈、复习文档、测试本、课后信息提取、气泡图</p>
           <p className="mt-1">文档将按照V9路书规范格式化，并自动存储到Google Drive对应文件夹</p>
-          <p className="mt-1">日期信息将从课堂笔记中自动提取，无需手动填写</p>
-          <p className="mt-1 text-green-600">✓ 支持断点续传：网络中断后可从上次进度继续</p>
         </div>
       </div>
     </div>

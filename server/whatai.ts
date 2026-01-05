@@ -4,15 +4,13 @@
  * 默认模型: claude-sonnet-4-5-20250929
  */
 
-// 默认配置（可被覆盖）
-const DEFAULT_API_KEY = process.env.WHATAI_API_KEY || "sk-wOwJ32UuaB0d96sTGVTt4b1LV8oFEETM7PoFbyIj8mZO4fmT";
-const DEFAULT_BASE_URL = "https://api.whatai.cc/v1";
-const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
+const WHATAI_API_KEY = process.env.WHATAI_API_KEY || "sk-wOwJ32UuaB0d96sTGVTt4b1LV8oFEETM7PoFbyIj8mZO4fmT";
+const WHATAI_BASE_URL = "https://api.whatai.cc/v1";
 
 // 模型选择
 export const MODELS = {
   // 默认模型，性价比最高
-  DEFAULT: DEFAULT_MODEL,
+  DEFAULT: "claude-sonnet-4-5-20250929",
   // Sonnet 4.5（带思考），用于需要深度推理的任务
   SONNET_THINKING: "claude-sonnet-4-5-20250929-thinking",
   // 旧版Sonnet，备用
@@ -44,13 +42,6 @@ export interface WhatAIResponse {
     completion_tokens: number;
     total_tokens: number;
   };
-}
-
-// API配置接口
-export interface APIConfig {
-  apiModel?: string;
-  apiKey?: string;
-  apiUrl?: string;
 }
 
 /**
@@ -86,7 +77,6 @@ function delay(ms: number): Promise<void> {
  * 调用神马中转API（带重试机制）
  * @param messages 消息列表
  * @param options 可选参数
- * @param config 自定义API配置（可覆盖默认值）
  */
 export async function invokeWhatAI(
   messages: WhatAIMessage[],
@@ -96,21 +86,15 @@ export async function invokeWhatAI(
     temperature?: number;
     timeout?: number; // 超时时间（毫秒）
     retries?: number; // 重试次数
-  },
-  config?: APIConfig
+  }
 ): Promise<WhatAIResponse> {
-  // 优先使用config中的配置，否则用options中的，最后用默认值
-  const apiKey = config?.apiKey || DEFAULT_API_KEY;
-  const baseUrl = config?.apiUrl || DEFAULT_BASE_URL;
-  const model = config?.apiModel || options?.model || DEFAULT_MODEL;
-  
+  const model = options?.model || MODELS.DEFAULT;
   const max_tokens = options?.max_tokens || 8000;
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
   const maxRetries = options?.retries ?? 2; // 默认重试2次
 
   console.log(`[WhatAI] 调用模型: ${model}`);
-  console.log(`[WhatAI] API地址: ${baseUrl}`);
   console.log(`[WhatAI] 消息数量: ${messages.length}`);
   console.log(`[WhatAI] 超时设置: ${timeout / 1000}秒`);
 
@@ -124,12 +108,12 @@ export async function invokeWhatAI(
     
     try {
       const response = await fetchWithTimeout(
-        `${baseUrl}/chat/completions`,
+        `${WHATAI_BASE_URL}/chat/completions`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
+            "Authorization": `Bearer ${WHATAI_API_KEY}`,
           },
           body: JSON.stringify({
             model,
@@ -184,15 +168,14 @@ export async function invokeWhatAI(
  */
 export async function invokeWhatAISimple(
   messages: WhatAIMessage[],
-  max_tokens?: number,
-  config?: APIConfig
+  max_tokens?: number
 ): Promise<WhatAIResponse> {
   return invokeWhatAI(messages, {
-    model: config?.apiModel || MODELS.HAIKU,
+    model: MODELS.HAIKU,
     max_tokens: max_tokens || 2000,
     timeout: 180000, // 简单任务3分钟超时
     retries: 1,
-  }, config);
+  });
 }
 
 /**
@@ -200,13 +183,12 @@ export async function invokeWhatAISimple(
  */
 export async function invokeWhatAIComplex(
   messages: WhatAIMessage[],
-  max_tokens?: number,
-  config?: APIConfig
+  max_tokens?: number
 ): Promise<WhatAIResponse> {
   return invokeWhatAI(messages, {
-    model: config?.apiModel || MODELS.DEFAULT,
+    model: MODELS.DEFAULT,
     max_tokens: max_tokens || 8000,
     timeout: 600000, // 复杂任务10分钟超时
     retries: 2,
-  }, config);
+  });
 }
