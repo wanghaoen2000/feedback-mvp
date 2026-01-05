@@ -1,0 +1,1 @@
+ALTER TABLE `task_progress` MODIFY COLUMN `inputData` mediumtext NOT NULL;

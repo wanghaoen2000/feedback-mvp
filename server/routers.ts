@@ -19,9 +19,9 @@ import {
 
 // 默认配置值
 const DEFAULT_CONFIG = {
-  apiModel: "deepseek-chat",
-  apiKey: process.env.BUILT_IN_FORGE_API_KEY || "",
-  apiUrl: process.env.BUILT_IN_FORGE_API_URL || "https://api.whatai.cc/v1",
+  apiModel: "claude-sonnet-4-5-20250929",
+  apiKey: process.env.WHATAI_API_KEY || "sk-WyfaRl3qxKk8gpaptVWUfe1ZiJYQg0Vqjd7nscsZMT4l0c9U",
+  apiUrl: "https://www.DMXapi.com/v1",
 };
 
 // 获取配置值（优先从数据库，否则用默认值）
