@@ -455,7 +455,11 @@ async function generateBubbleChartSVGByAI(
 学情反馈内容：
 ${feedback}
 
-请直接输出SVG代码，不要包含任何解释或markdown标记。SVG代码以<svg开头，以</svg>结尾。`;
+请直接输出SVG代码，不要包含任何解释或markdown标记。SVG代码以<svg开头，以</svg>结尾。
+
+【重要边界限制】
+本次只需要生成气泡图SVG代码，不要生成学情反馈、复习文档、测试本或其他任何内容。
+输出</svg>后立即停止，不要继续输出任何内容。`;
 
   try {
     console.log(`[气泡图] 开始流式生成SVG...`);
@@ -524,7 +528,11 @@ ${input.transcript}
 特别注意：
 1. 不要使用任何markdown标记，输出纯文本
 2. 【生词】部分必须达到15-25个，不足15个必须从课堂材料中补齐！
-3. 请从课堂笔记中自动识别日期信息`;
+3. 请从课堂笔记中自动识别日期信息
+
+【重要边界限制】
+本次只需要生成学情反馈文档，不要生成复习文档、测试本、课后信息提取或其他任何内容。
+学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。`;
 
   // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 FEEDBACK_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
@@ -562,7 +570,11 @@ ${feedback}
 请严格按照复习文档格式规范生成复习文档。
 特别注意：
 1. 不要使用markdown标记，输出纯文本
-2. 生词顺序、数量必须和反馈里的【生词】部分完全一致！`;
+2. 生词顺序、数量必须和反馈里的【生词】部分完全一致！
+
+【重要边界限制】
+本次只需要生成复习文档，不要生成学情反馈、测试本、课后信息提取或其他任何内容。
+复习文档完成后立即停止，不要继续输出任何内容。`;
 
   // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 REVIEW_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
@@ -598,7 +610,11 @@ ${feedback}
 特别注意：
 1. 不要使用markdown标记，输出纯文本
 2. 不要使用HTML代码
-3. 答案部分前面用"===== 答案部分 ====="分隔`;
+3. 答案部分前面用"===== 答案部分 ====="分隔
+
+【重要边界限制】
+本次只需要生成测试本，不要生成学情反馈、复习文档、课后信息提取或其他任何内容。
+测试本完成后立即停止，不要继续输出任何内容。`;
 
   // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 TEST_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
@@ -633,7 +649,11 @@ export async function generateExtractionContent(studentName: string, nextLessonD
 学情反馈内容：
 ${feedback}
 
-请严格按照课后信息提取格式规范生成作业管理档案。不要使用markdown标记。`;
+请严格按照课后信息提取格式规范生成作业管理档案。不要使用markdown标记。
+
+【重要边界限制】
+本次只需要生成课后信息提取，不要生成学情反馈、复习文档、测试本或其他任何内容。
+课后信息提取完成后立即停止，不要继续输出任何内容。`;
 
   // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 EXTRACTION_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
