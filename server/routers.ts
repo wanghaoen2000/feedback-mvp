@@ -17,11 +17,11 @@ import {
   FeedbackInput 
 } from "./feedbackGenerator";
 
-// 默认配置值
+// 默认配置值（使用WhatAI中转API）
 const DEFAULT_CONFIG = {
-  apiModel: "deepseek-chat",
-  apiKey: process.env.BUILT_IN_FORGE_API_KEY || "",
-  apiUrl: process.env.BUILT_IN_FORGE_API_URL || "https://api.whatai.cc/v1",
+  apiModel: "claude-sonnet-4-5-20250929",
+  apiKey: "sk-wOwJ32UuaB0d96sTGVTt4b1LV8oFEETM7PoFbyIj8mZO4fmT",
+  apiUrl: "https://api.whatai.cc/v1",
 };
 
 // 获取配置值（优先从数据库，否则用默认值）
@@ -86,16 +86,18 @@ export const appRouter = router({
 
   // 配置管理
   config: router({
-    // 获取所有配置
+    // 获取所有配置（返回空字符串表示使用默认值）
     getAll: publicProcedure.query(async () => {
       const apiModel = await getConfig("apiModel");
       const apiKey = await getConfig("apiKey");
       const apiUrl = await getConfig("apiUrl");
       
+      // 如果数据库没有配置，返回空字符串，让前端显示空白
+      // 实际调用API时会使用DEFAULT_CONFIG
       return {
-        apiModel: apiModel || DEFAULT_CONFIG.apiModel,
-        apiKey: apiKey || DEFAULT_CONFIG.apiKey,
-        apiUrl: apiUrl || DEFAULT_CONFIG.apiUrl,
+        apiModel: apiModel || "",
+        apiKey: apiKey || "",
+        apiUrl: apiUrl || "",
         // 返回是否使用默认值
         isDefault: {
           apiModel: !apiModel,
