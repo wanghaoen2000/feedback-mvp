@@ -1,7 +1,7 @@
 /**
  * 神马中转API调用模块
  * Base URL: https://api.whatai.cc/v1
- * 默认模型: claude-opus-4-5-20251101-thinking
+ * 默认模型: claude-sonnet-4-5-20250929
  */
 
 const WHATAI_API_KEY = process.env.WHATAI_API_KEY || "sk-wOwJ32UuaB0d96sTGVTt4b1LV8oFEETM7PoFbyIj8mZO4fmT";
@@ -9,10 +9,12 @@ const WHATAI_BASE_URL = "https://api.whatai.cc/v1";
 
 // 模型选择
 export const MODELS = {
-  // 最强模型，用于复杂任务
-  OPUS: "claude-opus-4-5-20251101-thinking",
-  // 平衡模型，速度与智能平衡
-  SONNET: "claude-3-5-sonnet-20240620",
+  // 默认模型，性价比最高
+  DEFAULT: "claude-sonnet-4-5-20250929",
+  // Sonnet 4.5（带思考），用于需要深度推理的任务
+  SONNET_THINKING: "claude-sonnet-4-5-20250929-thinking",
+  // 旧版Sonnet，备用
+  SONNET_OLD: "claude-3-5-sonnet-20240620",
   // 最快最省模型
   HAIKU: "claude-3-haiku-20240307",
 };
@@ -86,7 +88,7 @@ export async function invokeWhatAI(
     retries?: number; // 重试次数
   }
 ): Promise<WhatAIResponse> {
-  const model = options?.model || MODELS.OPUS;
+  const model = options?.model || MODELS.DEFAULT;
   const max_tokens = options?.max_tokens || 8000;
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 180000; // 默认3分钟
@@ -177,14 +179,14 @@ export async function invokeWhatAISimple(
 }
 
 /**
- * 复杂任务调用（使用Opus模型）
+ * 复杂任务调用（使用默认Sonnet模型）
  */
 export async function invokeWhatAIComplex(
   messages: WhatAIMessage[],
   max_tokens?: number
 ): Promise<WhatAIResponse> {
   return invokeWhatAI(messages, {
-    model: MODELS.OPUS,
+    model: MODELS.DEFAULT,
     max_tokens: max_tokens || 8000,
     timeout: 300000, // 复杂任务5分钟超时
     retries: 2,

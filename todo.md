@@ -48,3 +48,6 @@
 
 ## Bug修复（V6）
 - [x] 诊断并修复API fetch failed错误（添加超时设置和重试机制）
+
+## 模型切换（V7）
+- [x] 将默认模型从Opus切换到claude-sonnet-4-5-20250929

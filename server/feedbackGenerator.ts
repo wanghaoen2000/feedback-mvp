@@ -337,7 +337,7 @@ ${input.transcript}
   const response = await invokeWhatAI([
     { role: "system", content: FEEDBACK_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { model: MODELS.OPUS, max_tokens: 8000 });
+  ], { model: MODELS.DEFAULT, max_tokens: 8000 });
 
   return response.choices[0]?.message?.content || "";
 }
@@ -356,7 +356,7 @@ ${feedback}
   const response = await invokeWhatAI([
     { role: "system", content: REVIEW_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { model: MODELS.OPUS, max_tokens: 8000 });
+  ], { model: MODELS.DEFAULT, max_tokens: 8000 });
 
   return response.choices[0]?.message?.content || "";
 }
@@ -373,7 +373,7 @@ ${reviewContent}
   const response = await invokeWhatAI([
     { role: "system", content: TEST_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { model: MODELS.OPUS, max_tokens: 6000 });
+  ], { model: MODELS.DEFAULT, max_tokens: 6000 });
 
   return response.choices[0]?.message?.content || "";
 }
@@ -393,7 +393,7 @@ ${feedback}
   const response = await invokeWhatAI([
     { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { model: MODELS.SONNET, max_tokens: 2000 });
+  ], { model: MODELS.DEFAULT, max_tokens: 2000 });
 
   return response.choices[0]?.message?.content || "";
 }
@@ -410,7 +410,7 @@ ${feedback}
   const response = await invokeWhatAI([
     { role: "system", content: BUBBLE_CHART_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { model: MODELS.SONNET, max_tokens: 1000 });
+  ], { model: MODELS.DEFAULT, max_tokens: 1000 });
 
   try {
     const content = response.choices[0]?.message?.content || "[]";
