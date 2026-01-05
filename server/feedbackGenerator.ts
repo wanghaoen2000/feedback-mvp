@@ -619,9 +619,7 @@ async function svgToPng(svgString: string): Promise<Buffer> {
  * 步骤1: 生成学情反馈文档
  */
 export async function generateFeedbackContent(input: FeedbackInput, config?: APIConfig): Promise<string> {
-  // 先压缩录音转文字（如果超过阈值）
-  const compressedTranscript = await compressTranscript(input.transcript, config);
-  
+  // 直接使用录音原文，不再压缩
   const prompt = `## 学生信息
 - 学生姓名：${input.studentName}
 - 课次：${input.lessonNumber || "未指定"}
@@ -637,7 +635,7 @@ ${input.isFirstLesson ? "（新生首次课，无上次反馈）" : (input.lastF
 ${input.currentNotes}
 
 ## 录音转文字
-${compressedTranscript}
+${input.transcript}
 
 请严格按照V9路书规范生成完整的学情反馈文档。
 特别注意：
