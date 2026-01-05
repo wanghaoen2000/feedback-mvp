@@ -431,177 +431,60 @@ async function textToDocx(text: string, title: string): Promise<Buffer> {
 }
 
 /**
- * 从反馈中提取问题和解决方案（使用AI和自定义路书）
+ * 让AI直接按V9路书生成气泡图SVG代码
  */
-async function extractProblemsAndSolutions(feedback: string, config?: APIConfig): Promise<Array<{problem: [string, string], solution: [string, string]}>> {
-  // 使用AI提取问题和方案
-  const defaultPrompt = `你是一个气泡图内容提取助手。从学情反馈中提取问题和解决方案。
-
-【提取规则】
-1. 从「随堂测试」「作业批改」「表现及建议」中提取问题和方案
-2. 提取3-6个问题，太多会罗列不下
-3. 方案必须是反馈里写过的，不能自己编
-4. 每个框里放两行字：主标题 + 副标题
-
-【输出格式】
-请输出严格的JSON数组，每个元素包含：
-- problem: ["主标题", "副标题"]
-- solution: ["主标题", "副标题"]
-
-示例：
-[
-  {"problem": ["历史类文章", "生词障碍严重"], "solution": ["猜词练习针对", "历史/天文/艺术薄弱题材"]},
-  {"problem": ["选非题", "未看全句子"], "solution": ["读到快记不住", "就去核对选项看全句子含义"]}
-]
-
-注意：主标题最多10个字，副标题最多15个字。只输出JSON，不要其他内容。`;
-
-  // 如果有自定义路书，直接使用路书原文；否则使用默认提示词
-  const systemPrompt = config?.roadmap && config.roadmap.trim()
-    ? config.roadmap
-    : defaultPrompt;
-
-  try {
-    // 使用流式输出防止超时
-    console.log(`[气泡图] 开始流式提取问题和方案...`);
-    const content = await invokeWhatAIStream([
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `请从以下学情反馈中提取问题和解决方案：\n\n${feedback}` },
-    ], { max_tokens: 2000 }, config, (c) => process.stdout.write('.'));
-    console.log(`\n[气泡图] 提取完成`);
-    // 提取JSON数组
-    const jsonMatch = content.match(/\[([\s\S]*?)\]/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(`[${jsonMatch[1]}]`);
-      return parsed.map((item: any) => ({
-        problem: [item.problem?.[0] || "", item.problem?.[1] || ""],
-        solution: [item.solution?.[0] || "", item.solution?.[1] || ""],
-      }));
-    }
-  } catch (error) {
-    console.error("提取问题和方案失败，使用备用方案:", error);
-  }
-
-  // 备用方案：简单的文本提取
-  const suggestionsMatch = feedback.match(/【表现及建议】([\s\S]*?)(?=【|$)/);
-  if (!suggestionsMatch) {
-    return [];
-  }
-  
-  const suggestions = suggestionsMatch[1];
-  const results: Array<{problem: [string, string], solution: [string, string]}> = [];
-  
-  const paragraphs = suggestions.split(/\n\n+/).filter(p => p.trim());
-  
-  for (const para of paragraphs.slice(0, 4)) {
-    const lines = para.trim().split('\n').filter(l => l.trim());
-    if (lines.length >= 2) {
-      const problemText = lines[0].replace(/^[\d.、]+/, '').trim();
-      const solutionText = lines.slice(1).join(' ').replace(/^[\d.、]+/, '').trim();
-      
-      if (problemText && solutionText) {
-        results.push({
-          problem: [problemText.slice(0, 10), problemText.slice(10, 25) || ''],
-          solution: [solutionText.slice(0, 10), solutionText.slice(10, 25) || ''],
-        });
-      }
-    }
-  }
-  
-  return results;
-}
-
-/**
- * 生成气泡图SVG
- */
-function generateBubbleChartSVG(
+async function generateBubbleChartSVGByAI(
+  feedback: string,
   studentName: string,
   dateStr: string,
   lessonNumber: string,
-  problemsAndSolutions: Array<{problem: [string, string], solution: [string, string]}>
-): string {
-  const width = 1200;
-  const height = 800;
-  const centerX = width / 2;
-  const centerY = height / 2;
-  
-  // 颜色方案
-  const colors = {
-    problem: ['#FF6B6B', '#FF8E8E', '#FFB4B4', '#FFD4D4'],
-    solution: ['#4ECDC4', '#6ED9D1', '#8EE5DE', '#AEF1EB'],
-    center: '#FFE66D',
-    text: '#2C3E50',
-    line: '#95A5A6',
-  };
-  
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
-    <defs>
-      <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-        <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.3"/>
-      </filter>
-    </defs>
-    <rect width="${width}" height="${height}" fill="#F8F9FA"/>
+  config?: APIConfig
+): Promise<string> {
+  // 如果有自定义路书，直接使用路书原文；否则使用默认提示词
+  const systemPrompt = config?.roadmap && config.roadmap.trim()
+    ? config.roadmap
+    : `你是一个气泡图生成助手。请根据学情反馈生成气泡图SVG代码。`;
+
+  const userPrompt = `请根据以下学情反馈生成气泡图SVG代码。
+
+学生信息：
+- 姓名：${studentName}
+- 日期：${dateStr}
+- 课次：${lessonNumber || '未指定'}
+
+学情反馈内容：
+${feedback}
+
+请直接输出SVG代码，不要包含任何解释或markdown标记。SVG代码以<svg开头，以</svg>结尾。`;
+
+  try {
+    console.log(`[气泡图] 开始流式生成SVG...`);
+    const content = await invokeWhatAIStream([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ], { max_tokens: 8000 }, config, (c) => process.stdout.write('.'));
+    console.log(`\n[气泡图] SVG生成完成`);
     
-    <!-- 标题 -->
-    <text x="${centerX}" y="50" text-anchor="middle" font-size="28" font-weight="bold" fill="${colors.text}">
-      ${studentName} ${lessonNumber ? lessonNumber + ' ' : ''}${dateStr} 问题-方案对应图
-    </text>
+    // 提取SVG代码
+    const svgMatch = content.match(/<svg[\s\S]*?<\/svg>/);
+    if (svgMatch) {
+      return svgMatch[0];
+    }
     
-    <!-- 中心圆 -->
-    <circle cx="${centerX}" cy="${centerY}" r="80" fill="${colors.center}" filter="url(#shadow)"/>
-    <text x="${centerX}" y="${centerY - 10}" text-anchor="middle" font-size="20" font-weight="bold" fill="${colors.text}">本次课</text>
-    <text x="${centerX}" y="${centerY + 15}" text-anchor="middle" font-size="16" fill="${colors.text}">核心问题</text>
-  `;
-  
-  // 计算问题和解决方案的位置
-  const problemCount = problemsAndSolutions.length;
-  const angleStep = (2 * Math.PI) / problemCount;
-  const problemRadius = 200;
-  const solutionRadius = 350;
-  
-  problemsAndSolutions.forEach((item, index) => {
-    const angle = -Math.PI / 2 + index * angleStep; // 从顶部开始
+    // 如果没有找到SVG标签，尝试返回整个内容（可能已经是纯SVG）
+    if (content.trim().startsWith('<svg')) {
+      return content.trim();
+    }
     
-    // 问题气泡位置
-    const px = centerX + problemRadius * Math.cos(angle);
-    const py = centerY + problemRadius * Math.sin(angle);
-    
-    // 解决方案气泡位置
-    const sx = centerX + solutionRadius * Math.cos(angle);
-    const sy = centerY + solutionRadius * Math.sin(angle);
-    
-    // 连接线
-    svg += `
-      <line x1="${centerX}" y1="${centerY}" x2="${px}" y2="${py}" stroke="${colors.line}" stroke-width="2" stroke-dasharray="5,5"/>
-      <line x1="${px}" y1="${py}" x2="${sx}" y2="${sy}" stroke="${colors.line}" stroke-width="2"/>
-    `;
-    
-    // 问题气泡
-    svg += `
-      <ellipse cx="${px}" cy="${py}" rx="90" ry="50" fill="${colors.problem[index % 4]}" filter="url(#shadow)"/>
-      <text x="${px}" y="${py - 8}" text-anchor="middle" font-size="14" fill="${colors.text}">${item.problem[0]}</text>
-      <text x="${px}" y="${py + 12}" text-anchor="middle" font-size="12" fill="${colors.text}">${item.problem[1]}</text>
-    `;
-    
-    // 解决方案气泡
-    svg += `
-      <ellipse cx="${sx}" cy="${sy}" rx="100" ry="55" fill="${colors.solution[index % 4]}" filter="url(#shadow)"/>
-      <text x="${sx}" y="${sy - 8}" text-anchor="middle" font-size="14" fill="${colors.text}">${item.solution[0]}</text>
-      <text x="${sx}" y="${sy + 12}" text-anchor="middle" font-size="12" fill="${colors.text}">${item.solution[1]}</text>
-    `;
-  });
-  
-  // 图例
-  svg += `
-    <rect x="50" y="${height - 80}" width="20" height="20" fill="${colors.problem[0]}" rx="5"/>
-    <text x="80" y="${height - 65}" font-size="14" fill="${colors.text}">问题</text>
-    
-    <rect x="150" y="${height - 80}" width="20" height="20" fill="${colors.solution[0]}" rx="5"/>
-    <text x="180" y="${height - 65}" font-size="14" fill="${colors.text}">解决方案</text>
-  `;
-  
-  svg += '</svg>';
-  return svg;
+    throw new Error('未找到有效的SVG代码');
+  } catch (error) {
+    console.error('[气泡图] AI生成失败，使用备用方案:', error);
+    // 备用方案：生成一个简单的占位图
+    return `<svg viewBox="0 0 900 700" xmlns="http://www.w3.org/2000/svg">
+      <rect width="900" height="700" fill="#F8F9FA"/>
+      <text x="450" y="350" text-anchor="middle" font-size="24" fill="#666">气泡图生成失败，请重试</text>
+    </svg>`;
+  }
 }
 
 /**
@@ -785,15 +668,13 @@ export async function generateBubbleChart(
   lessonNumber: string,
   config?: APIConfig
 ): Promise<Buffer> {
-  // 传递config给extractProblemsAndSolutions，以便使用自定义路书
-  const problemsAndSolutions = await extractProblemsAndSolutions(feedback, config);
-  const bubbleChartSVG = generateBubbleChartSVG(
+  // 让AI直接按V9路书生成SVG
+  const bubbleChartSVG = await generateBubbleChartSVGByAI(
+    feedback,
     studentName,
     dateStr,
     lessonNumber,
-    problemsAndSolutions.length > 0 ? problemsAndSolutions : [
-      { problem: ["暂无问题", ""], solution: ["继续保持", ""] }
-    ]
+    config
   );
   return await svgToPng(bubbleChartSVG);
 }
