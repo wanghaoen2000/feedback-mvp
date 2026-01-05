@@ -1,10 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { trpc } from "@/lib/trpc";
 import { 
   Loader2, 
@@ -15,7 +16,11 @@ import {
   Circle,
   XCircle,
   ExternalLink,
-  RefreshCw
+  RefreshCw,
+  Settings,
+  ChevronDown,
+  ChevronRight,
+  Save
 } from "lucide-react";
 
 // 步骤状态类型
@@ -62,8 +67,6 @@ export default function Home() {
   // 基本信息
   const [studentName, setStudentName] = useState("");
   const [lessonNumber, setLessonNumber] = useState("");
-  const [lessonDate, setLessonDate] = useState("");
-  const [nextLessonDate, setNextLessonDate] = useState("");
   
   // 三段文本
   const [lastFeedback, setLastFeedback] = useState("");
@@ -74,6 +77,14 @@ export default function Home() {
   const [isFirstLesson, setIsFirstLesson] = useState(false);
   const [specialRequirements, setSpecialRequirements] = useState("");
 
+  // 高级设置
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [apiModel, setApiModel] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [apiUrl, setApiUrl] = useState("");
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+
   // 生成状态
   const [isGenerating, setIsGenerating] = useState(false);
   const [steps, setSteps] = useState<StepStatus[]>(initialSteps);
@@ -83,12 +94,44 @@ export default function Home() {
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
 
-  // tRPC mutations
+  // tRPC queries and mutations
+  const configQuery = trpc.config.getAll.useQuery();
+  const updateConfigMutation = trpc.config.update.useMutation();
+  
   const generateFeedbackMutation = trpc.feedback.generateFeedback.useMutation();
   const generateReviewMutation = trpc.feedback.generateReview.useMutation();
   const generateTestMutation = trpc.feedback.generateTest.useMutation();
   const generateExtractionMutation = trpc.feedback.generateExtraction.useMutation();
   const generateBubbleChartMutation = trpc.feedback.generateBubbleChart.useMutation();
+
+  // 加载配置
+  useEffect(() => {
+    if (configQuery.data && !configLoaded) {
+      setApiModel(configQuery.data.apiModel);
+      setApiKey(configQuery.data.apiKey);
+      setApiUrl(configQuery.data.apiUrl);
+      setConfigLoaded(true);
+    }
+  }, [configQuery.data, configLoaded]);
+
+  // 保存配置
+  const handleSaveConfig = async () => {
+    setSavingConfig(true);
+    try {
+      await updateConfigMutation.mutateAsync({
+        apiModel: apiModel.trim() || undefined,
+        apiKey: apiKey.trim() || undefined,
+        apiUrl: apiUrl.trim() || undefined,
+      });
+      // 刷新配置
+      await configQuery.refetch();
+      alert("配置已保存！");
+    } catch (error) {
+      alert("保存失败：" + (error instanceof Error ? error.message : "未知错误"));
+    } finally {
+      setSavingConfig(false);
+    }
+  };
 
   // 更新步骤状态
   const updateStep = useCallback((stepIndex: number, updates: Partial<StepStatus>) => {
@@ -108,19 +151,25 @@ export default function Home() {
     let content = "";
     let date = "";
 
+    // 构建配置对象（只传非空值）
+    const configOverride = {
+      apiModel: apiModel.trim() || undefined,
+      apiKey: apiKey.trim() || undefined,
+      apiUrl: apiUrl.trim() || undefined,
+    };
+
     try {
       // 步骤1: 生成学情反馈
       updateStep(0, { status: 'running', message: '正在调用AI生成学情反馈...' });
       const step1Result = await generateFeedbackMutation.mutateAsync({
         studentName: studentName.trim(),
         lessonNumber: lessonNumber.trim(),
-        lessonDate: lessonDate.trim(),
-        nextLessonDate: nextLessonDate.trim(),
         lastFeedback: lastFeedback.trim(),
         currentNotes: currentNotes.trim(),
         transcript: transcript.trim(),
         isFirstLesson,
         specialRequirements: specialRequirements.trim(),
+        ...configOverride,
       });
       
       content = step1Result.feedbackContent;
@@ -140,6 +189,7 @@ export default function Home() {
         studentName: studentName.trim(),
         dateStr: date,
         feedbackContent: content,
+        ...configOverride,
       });
       updateStep(1, { 
         status: 'success', 
@@ -154,6 +204,7 @@ export default function Home() {
         studentName: studentName.trim(),
         dateStr: date,
         feedbackContent: content,
+        ...configOverride,
       });
       updateStep(2, { 
         status: 'success', 
@@ -167,8 +218,8 @@ export default function Home() {
       const step4Result = await generateExtractionMutation.mutateAsync({
         studentName: studentName.trim(),
         dateStr: date,
-        nextLessonDate: nextLessonDate.trim(),
         feedbackContent: content,
+        ...configOverride,
       });
       updateStep(3, { 
         status: 'success', 
@@ -184,6 +235,7 @@ export default function Home() {
         dateStr: date,
         lessonNumber: lessonNumber.trim(),
         feedbackContent: content,
+        ...configOverride,
       });
       updateStep(4, { 
         status: 'success', 
@@ -207,8 +259,8 @@ export default function Home() {
       setIsGenerating(false);
     }
   }, [
-    studentName, lessonNumber, lessonDate, nextLessonDate,
-    lastFeedback, currentNotes, transcript, isFirstLesson, specialRequirements,
+    studentName, lessonNumber, lastFeedback, currentNotes, transcript, 
+    isFirstLesson, specialRequirements, apiModel, apiKey, apiUrl,
     generateFeedbackMutation, generateReviewMutation, generateTestMutation,
     generateExtractionMutation, generateBubbleChartMutation, updateStep, currentStep
   ]);
@@ -286,30 +338,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="lessonDate">本次课日期</Label>
-                    <Input
-                      id="lessonDate"
-                      placeholder="例如：1月15日"
-                      value={lessonDate}
-                      onChange={(e) => setLessonDate(e.target.value)}
-                      disabled={isGenerating}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="nextLessonDate">下次课日期</Label>
-                    <Input
-                      id="nextLessonDate"
-                      placeholder="例如：1月22日"
-                      value={nextLessonDate}
-                      onChange={(e) => setNextLessonDate(e.target.value)}
-                      disabled={isGenerating}
-                    />
-                  </div>
-                </div>
-
                 <div className="flex items-center space-x-3 pt-2">
                   <Switch
                     id="isFirstLesson"
@@ -328,7 +356,7 @@ export default function Home() {
                 {/* 上次反馈 / 新生模板 */}
                 <div className="space-y-2">
                   <Label htmlFor="lastFeedback">
-                    {isFirstLesson ? "新生首次课模板（可选）" : "上次课反馈 *"}
+                    {isFirstLesson ? "新生首次课模板（可选）" : "上次课反馈"}
                   </Label>
                   <Textarea
                     id="lastFeedback"
@@ -354,14 +382,14 @@ export default function Home() {
                   <Label htmlFor="currentNotes">本次课笔记 *</Label>
                   <Textarea
                     id="currentNotes"
-                    placeholder="粘贴本次课的笔记内容..."
+                    placeholder="粘贴本次课的笔记内容...（请在笔记开头包含日期信息，AI会自动识别）"
                     value={currentNotes}
                     onChange={(e) => setCurrentNotes(e.target.value)}
                     className="min-h-[200px] font-mono text-sm"
                     disabled={isGenerating}
                   />
                   <p className="text-xs text-gray-500">
-                    包含课堂讲解的知识点、生词、长难句、错题等
+                    包含课堂讲解的知识点、生词、长难句、错题等。请确保笔记中包含日期信息（上次课、本次课、下次课日期）
                   </p>
                 </div>
 
@@ -394,6 +422,89 @@ export default function Home() {
                   disabled={isGenerating}
                 />
               </div>
+
+              {/* 高级设置（折叠） */}
+              <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-between p-4 bg-gray-50 hover:bg-gray-100">
+                    <span className="flex items-center gap-2">
+                      <Settings className="w-4 h-4" />
+                      高级设置（API配置）
+                    </span>
+                    {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="bg-gray-50 p-4 rounded-b-lg space-y-4 border-t">
+                    <p className="text-sm text-gray-600 mb-4">
+                      修改后点击"保存配置"，下次打开网页会自动使用新配置。留空则使用默认值。
+                    </p>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="apiModel">模型名称</Label>
+                      <Input
+                        id="apiModel"
+                        placeholder="例如：claude-sonnet-4-5-20250929"
+                        value={apiModel}
+                        onChange={(e) => setApiModel(e.target.value)}
+                        disabled={isGenerating}
+                      />
+                      <p className="text-xs text-gray-500">
+                        直接复制API供应商提供的模型名称，不需要做任何修改
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="apiKey">API密钥</Label>
+                      <Input
+                        id="apiKey"
+                        type="password"
+                        placeholder="sk-xxxxxxxx"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        disabled={isGenerating}
+                      />
+                      <p className="text-xs text-gray-500">
+                        留空则使用默认密钥
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="apiUrl">API地址</Label>
+                      <Input
+                        id="apiUrl"
+                        placeholder="例如：https://api.whatai.cc/v1"
+                        value={apiUrl}
+                        onChange={(e) => setApiUrl(e.target.value)}
+                        disabled={isGenerating}
+                      />
+                      <p className="text-xs text-gray-500">
+                        留空则使用默认地址
+                      </p>
+                    </div>
+                    
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={handleSaveConfig}
+                      disabled={savingConfig || isGenerating}
+                      className="w-full"
+                    >
+                      {savingConfig ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          保存中...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="mr-2 h-4 w-4" />
+                          保存配置
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
 
               {/* 提交按钮 */}
               <Button 
@@ -543,6 +654,7 @@ export default function Home() {
         <div className="mt-6 text-center text-sm text-gray-500">
           <p>系统会自动生成5个文档：学情反馈、复习文档、测试本、课后信息提取、气泡图</p>
           <p className="mt-1">文档将按照V9路书规范格式化，并自动存储到Google Drive对应文件夹</p>
+          <p className="mt-1">日期信息将从课堂笔记中自动提取，无需手动填写</p>
         </div>
       </div>
     </div>
