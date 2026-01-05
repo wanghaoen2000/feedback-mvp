@@ -508,9 +508,9 @@ async function extractProblemsAndSolutions(feedback: string, config?: APIConfig)
 
 注意：主标题最多10个字，副标题最多15个字。只输出JSON，不要其他内容。`;
 
-  // 如果有自定义路书，添加路书内容
+  // 如果有自定义路书，直接使用路书原文；否则使用默认提示词
   const systemPrompt = config?.roadmap && config.roadmap.trim()
-    ? `${defaultPrompt}\n\n=== 用户自定义路书内容（气泡图部分） ===\n${config.roadmap}\n=== 路书内容结束 ===`
+    ? config.roadmap
     : defaultPrompt;
 
   try {
@@ -696,23 +696,9 @@ ${compressedTranscript}
 2. 【生词】部分必须达到15-25个，不足15个必须从课堂材料中补齐！
 3. 请从课堂笔记中自动识别日期信息`;
 
-  // 如果配置中有自定义路书，使用自定义路书；否则使用默认的 FEEDBACK_SYSTEM_PROMPT
+  // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 FEEDBACK_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
-    ? `你是新东方托福阅读教师的反馈助手。请严格按照以下V9路书规范生成学情反馈。
-
-【重要格式要求】
-这份反馈是给家长看的，要能直接复制到微信群，所以：
-1. 不要使用任何markdown标记（不要用#、**、*、\`\`\`等）
-2. 不要用表格格式
-3. 不要用自动编号（手打1. 2. 3.）
-4. 不要用首行缩进
-5. 可以用中括号【】来标记章节
-6. 可以用空行分隔段落
-7. 直接输出纯文本
-
-=== 用户自定义路书内容 ===
-${config.roadmap}
-=== 路书内容结束 ===`
+    ? config.roadmap
     : FEEDBACK_SYSTEM_PROMPT;
 
   // 使用流式输出防止超时
@@ -748,19 +734,9 @@ ${feedback}
 1. 不要使用markdown标记，输出纯文本
 2. 生词顺序、数量必须和反馈里的【生词】部分完全一致！`;
 
-  // 如果配置中有自定义路书，使用自定义路书；否则使用默认的 REVIEW_SYSTEM_PROMPT
+  // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 REVIEW_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
-    ? `你是一个复习文档生成助手。根据学情反馈生成复习文档。
-
-【重要格式要求】
-1. 不要使用任何markdown标记
-2. 不要使用HTML代码
-3. 输出纯文本格式
-4. 生词顺序和数量必须与学情反馈中的【生词】部分完全一致！
-
-=== 用户自定义路书内容（复习文档部分） ===
-${config.roadmap}
-=== 路书内容结束 ===`
+    ? config.roadmap
     : REVIEW_SYSTEM_PROMPT;
 
   // 使用流式输出防止超时
@@ -794,20 +770,9 @@ ${feedback}
 2. 不要使用HTML代码
 3. 答案部分前面用"===== 答案部分 ====="分隔`;
 
-  // 如果配置中有自定义路书，使用自定义路书；否则使用默认的 TEST_SYSTEM_PROMPT
+  // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 TEST_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
-    ? `你是一个测试本生成助手。根据学情反馈生成测试本。
-
-【重要格式要求】
-1. 不要使用任何markdown标记
-2. 不要使用HTML代码
-3. 输出纯文本格式
-4. 测试内容必须与学情反馈中的生词、长难句、错题一一对应！
-5. 答案部分前面用"===== 答案部分 ====="分隔
-
-=== 用户自定义路书内容（测试本部分） ===
-${config.roadmap}
-=== 路书内容结束 ===`
+    ? config.roadmap
     : TEST_SYSTEM_PROMPT;
 
   // 使用流式输出防止超时
@@ -840,19 +805,9 @@ ${feedback}
 
 请严格按照课后信息提取格式规范生成作业管理档案。不要使用markdown标记。`;
 
-  // 如果配置中有自定义路书，使用自定义路书；否则使用默认的 EXTRACTION_SYSTEM_PROMPT
+  // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 EXTRACTION_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
-    ? `你是一个课后信息提取助手。根据学情反馈生成作业管理档案。
-
-【重要格式要求】
-1. 不要使用任何markdown标记
-2. 不要使用HTML代码
-3. 输出纯文本格式
-4. 这是给助教用的作业管理档案
-
-=== 用户自定义路书内容（课后信息提取部分） ===
-${config.roadmap}
-=== 路书内容结束 ===`
+    ? config.roadmap
     : EXTRACTION_SYSTEM_PROMPT;
 
   // 使用流式输出防止超时
