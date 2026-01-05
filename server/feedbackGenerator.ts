@@ -550,8 +550,27 @@ ${input.transcript}
 2. 【生词】部分必须达到15-25个，不足15个必须从课堂材料中补齐！
 3. 请从课堂笔记中自动识别日期信息`;
 
+  // 如果配置中有自定义路书，使用自定义路书；否则使用默认的 FEEDBACK_SYSTEM_PROMPT
+  const systemPrompt = config?.roadmap && config.roadmap.trim() 
+    ? `你是新东方托福阅读教师的反馈助手。请严格按照以下V9路书规范生成学情反馈。
+
+【重要格式要求】
+这份反馈是给家长看的，要能直接复制到微信群，所以：
+1. 不要使用任何markdown标记（不要用#、**、*、\`\`\`等）
+2. 不要用表格格式
+3. 不要用自动编号（手打1. 2. 3.）
+4. 不要用首行缩进
+5. 可以用中括号【】来标记章节
+6. 可以用空行分隔段落
+7. 直接输出纯文本
+
+=== 用户自定义路书内容 ===
+${config.roadmap}
+=== 路书内容结束 ===`
+    : FEEDBACK_SYSTEM_PROMPT;
+
   const response = await invokeWhatAI([
-    { role: "system", content: FEEDBACK_SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
     { role: "user", content: prompt },
   ], { max_tokens: 16000 }, config);
 

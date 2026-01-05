@@ -51,6 +51,7 @@ export interface APIConfig {
   apiModel?: string;
   apiKey?: string;
   apiUrl?: string;
+  roadmap?: string; // V9路书内容（可选）
 }
 
 /**

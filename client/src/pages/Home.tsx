@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,7 +20,8 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
-  Save
+  Save,
+  Square
 } from "lucide-react";
 
 // 步骤状态类型
@@ -96,6 +97,8 @@ export default function Home() {
   const [dateStr, setDateStr] = useState("");
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [isStopping, setIsStopping] = useState(false); // 是否正在停止
+  const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
 
   // tRPC queries and mutations
   const configQuery = trpc.config.getAll.useQuery();
@@ -147,16 +150,36 @@ export default function Home() {
     ));
   }, []);
 
+  // 停止生成函数
+  const handleStop = useCallback(() => {
+    setIsStopping(true);
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  }, []);
+
+  // 检查是否已停止
+  const checkStopped = useCallback(() => {
+    if (isStopping) {
+      throw new Error('用户已取消生成');
+    }
+  }, [isStopping]);
+
   // 执行生成流程
   const runGeneration = useCallback(async () => {
+    // 创建新的 AbortController
+    abortControllerRef.current = new AbortController();
+    
     setIsGenerating(true);
     setIsComplete(false);
     setHasError(false);
+    setIsStopping(false);
     setSteps(initialSteps);
     setCurrentStep(1);
 
     let content = "";
     let date = "";
+    let stopped = false;
 
     // 构建配置对象（只传非空值）
     const configOverride = {
@@ -167,8 +190,17 @@ export default function Home() {
       currentYear: currentYear.trim() || undefined,
     };
 
+    // 检查是否已停止的辅助函数
+    const checkAborted = () => {
+      if (abortControllerRef.current?.signal.aborted) {
+        stopped = true;
+        throw new Error('用户已取消生成');
+      }
+    };
+
     try {
       // 步骤1: 生成学情反馈
+      checkAborted();
       updateStep(0, { status: 'running', message: '正在调用AI生成学情反馈...' });
       const step1Result = await generateFeedbackMutation.mutateAsync({
         studentName: studentName.trim(),
@@ -193,6 +225,7 @@ export default function Home() {
       setCurrentStep(2);
 
       // 步骤2: 生成复习文档
+      checkAborted();
       updateStep(1, { status: 'running', message: '正在生成复习文档...' });
       const step2Result = await generateReviewMutation.mutateAsync({
         studentName: studentName.trim(),
@@ -208,6 +241,7 @@ export default function Home() {
       setCurrentStep(3);
 
       // 步骤3: 生成测试本
+      checkAborted();
       updateStep(2, { status: 'running', message: '正在生成测试本...' });
       const step3Result = await generateTestMutation.mutateAsync({
         studentName: studentName.trim(),
@@ -223,6 +257,7 @@ export default function Home() {
       setCurrentStep(4);
 
       // 步骤4: 生成课后信息提取
+      checkAborted();
       updateStep(3, { status: 'running', message: '正在生成课后信息提取...' });
       const step4Result = await generateExtractionMutation.mutateAsync({
         studentName: studentName.trim(),
@@ -238,6 +273,7 @@ export default function Home() {
       setCurrentStep(5);
 
       // 步骤5: 生成气泡图
+      checkAborted();
       updateStep(4, { status: 'running', message: '正在生成气泡图...' });
       const step5Result = await generateBubbleChartMutation.mutateAsync({
         studentName: studentName.trim(),
@@ -254,18 +290,24 @@ export default function Home() {
 
       setIsComplete(true);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '生成失败';
+      const wasStopped = errorMessage.includes('取消') || stopped;
+      
       console.error("生成失败:", error);
       setHasError(true);
-      // 标记当前步骤为失败
+      
+      // 标记当前步骤为失败或取消
       const failedStepIndex = currentStep - 1;
       if (failedStepIndex >= 0 && failedStepIndex < 5) {
         updateStep(failedStepIndex, { 
           status: 'error', 
-          error: error instanceof Error ? error.message : '生成失败'
+          error: wasStopped ? '已取消' : errorMessage
         });
       }
     } finally {
       setIsGenerating(false);
+      setIsStopping(false);
+      abortControllerRef.current = null;
     }
   }, [
     studentName, lessonNumber, lastFeedback, currentNotes, transcript, 
@@ -683,24 +725,47 @@ export default function Home() {
                 </CollapsibleContent>
               </Collapsible>
 
-              {/* 提交按钮 */}
-              <Button 
-                type="submit" 
-                className="w-full h-12 text-lg"
-                disabled={isGenerating || !isFormValid}
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    正在生成文档 ({currentStep}/5)...
-                  </>
-                ) : (
-                  <>
-                    <FileText className="mr-2 h-5 w-5" />
-                    生成5个文档并保存到Google Drive
-                  </>
+              {/* 提交按钮和停止按钮 */}
+              <div className="flex gap-3">
+                <Button 
+                  type="submit" 
+                  className="flex-1 h-12 text-lg"
+                  disabled={isGenerating || !isFormValid}
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      正在生成文档 ({currentStep}/5)...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="mr-2 h-5 w-5" />
+                      生成5个文档并保存到Google Drive
+                    </>
+                  )}
+                </Button>
+                {isGenerating && (
+                  <Button 
+                    type="button"
+                    variant="destructive"
+                    className="h-12 px-6"
+                    onClick={handleStop}
+                    disabled={isStopping}
+                  >
+                    {isStopping ? (
+                      <>
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        停止中...
+                      </>
+                    ) : (
+                      <>
+                        <Square className="mr-2 h-5 w-5" />
+                        停止
+                      </>
+                    )}
+                  </Button>
                 )}
-              </Button>
+              </div>
             </form>
 
             {/* 实时进度显示 */}

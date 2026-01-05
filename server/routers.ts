@@ -195,10 +195,12 @@ export const appRouter = router({
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
         const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
+        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap; // 获取自定义路书
         
         console.log(`[${new Date().toLocaleTimeString()}] 步骤1: 开始生成学情反馈...`);
         console.log(`[${new Date().toLocaleTimeString()}] 使用模型: ${apiModel}`);
         console.log(`[${new Date().toLocaleTimeString()}] 年份: ${currentYear}, 日期: ${input.lessonDate || '自动提取'}`);
+        console.log(`[${new Date().toLocaleTimeString()}] 自定义路书: ${roadmap ? '已配置(' + roadmap.length + '字符)' : '未配置，使用默认'}`);
         
         // 组合年份和日期
         const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
@@ -213,7 +215,7 @@ export const appRouter = router({
           transcript: input.transcript,
           isFirstLesson: input.isFirstLesson,
           specialRequirements: input.specialRequirements || "",
-        }, { apiModel, apiKey, apiUrl });
+        }, { apiModel, apiKey, apiUrl, roadmap });
 
         // 优先使用用户输入的日期，否则从反馈内容中提取
         let dateStr = input.lessonDate || "";
