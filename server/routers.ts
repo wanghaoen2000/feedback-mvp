@@ -4,8 +4,28 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
-import { uploadToGoogleDrive, uploadMultipleFiles, verifyAllFiles, UploadResult } from "./gdrive";
-import { generateFeedbackDocuments, StepStatus } from "./feedbackGenerator";
+import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus } from "./gdrive";
+import { 
+  generateFeedbackContent, 
+  generateReviewContent, 
+  generateTestContent, 
+  generateExtractionContent, 
+  generateBubbleChart,
+  FeedbackInput 
+} from "./feedbackGenerator";
+
+// 共享的输入schema
+const feedbackInputSchema = z.object({
+  studentName: z.string().min(1, "请输入学生姓名"),
+  lessonNumber: z.string().optional(),
+  lessonDate: z.string().optional(),
+  nextLessonDate: z.string().optional(),
+  lastFeedback: z.string().optional(),
+  currentNotes: z.string().min(1, "请输入本次课笔记"),
+  transcript: z.string().min(1, "请输入录音转文字"),
+  isFirstLesson: z.boolean().default(false),
+  specialRequirements: z.string().optional(),
+});
 
 export const appRouter = router({
   system: systemRouter,
@@ -20,102 +40,232 @@ export const appRouter = router({
     }),
   }),
 
-  // 学情反馈生成
+  // 学情反馈生成 - 拆分为5个独立端点
   feedback: router({
-    generate: publicProcedure
-      .input(z.object({
-        studentName: z.string().min(1, "请输入学生姓名"),
-        lessonNumber: z.string().optional(),
-        lessonDate: z.string().optional(),
-        nextLessonDate: z.string().optional(),
-        lastFeedback: z.string().optional(),
-        currentNotes: z.string().min(1, "请输入本次课笔记"),
-        transcript: z.string().min(1, "请输入录音转文字"),
-        isFirstLesson: z.boolean().default(false),
-        specialRequirements: z.string().optional(),
-      }))
+    // 步骤1: 生成学情反馈
+    generateFeedback: publicProcedure
+      .input(feedbackInputSchema)
       .mutation(async ({ input }) => {
-        const {
-          studentName,
-          lessonNumber,
-          lessonDate,
-          nextLessonDate,
-          lastFeedback,
-          currentNotes,
-          transcript,
-          isFirstLesson,
-          specialRequirements,
-        } = input;
-
-        const dateStr = lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
-
-        // 记录生成步骤状态
-        const generationSteps: StepStatus[] = [];
+        const dateStr = input.lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
         
-        // 生成5个文档
-        console.log(`[${new Date().toLocaleTimeString()}] 开始为 ${studentName} 生成文档...`);
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤1: 开始生成学情反馈...`);
         
-        const documents = await generateFeedbackDocuments({
-          studentName,
-          lessonNumber: lessonNumber || "",
+        const feedbackContent = await generateFeedbackContent({
+          studentName: input.studentName,
+          lessonNumber: input.lessonNumber || "",
           lessonDate: dateStr,
-          nextLessonDate: nextLessonDate || "",
-          lastFeedback: lastFeedback || "",
-          currentNotes,
-          transcript,
-          isFirstLesson,
-          specialRequirements: specialRequirements || "",
-        }, (step) => {
-          console.log(`[${new Date().toLocaleTimeString()}] ${step.step}: ${step.status} - ${step.message || step.error || ''}`);
-          generationSteps.push({ ...step });
+          nextLessonDate: input.nextLessonDate || "",
+          lastFeedback: input.lastFeedback || "",
+          currentNotes: input.currentNotes,
+          transcript: input.transcript,
+          isFirstLesson: input.isFirstLesson,
+          specialRequirements: input.specialRequirements || "",
         });
 
         // 上传到Google Drive
-        const basePath = `Mac/Documents/XDF/学生档案/${studentName}`;
+        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+        const fileName = `${input.studentName}${dateStr}阅读课反馈.md`;
+        const folderPath = `${basePath}/学情反馈`;
         
-        const filesToUpload = [
-          { content: documents.feedback, fileName: `${studentName}${dateStr}阅读课反馈.md`, folderPath: `${basePath}/学情反馈`, isBinary: false },
-          { content: documents.review, fileName: `${studentName}${dateStr}复习文档.docx`, folderPath: `${basePath}/复习文档`, isBinary: true },
-          { content: documents.test, fileName: `${studentName}${dateStr}测试文档.docx`, folderPath: `${basePath}/复习文档`, isBinary: true },
-          { content: documents.extraction, fileName: `${studentName}${dateStr}课后信息提取.md`, folderPath: `${basePath}/课后信息`, isBinary: false },
-          { content: documents.bubbleChart, fileName: `${studentName}${dateStr}气泡图.png`, folderPath: `${basePath}/气泡图`, isBinary: true },
-        ];
-
-        console.log(`[${new Date().toLocaleTimeString()}] 开始上传文件到Google Drive...`);
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤1: 上传学情反馈到Google Drive...`);
+        const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
         
-        const uploadResults = await uploadMultipleFiles(filesToUpload, (fileName, status) => {
-          console.log(`[${new Date().toLocaleTimeString()}] 上传 ${fileName}: ${status.status} - ${status.message || status.error || ''}`);
-        });
-
-        // 最终验证所有文件
-        console.log(`[${new Date().toLocaleTimeString()}] 开始最终验证...`);
-        const filePaths = filesToUpload.map((f, i) => uploadResults[i]?.path || `${f.folderPath}/${f.fileName}`);
-        const verification = await verifyAllFiles(filePaths);
-
-        // 统计结果
-        const successCount = uploadResults.filter(r => r.status === 'success').length;
-        const errorCount = uploadResults.filter(r => r.status === 'error').length;
-        const verifiedCount = verification.results.filter(r => r.exists).length;
-
-        console.log(`[${new Date().toLocaleTimeString()}] 完成！成功: ${successCount}, 失败: ${errorCount}, 验证通过: ${verifiedCount}`);
-
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤1: 学情反馈完成`);
+        
         return {
-          success: errorCount === 0,
-          summary: {
-            totalFiles: 5,
-            successCount,
-            errorCount,
-            verifiedCount,
-            allVerified: verification.allExist,
+          success: true,
+          step: 1,
+          stepName: "学情反馈",
+          feedbackContent, // 返回内容供后续步骤使用
+          uploadResult: {
+            fileName,
+            url: uploadResult.url || "",
+            path: uploadResult.path || "",
+            folderUrl: uploadResult.folderUrl || "",
           },
-          generationSteps: documents.steps,
-          uploadResults: uploadResults.map((r, i) => ({
-            ...r,
-            verified: verification.results[i]?.exists || false,
-            fileSize: verification.results[i]?.size,
-          })),
+          dateStr, // 返回日期字符串供后续步骤使用
+        };
+      }),
+
+    // 步骤2: 生成复习文档
+    generateReview: publicProcedure
+      .input(z.object({
+        studentName: z.string(),
+        dateStr: z.string(),
+        feedbackContent: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤2: 开始生成复习文档...`);
+        
+        const reviewDocx = await generateReviewContent(input.feedbackContent, input.studentName, input.dateStr);
+
+        // 上传到Google Drive（二进制文件）
+        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+        const fileName = `${input.studentName}${input.dateStr}复习文档.docx`;
+        const folderPath = `${basePath}/复习文档`;
+        
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤2: 上传复习文档到Google Drive...`);
+        const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
+        
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤2: 复习文档完成`);
+        
+        return {
+          success: true,
+          step: 2,
+          stepName: "复习文档",
+          uploadResult: {
+            fileName,
+            url: uploadResult.url || "",
+            path: uploadResult.path || "",
+            folderUrl: uploadResult.folderUrl || "",
+          },
+        };
+      }),
+
+    // 步骤3: 生成测试本
+    generateTest: publicProcedure
+      .input(z.object({
+        studentName: z.string(),
+        dateStr: z.string(),
+        feedbackContent: z.string(), // 使用反馈内容生成测试本
+      }))
+      .mutation(async ({ input }) => {
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤3: 开始生成测试本...`);
+        
+        const testDocx = await generateTestContent(input.feedbackContent, input.studentName, input.dateStr);
+
+        // 上传到Google Drive（二进制文件）
+        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+        const fileName = `${input.studentName}${input.dateStr}测试文档.docx`;
+        const folderPath = `${basePath}/复习文档`;
+        
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤3: 上传测试本到Google Drive...`);
+        const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
+        
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤3: 测试本完成`);
+        
+        return {
+          success: true,
+          step: 3,
+          stepName: "测试本",
+          uploadResult: {
+            fileName,
+            url: uploadResult.url || "",
+            path: uploadResult.path || "",
+            folderUrl: uploadResult.folderUrl || "",
+          },
+        };
+      }),
+
+    // 步骤4: 生成课后信息提取
+    generateExtraction: publicProcedure
+      .input(z.object({
+        studentName: z.string(),
+        dateStr: z.string(),
+        nextLessonDate: z.string().optional(),
+        feedbackContent: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤4: 开始生成课后信息提取...`);
+        
+        const extractionContent = await generateExtractionContent(
+          input.studentName, 
+          input.nextLessonDate || "待定", 
+          input.feedbackContent
+        );
+
+        // 上传到Google Drive
+        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+        const fileName = `${input.studentName}${input.dateStr}课后信息提取.md`;
+        const folderPath = `${basePath}/课后信息`;
+        
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤4: 上传课后信息提取到Google Drive...`);
+        const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+        
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤4: 课后信息提取完成`);
+        
+        return {
+          success: true,
+          step: 4,
+          stepName: "课后信息提取",
+          uploadResult: {
+            fileName,
+            url: uploadResult.url || "",
+            path: uploadResult.path || "",
+            folderUrl: uploadResult.folderUrl || "",
+          },
+        };
+      }),
+
+    // 步骤5: 生成气泡图
+    generateBubbleChart: publicProcedure
+      .input(z.object({
+        studentName: z.string(),
+        dateStr: z.string(),
+        lessonNumber: z.string().optional(),
+        feedbackContent: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤5: 开始生成气泡图...`);
+        
+        const bubbleChartPng = await generateBubbleChart(
+          input.feedbackContent,
+          input.studentName,
+          input.dateStr,
+          input.lessonNumber || ""
+        );
+
+        // 上传到Google Drive（二进制文件）
+        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+        const fileName = `${input.studentName}${input.dateStr}气泡图.png`;
+        const folderPath = `${basePath}/气泡图`;
+        
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤5: 上传气泡图到Google Drive...`);
+        const uploadResult = await uploadBinaryToGoogleDrive(bubbleChartPng, fileName, folderPath);
+        
+        console.log(`[${new Date().toLocaleTimeString()}] 步骤5: 气泡图完成`);
+        
+        return {
+          success: true,
+          step: 5,
+          stepName: "气泡图",
+          uploadResult: {
+            fileName,
+            url: uploadResult.url || "",
+            path: uploadResult.path || "",
+            folderUrl: uploadResult.folderUrl || "",
+          },
+        };
+      }),
+
+    // 最终验证
+    verifyAll: publicProcedure
+      .input(z.object({
+        studentName: z.string(),
+        dateStr: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        console.log(`[${new Date().toLocaleTimeString()}] 最终验证: 检查所有文件...`);
+        
+        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+        const filePaths = [
+          `${basePath}/学情反馈/${input.studentName}${input.dateStr}阅读课反馈.md`,
+          `${basePath}/复习文档/${input.studentName}${input.dateStr}复习文档.docx`,
+          `${basePath}/复习文档/${input.studentName}${input.dateStr}测试文档.docx`,
+          `${basePath}/课后信息/${input.studentName}${input.dateStr}课后信息提取.md`,
+          `${basePath}/气泡图/${input.studentName}${input.dateStr}气泡图.png`,
+        ];
+        
+        const verification = await verifyAllFiles(filePaths);
+        
+        console.log(`[${new Date().toLocaleTimeString()}] 最终验证: ${verification.results.filter(r => r.exists).length}/5 文件验证通过`);
+        
+        return {
+          success: verification.allExist,
+          verifiedCount: verification.results.filter(r => r.exists).length,
+          totalCount: 5,
+          results: verification.results,
           driveFolder: basePath,
-          driveUrl: uploadResults.find(r => r.folderUrl)?.folderUrl || '',
         };
       }),
   }),

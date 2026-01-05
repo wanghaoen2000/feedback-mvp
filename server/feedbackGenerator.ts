@@ -199,7 +199,7 @@ const REVIEW_SYSTEM_PROMPT = `你是专业的托福阅读教师，请根据学�
 末尾加一句：好好复习，早日出分！`;
 
 // ========== 测试本提示词 ==========
-const TEST_SYSTEM_PROMPT = `你是专业的托福阅读教师，请根据复习文档生成测试版本。
+const TEST_SYSTEM_PROMPT = `你是专业的托福阅读教师，请根据学情反馈生成测试版本。
 
 【重要格式要求】
 这是Word文档内容，请使用纯文本格式：
@@ -317,211 +317,6 @@ const BUBBLE_CHART_SYSTEM_PROMPT = `你是专业的托福阅读教师，请从�
   {"problem": ["主标题", "副标题"], "solution": ["主标题", "副标题"]},
   ...
 ]`;
-
-/**
- * 生成学情反馈文档
- */
-async function generateFeedbackContent(input: FeedbackInput): Promise<string> {
-  const prompt = `## 学生信息
-- 学生姓名：${input.studentName}
-- 课次：${input.lessonNumber || "未指定"}
-- 本次课日期：${input.lessonDate}
-- 下次课日期：${input.nextLessonDate || "待定"}
-${input.isFirstLesson ? "- 这是新生首次课" : ""}
-${input.specialRequirements ? `- 特殊要求：${input.specialRequirements}` : ""}
-
-## 上次反馈
-${input.isFirstLesson ? "（新生首次课，无上次反馈）" : (input.lastFeedback || "（未提供）")}
-
-## 本次课笔记
-${input.currentNotes}
-
-## 录音转文字
-${input.transcript}
-
-请严格按照V9路书规范生成完整的学情反馈文档。
-特别注意：
-1. 不要使用任何markdown标记，输出纯文本
-2. 【生词】部分必须达到15-25个，不足15个必须从课堂材料中补齐！`;
-
-  const response = await invokeWhatAI([
-    { role: "system", content: FEEDBACK_SYSTEM_PROMPT },
-    { role: "user", content: prompt },
-  ], { model: MODELS.DEFAULT, max_tokens: 8000 });
-
-  return response.choices[0]?.message?.content || "";
-}
-
-/**
- * 从反馈中提取生词、长难句、错题，生成复习文档内容
- */
-async function generateReviewContent(feedback: string, studentName: string): Promise<string> {
-  const prompt = `学生姓名：${studentName}
-
-学情反馈内容：
-${feedback}
-
-请严格按照复习文档格式规范生成复习文档。
-特别注意：
-1. 不要使用markdown标记，输出纯文本
-2. 生词顺序、数量必须和反馈里的【生词】部分完全一致！`;
-
-  const response = await invokeWhatAI([
-    { role: "system", content: REVIEW_SYSTEM_PROMPT },
-    { role: "user", content: prompt },
-  ], { model: MODELS.DEFAULT, max_tokens: 8000 });
-
-  return response.choices[0]?.message?.content || "";
-}
-
-/**
- * 生成测试本内容（去掉答案）
- */
-async function generateTestContent(reviewContent: string): Promise<string> {
-  const prompt = `复习文档内容：
-${reviewContent}
-
-请严格按照测试本格式规范生成测试版本。
-特别注意：
-1. 不要使用markdown标记，输出纯文本
-2. 不要使用HTML代码
-3. 答案部分前面用"===== 答案部分 ====="分隔`;
-
-  const response = await invokeWhatAI([
-    { role: "system", content: TEST_SYSTEM_PROMPT },
-    { role: "user", content: prompt },
-  ], { model: MODELS.DEFAULT, max_tokens: 6000 });
-
-  return response.choices[0]?.message?.content || "";
-}
-
-/**
- * 生成课后信息提取
- */
-async function generateExtractionContent(input: FeedbackInput, feedback: string): Promise<string> {
-  const prompt = `学生姓名：${input.studentName}
-下次课日期：${input.nextLessonDate || "待定"}
-
-学情反馈内容：
-${feedback}
-
-请严格按照课后信息提取格式规范生成作业管理档案。不要使用markdown标记。`;
-
-  const response = await invokeWhatAI([
-    { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
-    { role: "user", content: prompt },
-  ], { model: MODELS.DEFAULT, max_tokens: 2000 });
-
-  return response.choices[0]?.message?.content || "";
-}
-
-/**
- * 从反馈中提取问题和方案，用于气泡图
- */
-async function extractProblemsAndSolutions(feedback: string): Promise<Array<{problem: string[], solution: string[]}>> {
-  const prompt = `学情反馈内容：
-${feedback}
-
-请提取3-6个问题-方案对，只输出JSON格式。`;
-
-  const response = await invokeWhatAI([
-    { role: "system", content: BUBBLE_CHART_SYSTEM_PROMPT },
-    { role: "user", content: prompt },
-  ], { model: MODELS.DEFAULT, max_tokens: 1000 });
-
-  try {
-    const content = response.choices[0]?.message?.content || "[]";
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-/**
- * 生成气泡图SVG
- */
-function generateBubbleChartSVG(
-  studentName: string,
-  lessonDate: string,
-  lessonNumber: string,
-  items: Array<{problem: string[], solution: string[]}>
-): string {
-  const colors = ['#FFE4E1', '#E8F5E9', '#E3F2FD', '#F3E5F5', '#FFF9C4', '#FFE0B2'];
-  const boxWidth = 200, boxHeight = 90, gap = 20;
-  const leftX = 80, rightX = 520;
-  const startY = 120;
-  const height = Math.max(700, startY + items.length * (boxHeight + gap) + 80);
-
-  const itemsSVG = items.map((item, i) => {
-    const y = startY + i * (boxHeight + gap);
-    const color = colors[i % colors.length];
-    return `
-    <g>
-      <!-- 问题框 -->
-      <rect x="${leftX}" y="${y}" width="${boxWidth}" height="${boxHeight}" rx="12" fill="white" stroke="#4ECDC4" stroke-width="3"/>
-      <text x="${leftX + boxWidth/2}" y="${y + 35}" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">${item.problem[0] || ''}</text>
-      <text x="${leftX + boxWidth/2}" y="${y + 58}" text-anchor="middle" font-size="16" fill="#333">${item.problem[1] || ''}</text>
-      
-      <!-- 箭头 -->
-      <line x1="${leftX + boxWidth + 10}" y1="${y + boxHeight/2}" x2="${rightX - 10}" y2="${y + boxHeight/2}" stroke="#AAA" stroke-width="2" marker-end="url(#arrow)"/>
-      
-      <!-- 方案框 -->
-      <rect x="${rightX}" y="${y}" width="${boxWidth}" height="${boxHeight}" rx="12" fill="${color}" stroke="none"/>
-      <text x="${rightX + boxWidth/2}" y="${y + 35}" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">${item.solution[0] || ''}</text>
-      <text x="${rightX + boxWidth/2}" y="${y + 58}" text-anchor="middle" font-size="16" fill="#333">${item.solution[1] || ''}</text>
-    </g>`;
-  }).join('\n');
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 900 ${height}" xmlns="http://www.w3.org/2000/svg">
-  <style>text { font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "Microsoft YaHei", sans-serif; }</style>
-  
-  <!-- 背景 -->
-  <rect width="900" height="${height}" fill="white"/>
-  
-  <!-- 标题 -->
-  <text x="450" y="45" text-anchor="middle" font-size="28" font-weight="bold" fill="#333">
-    ${studentName}${lessonDate}阅读课｜问题-方案气泡图
-  </text>
-  
-  <!-- 列标题 -->
-  <text x="${leftX + boxWidth/2}" y="85" text-anchor="middle" font-size="20" font-weight="bold" fill="#E74C3C">问题</text>
-  <text x="${rightX + boxWidth/2}" y="85" text-anchor="middle" font-size="20" font-weight="bold" fill="#27AE60">解决方案</text>
-  
-  ${itemsSVG}
-  
-  <!-- 箭头定义 -->
-  <defs>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
-      <path d="M0,0 L0,6 L9,3 z" fill="#AAA"/>
-    </marker>
-  </defs>
-  
-  <!-- 底部日期 -->
-  <text x="450" y="${height - 20}" text-anchor="middle" font-size="14" fill="#666">
-    2025年${lessonDate} ${lessonNumber || ''}
-  </text>
-</svg>`;
-}
-
-/**
- * 将SVG转换为PNG（使用sharp）
- */
-async function svgToPng(svgContent: string): Promise<Buffer> {
-  try {
-    const pngBuffer = await sharp(Buffer.from(svgContent))
-      .png()
-      .toBuffer();
-    return pngBuffer;
-  } catch (error) {
-    console.error("[气泡图] SVG转PNG失败:", error);
-    throw error;
-  }
-}
 
 /**
  * 清理文本中的markdown和HTML标记
@@ -654,7 +449,239 @@ async function textToDocx(content: string, title: string): Promise<Buffer> {
 }
 
 /**
- * 主函数：生成所有5个文档，带状态回调
+ * 生成气泡图SVG
+ */
+function generateBubbleChartSVG(
+  studentName: string,
+  lessonDate: string,
+  lessonNumber: string,
+  items: Array<{problem: string[], solution: string[]}>
+): string {
+  const colors = ['#FFE4E1', '#E8F5E9', '#E3F2FD', '#F3E5F5', '#FFF9C4', '#FFE0B2'];
+  const boxWidth = 200, boxHeight = 90, gap = 20;
+  const leftX = 80, rightX = 520;
+  const startY = 120;
+  const height = Math.max(700, startY + items.length * (boxHeight + gap) + 80);
+
+  const itemsSVG = items.map((item, i) => {
+    const y = startY + i * (boxHeight + gap);
+    const color = colors[i % colors.length];
+    return `
+    <g>
+      <!-- 问题框 -->
+      <rect x="${leftX}" y="${y}" width="${boxWidth}" height="${boxHeight}" rx="12" fill="white" stroke="#4ECDC4" stroke-width="3"/>
+      <text x="${leftX + boxWidth/2}" y="${y + 35}" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">${item.problem[0] || ''}</text>
+      <text x="${leftX + boxWidth/2}" y="${y + 58}" text-anchor="middle" font-size="16" fill="#333">${item.problem[1] || ''}</text>
+      
+      <!-- 箭头 -->
+      <line x1="${leftX + boxWidth + 10}" y1="${y + boxHeight/2}" x2="${rightX - 10}" y2="${y + boxHeight/2}" stroke="#AAA" stroke-width="2" marker-end="url(#arrow)"/>
+      
+      <!-- 方案框 -->
+      <rect x="${rightX}" y="${y}" width="${boxWidth}" height="${boxHeight}" rx="12" fill="${color}" stroke="none"/>
+      <text x="${rightX + boxWidth/2}" y="${y + 35}" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">${item.solution[0] || ''}</text>
+      <text x="${rightX + boxWidth/2}" y="${y + 58}" text-anchor="middle" font-size="16" fill="#333">${item.solution[1] || ''}</text>
+    </g>`;
+  }).join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 900 ${height}" xmlns="http://www.w3.org/2000/svg">
+  <style>text { font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "Microsoft YaHei", sans-serif; }</style>
+  
+  <!-- 背景 -->
+  <rect width="900" height="${height}" fill="white"/>
+  
+  <!-- 标题 -->
+  <text x="450" y="45" text-anchor="middle" font-size="28" font-weight="bold" fill="#333">
+    ${studentName}${lessonDate}阅读课｜问题-方案气泡图
+  </text>
+  
+  <!-- 列标题 -->
+  <text x="${leftX + boxWidth/2}" y="85" text-anchor="middle" font-size="20" font-weight="bold" fill="#E74C3C">问题</text>
+  <text x="${rightX + boxWidth/2}" y="85" text-anchor="middle" font-size="20" font-weight="bold" fill="#27AE60">解决方案</text>
+  
+  ${itemsSVG}
+  
+  <!-- 箭头定义 -->
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#AAA"/>
+    </marker>
+  </defs>
+  
+  <!-- 底部日期 -->
+  <text x="450" y="${height - 20}" text-anchor="middle" font-size="14" fill="#666">
+    2025年${lessonDate} ${lessonNumber || ''}
+  </text>
+</svg>`;
+}
+
+/**
+ * 将SVG转换为PNG（使用sharp）
+ */
+async function svgToPng(svgContent: string): Promise<Buffer> {
+  try {
+    const pngBuffer = await sharp(Buffer.from(svgContent))
+      .png()
+      .toBuffer();
+    return pngBuffer;
+  } catch (error) {
+    console.error("[气泡图] SVG转PNG失败:", error);
+    throw error;
+  }
+}
+
+/**
+ * 从反馈中提取问题和方案，用于气泡图
+ */
+async function extractProblemsAndSolutions(feedback: string): Promise<Array<{problem: string[], solution: string[]}>> {
+  const prompt = `学情反馈内容：
+${feedback}
+
+请提取3-6个问题-方案对，只输出JSON格式。`;
+
+  const response = await invokeWhatAI([
+    { role: "system", content: BUBBLE_CHART_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ], { model: MODELS.DEFAULT, max_tokens: 1000 });
+
+  try {
+    const content = response.choices[0]?.message?.content || "[]";
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+// ========== 导出的独立生成函数 ==========
+
+/**
+ * 步骤1: 生成学情反馈文档
+ */
+export async function generateFeedbackContent(input: FeedbackInput): Promise<string> {
+  const prompt = `## 学生信息
+- 学生姓名：${input.studentName}
+- 课次：${input.lessonNumber || "未指定"}
+- 本次课日期：${input.lessonDate}
+- 下次课日期：${input.nextLessonDate || "待定"}
+${input.isFirstLesson ? "- 这是新生首次课" : ""}
+${input.specialRequirements ? `- 特殊要求：${input.specialRequirements}` : ""}
+
+## 上次反馈
+${input.isFirstLesson ? "（新生首次课，无上次反馈）" : (input.lastFeedback || "（未提供）")}
+
+## 本次课笔记
+${input.currentNotes}
+
+## 录音转文字
+${input.transcript}
+
+请严格按照V9路书规范生成完整的学情反馈文档。
+特别注意：
+1. 不要使用任何markdown标记，输出纯文本
+2. 【生词】部分必须达到15-25个，不足15个必须从课堂材料中补齐！`;
+
+  const response = await invokeWhatAI([
+    { role: "system", content: FEEDBACK_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ], { model: MODELS.DEFAULT, max_tokens: 8000 });
+
+  const content = response.choices[0]?.message?.content || "";
+  return cleanMarkdownAndHtml(content);
+}
+
+/**
+ * 步骤2: 生成复习文档（返回Buffer）
+ */
+export async function generateReviewContent(feedback: string, studentName: string, dateStr: string): Promise<Buffer> {
+  const prompt = `学生姓名：${studentName}
+
+学情反馈内容：
+${feedback}
+
+请严格按照复习文档格式规范生成复习文档。
+特别注意：
+1. 不要使用markdown标记，输出纯文本
+2. 生词顺序、数量必须和反馈里的【生词】部分完全一致！`;
+
+  const response = await invokeWhatAI([
+    { role: "system", content: REVIEW_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ], { model: MODELS.DEFAULT, max_tokens: 8000 });
+
+  const reviewContent = response.choices[0]?.message?.content || "";
+  return await textToDocx(reviewContent, `${studentName}${dateStr}复习文档`);
+}
+
+/**
+ * 步骤3: 生成测试本（返回Buffer）
+ */
+export async function generateTestContent(feedback: string, studentName: string, dateStr: string): Promise<Buffer> {
+  const prompt = `学情反馈内容：
+${feedback}
+
+请严格按照测试本格式规范生成测试版本。
+特别注意：
+1. 不要使用markdown标记，输出纯文本
+2. 不要使用HTML代码
+3. 答案部分前面用"===== 答案部分 ====="分隔`;
+
+  const response = await invokeWhatAI([
+    { role: "system", content: TEST_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ], { model: MODELS.DEFAULT, max_tokens: 6000 });
+
+  const testContent = response.choices[0]?.message?.content || "";
+  return await textToDocx(testContent, `${studentName}${dateStr}测试本`);
+}
+
+/**
+ * 步骤4: 生成课后信息提取
+ */
+export async function generateExtractionContent(studentName: string, nextLessonDate: string, feedback: string): Promise<string> {
+  const prompt = `学生姓名：${studentName}
+下次课日期：${nextLessonDate || "待定"}
+
+学情反馈内容：
+${feedback}
+
+请严格按照课后信息提取格式规范生成作业管理档案。不要使用markdown标记。`;
+
+  const response = await invokeWhatAI([
+    { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ], { model: MODELS.DEFAULT, max_tokens: 2000 });
+
+  const content = response.choices[0]?.message?.content || "";
+  return cleanMarkdownAndHtml(content);
+}
+
+/**
+ * 步骤5: 生成气泡图（返回PNG Buffer）
+ */
+export async function generateBubbleChart(
+  feedback: string,
+  studentName: string,
+  dateStr: string,
+  lessonNumber: string
+): Promise<Buffer> {
+  const problemsAndSolutions = await extractProblemsAndSolutions(feedback);
+  const bubbleChartSVG = generateBubbleChartSVG(
+    studentName,
+    dateStr,
+    lessonNumber,
+    problemsAndSolutions.length > 0 ? problemsAndSolutions : [
+      { problem: ["暂无问题", ""], solution: ["继续保持", ""] }
+    ]
+  );
+  return await svgToPng(bubbleChartSVG);
+}
+
+/**
+ * 旧版主函数（保留兼容性）：生成所有5个文档，带状态回调
  */
 export async function generateFeedbackDocuments(
   input: FeedbackInput,
@@ -676,8 +703,6 @@ export async function generateFeedbackDocuments(
   };
 
   let feedback = '';
-  let reviewContent = '';
-  let testContent = '';
   let extraction = '';
   let reviewDocx = Buffer.from('');
   let testDocx = Buffer.from('');
@@ -687,8 +712,6 @@ export async function generateFeedbackDocuments(
   try {
     updateStep(0, 'running', '正在调用Claude生成学情反馈...');
     feedback = await generateFeedbackContent(input);
-    // 清理markdown标记
-    feedback = cleanMarkdownAndHtml(feedback);
     updateStep(0, 'success', `生成完成，共${feedback.length}字`);
   } catch (err) {
     updateStep(0, 'error', undefined, err instanceof Error ? err.message : '生成失败');
@@ -698,9 +721,8 @@ export async function generateFeedbackDocuments(
   // 2. 生成复习文档
   try {
     updateStep(1, 'running', '正在生成复习文档...');
-    reviewContent = await generateReviewContent(feedback, input.studentName);
-    reviewDocx = await textToDocx(reviewContent, `${input.studentName}${input.lessonDate}复习文档`);
-    updateStep(1, 'success', `生成完成，共${reviewContent.length}字`);
+    reviewDocx = await generateReviewContent(feedback, input.studentName, input.lessonDate);
+    updateStep(1, 'success', '生成完成');
   } catch (err) {
     updateStep(1, 'error', undefined, err instanceof Error ? err.message : '生成失败');
     throw err;
@@ -709,9 +731,8 @@ export async function generateFeedbackDocuments(
   // 3. 生成测试本
   try {
     updateStep(2, 'running', '正在生成测试本...');
-    testContent = await generateTestContent(reviewContent);
-    testDocx = await textToDocx(testContent, `${input.studentName}${input.lessonDate}测试本`);
-    updateStep(2, 'success', `生成完成，共${testContent.length}字`);
+    testDocx = await generateTestContent(feedback, input.studentName, input.lessonDate);
+    updateStep(2, 'success', '生成完成');
   } catch (err) {
     updateStep(2, 'error', undefined, err instanceof Error ? err.message : '生成失败');
     throw err;
@@ -720,9 +741,7 @@ export async function generateFeedbackDocuments(
   // 4. 生成课后信息提取
   try {
     updateStep(3, 'running', '正在生成课后信息提取...');
-    extraction = await generateExtractionContent(input, feedback);
-    // 清理markdown标记
-    extraction = cleanMarkdownAndHtml(extraction);
+    extraction = await generateExtractionContent(input.studentName, input.nextLessonDate, feedback);
     updateStep(3, 'success', `生成完成，共${extraction.length}字`);
   } catch (err) {
     updateStep(3, 'error', undefined, err instanceof Error ? err.message : '生成失败');
@@ -732,17 +751,8 @@ export async function generateFeedbackDocuments(
   // 5. 生成气泡图
   try {
     updateStep(4, 'running', '正在生成气泡图...');
-    const problemsAndSolutions = await extractProblemsAndSolutions(feedback);
-    const bubbleChartSVG = generateBubbleChartSVG(
-      input.studentName,
-      input.lessonDate,
-      input.lessonNumber,
-      problemsAndSolutions.length > 0 ? problemsAndSolutions : [
-        { problem: ["暂无问题", ""], solution: ["继续保持", ""] }
-      ]
-    );
-    bubbleChartPng = await svgToPng(bubbleChartSVG);
-    updateStep(4, 'success', `生成完成，提取${problemsAndSolutions.length}个问题-方案对`);
+    bubbleChartPng = await generateBubbleChart(feedback, input.studentName, input.lessonDate, input.lessonNumber);
+    updateStep(4, 'success', '生成完成');
   } catch (err) {
     updateStep(4, 'error', undefined, err instanceof Error ? err.message : '生成失败');
     throw err;
