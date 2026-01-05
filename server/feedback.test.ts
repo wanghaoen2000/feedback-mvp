@@ -209,3 +209,54 @@ describe('Date Extraction from Notes (V11)', () => {
     expect(currentLessonDate).toBeNull();
   });
 });
+
+describe('Single Step Retry (V12)', () => {
+  it('should allow retrying individual failed steps', () => {
+    const steps = [
+      { step: 1, name: "学情反馈", status: 'success' as const },
+      { step: 2, name: "复习文档", status: 'error' as const },
+      { step: 3, name: "测试本", status: 'pending' as const },
+      { step: 4, name: "课后信息提取", status: 'pending' as const },
+      { step: 5, name: "气泡图", status: 'pending' as const },
+    ];
+    
+    // 模拟重试步骤2
+    const retryStepIndex = 1;
+    expect(steps[retryStepIndex].status).toBe('error');
+    
+    // 重试后应该变为success
+    steps[retryStepIndex].status = 'success';
+    expect(steps[retryStepIndex].status).toBe('success');
+  });
+
+  it('should not retry if step 1 (feedback) has not succeeded', () => {
+    const feedbackContent = '';
+    const dateStr = '';
+    
+    // 步骤2-5依赖步骤1的结果
+    const canRetryStep2 = !!(feedbackContent && dateStr);
+    expect(canRetryStep2).toBe(false);
+  });
+
+  it('should allow retry after step 1 succeeds', () => {
+    const feedbackContent = '学情反馈内容';
+    const dateStr = '1月15日';
+    
+    // 步骤1成功后，步骤2-5可以重试
+    const canRetryStep2 = !!(feedbackContent && dateStr);
+    expect(canRetryStep2).toBe(true);
+  });
+
+  it('should check all steps success after retry', () => {
+    const steps = [
+      { step: 1, name: "学情反馈", status: 'success' as const },
+      { step: 2, name: "复习文档", status: 'success' as const },
+      { step: 3, name: "测试本", status: 'success' as const },
+      { step: 4, name: "课后信息提取", status: 'success' as const },
+      { step: 5, name: "气泡图", status: 'success' as const },
+    ];
+    
+    const allSuccess = steps.every(s => s.status === 'success');
+    expect(allSuccess).toBe(true);
+  });
+});

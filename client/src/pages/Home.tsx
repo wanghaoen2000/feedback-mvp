@@ -273,6 +273,116 @@ export default function Home() {
     await runGeneration();
   };
 
+  // 单步重试函数
+  const retryStep = useCallback(async (stepIndex: number) => {
+    if (isGenerating) return;
+    
+    setIsGenerating(true);
+    updateStep(stepIndex, { status: 'running', message: '正在重试...' });
+
+    const configOverride = {
+      apiModel: apiModel.trim() || undefined,
+      apiKey: apiKey.trim() || undefined,
+      apiUrl: apiUrl.trim() || undefined,
+    };
+
+    try {
+      let result;
+      
+      switch (stepIndex) {
+        case 0: // 学情反馈
+          result = await generateFeedbackMutation.mutateAsync({
+            studentName: studentName.trim(),
+            lessonNumber: lessonNumber.trim(),
+            lastFeedback: lastFeedback.trim(),
+            currentNotes: currentNotes.trim(),
+            transcript: transcript.trim(),
+            isFirstLesson,
+            specialRequirements: specialRequirements.trim(),
+            ...configOverride,
+          });
+          setFeedbackContent(result.feedbackContent);
+          setDateStr(result.dateStr);
+          updateStep(0, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          break;
+
+        case 1: // 复习文档
+          if (!feedbackContent || !dateStr) {
+            throw new Error('请先生成学情反馈');
+          }
+          result = await generateReviewMutation.mutateAsync({
+            studentName: studentName.trim(),
+            dateStr,
+            feedbackContent,
+            ...configOverride,
+          });
+          updateStep(1, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          break;
+
+        case 2: // 测试本
+          if (!feedbackContent || !dateStr) {
+            throw new Error('请先生成学情反馈');
+          }
+          result = await generateTestMutation.mutateAsync({
+            studentName: studentName.trim(),
+            dateStr,
+            feedbackContent,
+            ...configOverride,
+          });
+          updateStep(2, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          break;
+
+        case 3: // 课后信息提取
+          if (!feedbackContent || !dateStr) {
+            throw new Error('请先生成学情反馈');
+          }
+          result = await generateExtractionMutation.mutateAsync({
+            studentName: studentName.trim(),
+            dateStr,
+            feedbackContent,
+            ...configOverride,
+          });
+          updateStep(3, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          break;
+
+        case 4: // 气泡图
+          if (!feedbackContent || !dateStr) {
+            throw new Error('请先生成学情反馈');
+          }
+          result = await generateBubbleChartMutation.mutateAsync({
+            studentName: studentName.trim(),
+            dateStr,
+            lessonNumber: lessonNumber.trim(),
+            feedbackContent,
+            ...configOverride,
+          });
+          updateStep(4, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          break;
+      }
+
+      // 检查是否所有步骤都成功
+      const allSuccess = steps.every((s, i) => i === stepIndex || s.status === 'success');
+      if (allSuccess) {
+        setIsComplete(true);
+        setHasError(false);
+      }
+    } catch (error) {
+      console.error(`步骤${stepIndex + 1}重试失败:`, error);
+      updateStep(stepIndex, { 
+        status: 'error', 
+        error: error instanceof Error ? error.message : '重试失败'
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [
+    isGenerating, steps, feedbackContent, dateStr, studentName, lessonNumber,
+    lastFeedback, currentNotes, transcript, isFirstLesson, specialRequirements,
+    apiModel, apiKey, apiUrl, updateStep,
+    generateFeedbackMutation, generateReviewMutation, generateTestMutation,
+    generateExtractionMutation, generateBubbleChartMutation
+  ]);
+
   const handleReset = () => {
     setSteps(initialSteps);
     setCurrentStep(0);
@@ -617,6 +727,19 @@ export default function Home() {
                             </div>
                           )}
                         </div>
+                        {/* 重试按钮 */}
+                        {step.status === 'error' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => retryStep(index)}
+                            disabled={isGenerating}
+                            className="text-xs"
+                          >
+                            <RefreshCw className="w-3 h-3 mr-1" />
+                            重试
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
