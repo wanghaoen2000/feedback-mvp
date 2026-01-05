@@ -2,6 +2,13 @@ import { invokeWhatAI, MODELS, APIConfig } from "./whatai";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
 import sharp from "sharp";
 
+// 录音转文字压缩配置
+const TRANSCRIPT_COMPRESS_CONFIG = {
+  maxLength: 4000,        // 超过此长度就需要压缩
+  chunkSize: 3000,        // 每段的最大长度
+  targetRatio: 0.5,       // 压缩目标比例（50%）
+};
+
 export interface FeedbackInput {
   studentName: string;
   lessonNumber: string;
@@ -264,6 +271,97 @@ const EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。从学�
 - 测试安排：xxx`;
 
 // ========== 辅助函数 ==========
+
+/**
+ * 录音转文字分段压缩
+ * 如果录音转文字超过阈值，分段压缩后再合并
+ */
+async function compressTranscript(transcript: string, config?: APIConfig): Promise<string> {
+  // 如果长度未超过阈值，直接返回
+  if (transcript.length <= TRANSCRIPT_COMPRESS_CONFIG.maxLength) {
+    console.log(`[录音压缩] 长度${transcript.length}字符，未超过阈值${TRANSCRIPT_COMPRESS_CONFIG.maxLength}，无需压缩`);
+    return transcript;
+  }
+
+  console.log(`[录音压缩] 长度${transcript.length}字符，超过阈值，开始分段压缩...`);
+
+  // 分段
+  const chunks: string[] = [];
+  const chunkSize = TRANSCRIPT_COMPRESS_CONFIG.chunkSize;
+  
+  for (let i = 0; i < transcript.length; i += chunkSize) {
+    // 尽量在句子结束处分割
+    let endIndex = Math.min(i + chunkSize, transcript.length);
+    if (endIndex < transcript.length) {
+      // 向后找句号、问号、叹号或换行符
+      const searchEnd = Math.min(endIndex + 500, transcript.length);
+      const searchText = transcript.slice(endIndex, searchEnd);
+      const breakMatch = searchText.match(/[。？！。\n]/);
+      if (breakMatch && breakMatch.index !== undefined) {
+        endIndex = endIndex + breakMatch.index + 1;
+      }
+    }
+    chunks.push(transcript.slice(i, endIndex));
+    i = endIndex - chunkSize; // 调整下一段的起始位置
+  }
+
+  // 重新分段，确保没有重叠
+  const finalChunks: string[] = [];
+  let currentPos = 0;
+  for (let i = 0; i < transcript.length; ) {
+    let endIndex = Math.min(i + chunkSize, transcript.length);
+    if (endIndex < transcript.length) {
+      const searchEnd = Math.min(endIndex + 500, transcript.length);
+      const searchText = transcript.slice(endIndex, searchEnd);
+      const breakMatch = searchText.match(/[。？！\n]/);
+      if (breakMatch && breakMatch.index !== undefined) {
+        endIndex = endIndex + breakMatch.index + 1;
+      }
+    }
+    finalChunks.push(transcript.slice(i, endIndex));
+    i = endIndex;
+  }
+
+  console.log(`[录音压缩] 分为${finalChunks.length}段进行压缩`);
+
+  // 压缩每段
+  const compressedChunks: string[] = [];
+  for (let i = 0; i < finalChunks.length; i++) {
+    const chunk = finalChunks[i];
+    console.log(`[录音压缩] 压缩第${i + 1}/${finalChunks.length}段 (原长${chunk.length}字符)...`);
+    
+    try {
+      const response = await invokeWhatAI([
+        { role: "system", content: `你是一个课堂录音压缩助手。请压缩以下课堂录音转文字内容，保留核心教学内容。
+
+【压缩规则】
+1. 保留所有生词讲解、词根词缀分析
+2. 保留所有题目讲解、错题分析
+3. 保留所有长难句分析
+4. 保留学生表现评价和建议
+5. 删除重复的导读词、口头禅、无关闲聊
+6. 删除“嗯”“啊”“那个”等语气词
+7. 压缩后长度应为原文的50%左右
+
+直接输出压缩后的内容，不要添加任何解释。` },
+        { role: "user", content: chunk },
+      ], { max_tokens: 4000 }, config);
+
+      const compressed = response.choices[0]?.message?.content || chunk;
+      compressedChunks.push(compressed);
+      console.log(`[录音压缩] 第${i + 1}段压缩完成: ${chunk.length} -> ${compressed.length}字符`);
+    } catch (error) {
+      console.error(`[录音压缩] 第${i + 1}段压缩失败，使用原文:`, error);
+      compressedChunks.push(chunk);
+    }
+  }
+
+  // 合并压缩后的段落
+  const result = compressedChunks.join('\n\n');
+  console.log(`[录音压缩] 全部压缩完成: ${transcript.length} -> ${result.length}字符 (压缩率${Math.round(result.length / transcript.length * 100)}%)`);
+  
+  return result;
+}
 
 /**
  * 清理markdown和HTML标记
@@ -572,6 +670,9 @@ async function svgToPng(svgString: string): Promise<Buffer> {
  * 步骤1: 生成学情反馈文档
  */
 export async function generateFeedbackContent(input: FeedbackInput, config?: APIConfig): Promise<string> {
+  // 先压缩录音转文字（如果超过阈值）
+  const compressedTranscript = await compressTranscript(input.transcript, config);
+  
   const prompt = `## 学生信息
 - 学生姓名：${input.studentName}
 - 课次：${input.lessonNumber || "未指定"}
@@ -587,7 +688,7 @@ ${input.isFirstLesson ? "（新生首次课，无上次反馈）" : (input.lastF
 ${input.currentNotes}
 
 ## 录音转文字
-${input.transcript}
+${compressedTranscript}
 
 请严格按照V9路书规范生成完整的学情反馈文档。
 特别注意：
