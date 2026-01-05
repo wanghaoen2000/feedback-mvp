@@ -11,33 +11,24 @@ const REMOTE_NAME = "manus_google_drive";
 
 /**
  * 上传文件到Google Drive
- * @param content 文件内容
- * @param fileName 文件名
- * @param folderPath Google Drive中的文件夹路径
- * @returns 上传结果，包含URL和路径
  */
 export async function uploadToGoogleDrive(
   content: string,
   fileName: string,
   folderPath: string
 ): Promise<{ url: string; path: string }> {
-  // 创建临时文件
   const tempDir = os.tmpdir();
   const tempFilePath = path.join(tempDir, fileName);
   
   try {
-    // 写入临时文件
     await fs.promises.writeFile(tempFilePath, content, "utf-8");
     
-    // 确保目标文件夹存在
     const mkdirCmd = `rclone mkdir "${REMOTE_NAME}:${folderPath}" --config ${RCLONE_CONFIG}`;
     await execAsync(mkdirCmd);
     
-    // 上传文件
     const copyCmd = `rclone copy "${tempFilePath}" "${REMOTE_NAME}:${folderPath}/" --config ${RCLONE_CONFIG}`;
     await execAsync(copyCmd);
     
-    // 获取分享链接
     const fullPath = `${folderPath}/${fileName}`;
     const linkCmd = `rclone link "${REMOTE_NAME}:${fullPath}" --config ${RCLONE_CONFIG}`;
     const { stdout } = await execAsync(linkCmd);
@@ -48,11 +39,109 @@ export async function uploadToGoogleDrive(
       path: fullPath,
     };
   } finally {
-    // 清理临时文件
     try {
       await fs.promises.unlink(tempFilePath);
     } catch {
       // 忽略清理错误
     }
   }
+}
+
+/**
+ * 上传二进制文件到Google Drive
+ */
+export async function uploadBinaryToGoogleDrive(
+  content: Buffer,
+  fileName: string,
+  folderPath: string
+): Promise<{ url: string; path: string }> {
+  const tempDir = os.tmpdir();
+  const tempFilePath = path.join(tempDir, fileName);
+  
+  try {
+    await fs.promises.writeFile(tempFilePath, content);
+    
+    const mkdirCmd = `rclone mkdir "${REMOTE_NAME}:${folderPath}" --config ${RCLONE_CONFIG}`;
+    await execAsync(mkdirCmd);
+    
+    const copyCmd = `rclone copy "${tempFilePath}" "${REMOTE_NAME}:${folderPath}/" --config ${RCLONE_CONFIG}`;
+    await execAsync(copyCmd);
+    
+    const fullPath = `${folderPath}/${fileName}`;
+    const linkCmd = `rclone link "${REMOTE_NAME}:${fullPath}" --config ${RCLONE_CONFIG}`;
+    const { stdout } = await execAsync(linkCmd);
+    const url = stdout.trim();
+    
+    return {
+      url,
+      path: fullPath,
+    };
+  } finally {
+    try {
+      await fs.promises.unlink(tempFilePath);
+    } catch {
+      // 忽略清理错误
+    }
+  }
+}
+
+interface FileUploadItem {
+  content: string | Buffer;
+  fileName: string;
+  folderPath: string;
+  isBinary?: boolean;
+}
+
+interface UploadResult {
+  fileName: string;
+  url: string;
+  path: string;
+  folderUrl?: string;
+}
+
+/**
+ * 批量上传多个文件到Google Drive
+ */
+export async function uploadMultipleFiles(
+  files: FileUploadItem[]
+): Promise<UploadResult[]> {
+  const results: UploadResult[] = [];
+  
+  for (const file of files) {
+    try {
+      let result;
+      if (file.isBinary && Buffer.isBuffer(file.content)) {
+        result = await uploadBinaryToGoogleDrive(file.content, file.fileName, file.folderPath);
+      } else {
+        const contentStr = typeof file.content === 'string' ? file.content : file.content.toString('utf-8');
+        result = await uploadToGoogleDrive(contentStr, file.fileName, file.folderPath);
+      }
+      
+      // 获取文件夹链接
+      let folderUrl = "";
+      try {
+        const folderLinkCmd = `rclone link "${REMOTE_NAME}:${file.folderPath}" --config ${RCLONE_CONFIG}`;
+        const { stdout } = await execAsync(folderLinkCmd);
+        folderUrl = stdout.trim();
+      } catch {
+        // 文件夹链接获取失败不影响主流程
+      }
+      
+      results.push({
+        fileName: file.fileName,
+        url: result.url,
+        path: result.path,
+        folderUrl,
+      });
+    } catch (error) {
+      console.error(`上传文件 ${file.fileName} 失败:`, error);
+      results.push({
+        fileName: file.fileName,
+        url: "",
+        path: "",
+      });
+    }
+  }
+  
+  return results;
 }

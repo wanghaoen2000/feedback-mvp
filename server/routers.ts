@@ -4,10 +4,10 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
-import { uploadToGoogleDrive } from "./gdrive";
+import { uploadToGoogleDrive, uploadMultipleFiles } from "./gdrive";
+import { generateFeedbackDocuments } from "./feedbackGenerator";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -20,7 +20,67 @@ export const appRouter = router({
     }),
   }),
 
-  // 计算功能
+  // 学情反馈生成
+  feedback: router({
+    generate: publicProcedure
+      .input(z.object({
+        studentName: z.string().min(1, "请输入学生姓名"),
+        lessonNumber: z.string().optional(),
+        lessonDate: z.string().optional(),
+        nextLessonDate: z.string().optional(),
+        lastFeedback: z.string().optional(),
+        currentNotes: z.string().min(1, "请输入本次课笔记"),
+        transcript: z.string().min(1, "请输入录音转文字"),
+        isFirstLesson: z.boolean().default(false),
+        specialRequirements: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const {
+          studentName,
+          lessonNumber,
+          lessonDate,
+          nextLessonDate,
+          lastFeedback,
+          currentNotes,
+          transcript,
+          isFirstLesson,
+          specialRequirements,
+        } = input;
+
+        // 生成5个文档
+        const documents = await generateFeedbackDocuments({
+          studentName,
+          lessonNumber: lessonNumber || "",
+          lessonDate: lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日',
+          nextLessonDate: nextLessonDate || "",
+          lastFeedback: lastFeedback || "",
+          currentNotes,
+          transcript,
+          isFirstLesson,
+          specialRequirements: specialRequirements || "",
+        });
+
+        // 上传到Google Drive
+        const basePath = `Mac/Documents/XDF/学生档案/${studentName}`;
+        
+        const uploadResults = await uploadMultipleFiles([
+          { content: documents.feedback, fileName: `${studentName}${lessonDate || ''}阅读课反馈.md`, folderPath: `${basePath}/学情反馈` },
+          { content: documents.review, fileName: `${studentName}${lessonDate || ''}复习文档.docx`, folderPath: `${basePath}/复习文档`, isBinary: true },
+          { content: documents.test, fileName: `${studentName}${lessonDate || ''}测试文档.docx`, folderPath: `${basePath}/复习文档`, isBinary: true },
+          { content: documents.extraction, fileName: `${studentName}${lessonDate || ''}课后信息提取.md`, folderPath: `${basePath}/课后信息` },
+          { content: documents.bubbleChart, fileName: `${studentName}${lessonDate || ''}气泡图.png`, folderPath: `${basePath}/气泡图`, isBinary: true },
+        ]);
+
+        return {
+          success: true,
+          files: uploadResults.map(r => ({ name: r.fileName, url: r.url })),
+          driveFolder: basePath,
+          driveUrl: uploadResults[0]?.folderUrl,
+        };
+      }),
+  }),
+
+  // 简单计算功能（保留MVP验证）
   calculate: router({
     compute: publicProcedure
       .input(z.object({
@@ -30,7 +90,6 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const { expression, studentName } = input;
         
-        // 调用Claude API计算
         const response = await invokeLLM({
           messages: [
             { 
@@ -46,10 +105,8 @@ export const appRouter = router({
 
         const result = response.choices[0]?.message?.content || "计算失败";
         
-        // 生成文件内容
         const fileContent = `# 计算结果\n\n表达式：${expression}\n结果：${result}\n\n生成时间：${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
         
-        // 上传到Google Drive
         const fileName = `${studentName}计算结果.md`;
         const folderPath = `Mac/Documents/XDF/学生档案/${studentName}/课后信息`;
         
