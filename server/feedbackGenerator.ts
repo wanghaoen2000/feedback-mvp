@@ -1,18 +1,6 @@
-import { invokeLLM, TextContent, ImageContent, FileContent } from "./_core/llm";
-
-// 辅助函数：从LLM响应中提取文本内容
-function extractTextContent(content: string | Array<TextContent | ImageContent | FileContent>): string {
-  if (typeof content === 'string') {
-    return content;
-  }
-  if (Array.isArray(content)) {
-    return content
-      .filter((item): item is TextContent => item.type === 'text')
-      .map(item => item.text)
-      .join('');
-  }
-  return '';
-}
+import { invokeWhatAI, MODELS } from "./whatai";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
+import sharp from "sharp";
 
 export interface FeedbackInput {
   studentName: string;
@@ -346,15 +334,12 @@ ${input.transcript}
 
 请严格按照V9路书规范生成完整的学情反馈文档。`;
 
-  const response = await invokeLLM({
-    messages: [
-      { role: "system", content: FEEDBACK_SYSTEM_PROMPT },
-      { role: "user", content: prompt },
-    ],
-    max_tokens: 8000,
-  });
+  const response = await invokeWhatAI([
+    { role: "system", content: FEEDBACK_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ], { model: MODELS.OPUS, max_tokens: 8000 });
 
-  return extractTextContent(response.choices[0]?.message?.content || "");
+  return response.choices[0]?.message?.content || "";
 }
 
 /**
@@ -368,15 +353,12 @@ ${feedback}
 
 请严格按照复习文档格式规范生成复习文档。生词顺序、数量必须和反馈里的【生词】部分完全一致！`;
 
-  const response = await invokeLLM({
-    messages: [
-      { role: "system", content: REVIEW_SYSTEM_PROMPT },
-      { role: "user", content: prompt },
-    ],
-    max_tokens: 8000,
-  });
+  const response = await invokeWhatAI([
+    { role: "system", content: REVIEW_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ], { model: MODELS.OPUS, max_tokens: 8000 });
 
-  return extractTextContent(response.choices[0]?.message?.content || "");
+  return response.choices[0]?.message?.content || "";
 }
 
 /**
@@ -388,15 +370,12 @@ ${reviewContent}
 
 请严格按照测试本格式规范生成测试版本。答案部分必须用分页符隔开！`;
 
-  const response = await invokeLLM({
-    messages: [
-      { role: "system", content: TEST_SYSTEM_PROMPT },
-      { role: "user", content: prompt },
-    ],
-    max_tokens: 6000,
-  });
+  const response = await invokeWhatAI([
+    { role: "system", content: TEST_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ], { model: MODELS.OPUS, max_tokens: 6000 });
 
-  return extractTextContent(response.choices[0]?.message?.content || "");
+  return response.choices[0]?.message?.content || "";
 }
 
 /**
@@ -411,15 +390,12 @@ ${feedback}
 
 请严格按照课后信息提取格式规范生成作业管理档案。`;
 
-  const response = await invokeLLM({
-    messages: [
-      { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
-      { role: "user", content: prompt },
-    ],
-    max_tokens: 2000,
-  });
+  const response = await invokeWhatAI([
+    { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ], { model: MODELS.SONNET, max_tokens: 2000 });
 
-  return extractTextContent(response.choices[0]?.message?.content || "");
+  return response.choices[0]?.message?.content || "";
 }
 
 /**
@@ -431,16 +407,13 @@ ${feedback}
 
 请提取3-6个问题-方案对，只输出JSON格式。`;
 
-  const response = await invokeLLM({
-    messages: [
-      { role: "system", content: BUBBLE_CHART_SYSTEM_PROMPT },
-      { role: "user", content: prompt },
-    ],
-    max_tokens: 1000,
-  });
+  const response = await invokeWhatAI([
+    { role: "system", content: BUBBLE_CHART_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ], { model: MODELS.SONNET, max_tokens: 1000 });
 
   try {
-    const content = extractTextContent(response.choices[0]?.message?.content || "[]");
+    const content = response.choices[0]?.message?.content || "[]";
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
@@ -519,17 +492,124 @@ function generateBubbleChartSVG(
 }
 
 /**
- * 将SVG转换为PNG
+ * 将SVG转换为PNG（使用sharp）
  */
 async function svgToPng(svgContent: string): Promise<Buffer> {
-  return Buffer.from(svgContent, 'utf-8');
+  try {
+    const pngBuffer = await sharp(Buffer.from(svgContent))
+      .png()
+      .toBuffer();
+    return pngBuffer;
+  } catch (error) {
+    console.error("[气泡图] SVG转PNG失败:", error);
+    throw error;
+  }
 }
 
 /**
- * 将Markdown转换为DOCX格式
+ * 将Markdown内容转换为DOCX格式（使用docx库）
  */
-function markdownToDocxBuffer(content: string): Buffer {
-  return Buffer.from(content, 'utf-8');
+async function markdownToDocx(content: string, title: string): Promise<Buffer> {
+  const lines = content.split('\n');
+  const children: Paragraph[] = [];
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    
+    if (trimmedLine.startsWith('# ')) {
+      // 一级标题
+      children.push(new Paragraph({
+        text: trimmedLine.substring(2),
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: 400, after: 200 },
+      }));
+    } else if (trimmedLine.startsWith('## ')) {
+      // 二级标题
+      children.push(new Paragraph({
+        text: trimmedLine.substring(3),
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 300, after: 150 },
+      }));
+    } else if (trimmedLine.startsWith('### ')) {
+      // 三级标题
+      children.push(new Paragraph({
+        text: trimmedLine.substring(4),
+        heading: HeadingLevel.HEADING_3,
+        spacing: { before: 200, after: 100 },
+      }));
+    } else if (trimmedLine.startsWith('---') || trimmedLine.startsWith('===')) {
+      // 分隔线 - 添加分页符
+      children.push(new Paragraph({
+        children: [new PageBreak()],
+      }));
+    } else if (trimmedLine.startsWith('- ') || trimmedLine.startsWith('* ')) {
+      // 无序列表
+      children.push(new Paragraph({
+        text: '• ' + trimmedLine.substring(2),
+        spacing: { before: 50, after: 50 },
+        indent: { left: 720 },
+      }));
+    } else if (/^\d+\.\s/.test(trimmedLine)) {
+      // 有序列表
+      children.push(new Paragraph({
+        text: trimmedLine,
+        spacing: { before: 50, after: 50 },
+        indent: { left: 720 },
+      }));
+    } else if (trimmedLine === '') {
+      // 空行
+      children.push(new Paragraph({
+        text: '',
+        spacing: { before: 100, after: 100 },
+      }));
+    } else {
+      // 普通段落
+      // 处理粗体文本
+      const parts: TextRun[] = [];
+      let remaining = trimmedLine;
+      const boldRegex = /\*\*(.+?)\*\*/g;
+      let lastIndex = 0;
+      let match;
+      
+      while ((match = boldRegex.exec(remaining)) !== null) {
+        if (match.index > lastIndex) {
+          parts.push(new TextRun({ text: remaining.substring(lastIndex, match.index) }));
+        }
+        parts.push(new TextRun({ text: match[1], bold: true }));
+        lastIndex = match.index + match[0].length;
+      }
+      
+      if (lastIndex < remaining.length) {
+        parts.push(new TextRun({ text: remaining.substring(lastIndex) }));
+      }
+      
+      if (parts.length === 0) {
+        parts.push(new TextRun({ text: trimmedLine }));
+      }
+      
+      children.push(new Paragraph({
+        children: parts,
+        spacing: { before: 100, after: 100 },
+      }));
+    }
+  }
+  
+  const doc = new Document({
+    sections: [{
+      properties: {},
+      children: [
+        new Paragraph({
+          text: title,
+          heading: HeadingLevel.TITLE,
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 400 },
+        }),
+        ...children,
+      ],
+    }],
+  });
+  
+  return await Packer.toBuffer(doc);
 }
 
 /**
@@ -558,11 +638,13 @@ export async function generateFeedbackDocuments(
   let reviewContent = '';
   let testContent = '';
   let extraction = '';
+  let reviewDocx = Buffer.from('');
+  let testDocx = Buffer.from('');
   let bubbleChartPng = Buffer.from('');
 
   // 1. 生成学情反馈
   try {
-    updateStep(0, 'running', '正在调用AI生成学情反馈...');
+    updateStep(0, 'running', '正在调用Claude Opus生成学情反馈...');
     feedback = await generateFeedbackContent(input);
     updateStep(0, 'success', `生成完成，共${feedback.length}字`);
   } catch (err) {
@@ -574,6 +656,7 @@ export async function generateFeedbackDocuments(
   try {
     updateStep(1, 'running', '正在生成复习文档...');
     reviewContent = await generateReviewContent(feedback, input.studentName);
+    reviewDocx = await markdownToDocx(reviewContent, `${input.studentName}${input.lessonDate}复习文档`);
     updateStep(1, 'success', `生成完成，共${reviewContent.length}字`);
   } catch (err) {
     updateStep(1, 'error', undefined, err instanceof Error ? err.message : '生成失败');
@@ -584,6 +667,7 @@ export async function generateFeedbackDocuments(
   try {
     updateStep(2, 'running', '正在生成测试本...');
     testContent = await generateTestContent(reviewContent);
+    testDocx = await markdownToDocx(testContent, `${input.studentName}${input.lessonDate}测试本`);
     updateStep(2, 'success', `生成完成，共${testContent.length}字`);
   } catch (err) {
     updateStep(2, 'error', undefined, err instanceof Error ? err.message : '生成失败');
@@ -621,8 +705,8 @@ export async function generateFeedbackDocuments(
 
   return {
     feedback,
-    review: markdownToDocxBuffer(reviewContent),
-    test: markdownToDocxBuffer(testContent),
+    review: reviewDocx,
+    test: testDocx,
     extraction,
     bubbleChart: bubbleChartPng,
     steps,
