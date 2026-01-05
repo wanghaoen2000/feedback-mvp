@@ -34,14 +34,15 @@ vi.mock('./gdrive', () => ({
 }));
 
 describe('Feedback Generator', () => {
-  it('should have correct input validation schema (V11: without date fields)', async () => {
-    // V11更新：移除了日期字段，AI自动从笔记中提取
+  it('should have correct input validation schema', async () => {
+    // 测试输入验证
     const validInput = {
       studentName: '张三',
       lessonNumber: '第10次课',
-      // lessonDate 和 nextLessonDate 已移除
+      lessonDate: '1月15日',
+      nextLessonDate: '1月22日',
       lastFeedback: '上次反馈内容',
-      currentNotes: '本次课笔记内容\n上次课：1月8日\n本次课：1月15日\n下次课：1月22日',
+      currentNotes: '本次课笔记内容',
       transcript: '录音转文字内容',
       isFirstLesson: false,
       specialRequirements: '',
@@ -50,8 +51,6 @@ describe('Feedback Generator', () => {
     expect(validInput.studentName).toBeTruthy();
     expect(validInput.currentNotes).toBeTruthy();
     expect(validInput.transcript).toBeTruthy();
-    // 确认日期信息包含在笔记中
-    expect(validInput.currentNotes).toContain('本次课');
   });
 
   it('should handle first lesson mode', () => {
@@ -106,157 +105,5 @@ describe('Google Drive Upload', () => {
     
     expect(results).toBeDefined();
     expect(results.length).toBeGreaterThan(0);
-  });
-});
-
-describe('API Configuration (V11)', () => {
-  it('should have default config values', () => {
-    const DEFAULT_CONFIG = {
-      apiModel: "claude-sonnet-4-5-20250929",
-      apiKey: "", // 从环境变量获取
-      apiUrl: "https://api.whatai.cc/v1",
-    };
-    
-    expect(DEFAULT_CONFIG.apiModel).toBe("claude-sonnet-4-5-20250929");
-    expect(DEFAULT_CONFIG.apiUrl).toBe("https://api.whatai.cc/v1");
-  });
-
-  it('should allow custom config override', () => {
-    const customConfig = {
-      apiModel: "gpt-4o",
-      apiKey: "sk-custom-key",
-      apiUrl: "https://api.openai.com/v1",
-    };
-    
-    // 模拟配置覆盖逻辑
-    const DEFAULT_CONFIG = {
-      apiModel: "claude-sonnet-4-5-20250929",
-      apiKey: "",
-      apiUrl: "https://api.whatai.cc/v1",
-    };
-    
-    const finalConfig = {
-      apiModel: customConfig.apiModel || DEFAULT_CONFIG.apiModel,
-      apiKey: customConfig.apiKey || DEFAULT_CONFIG.apiKey,
-      apiUrl: customConfig.apiUrl || DEFAULT_CONFIG.apiUrl,
-    };
-    
-    expect(finalConfig.apiModel).toBe("gpt-4o");
-    expect(finalConfig.apiKey).toBe("sk-custom-key");
-    expect(finalConfig.apiUrl).toBe("https://api.openai.com/v1");
-  });
-
-  it('should use default when custom config is empty', () => {
-    const customConfig = {
-      apiModel: "",
-      apiKey: "",
-      apiUrl: "",
-    };
-    
-    const DEFAULT_CONFIG = {
-      apiModel: "claude-sonnet-4-5-20250929",
-      apiKey: "default-key",
-      apiUrl: "https://api.whatai.cc/v1",
-    };
-    
-    const finalConfig = {
-      apiModel: customConfig.apiModel || DEFAULT_CONFIG.apiModel,
-      apiKey: customConfig.apiKey || DEFAULT_CONFIG.apiKey,
-      apiUrl: customConfig.apiUrl || DEFAULT_CONFIG.apiUrl,
-    };
-    
-    expect(finalConfig.apiModel).toBe("claude-sonnet-4-5-20250929");
-    expect(finalConfig.apiKey).toBe("default-key");
-    expect(finalConfig.apiUrl).toBe("https://api.whatai.cc/v1");
-  });
-});
-
-describe('Date Extraction from Notes (V11)', () => {
-  it('should extract dates from notes content', () => {
-    const notes = `
-上次课：1月8日
-本次课：1月15日
-下次课：1月22日
-
-今天讲解了词汇题的解题方法...
-    `;
-    
-    // 模拟日期提取逻辑
-    const extractDate = (text: string, pattern: RegExp): string | null => {
-      const match = text.match(pattern);
-      return match ? match[1] : null;
-    };
-    
-    const lastLessonDate = extractDate(notes, /上次课[：:]\s*(\d+月\d+日)/);
-    const currentLessonDate = extractDate(notes, /本次课[：:]\s*(\d+月\d+日)/);
-    const nextLessonDate = extractDate(notes, /下次课[：:]\s*(\d+月\d+日)/);
-    
-    expect(lastLessonDate).toBe('1月8日');
-    expect(currentLessonDate).toBe('1月15日');
-    expect(nextLessonDate).toBe('1月22日');
-  });
-
-  it('should handle missing dates gracefully', () => {
-    const notes = `今天讲解了词汇题的解题方法...`;
-    
-    const extractDate = (text: string, pattern: RegExp): string | null => {
-      const match = text.match(pattern);
-      return match ? match[1] : null;
-    };
-    
-    const currentLessonDate = extractDate(notes, /本次课[：:]\s*(\d+月\d+日)/);
-    
-    expect(currentLessonDate).toBeNull();
-  });
-});
-
-describe('Single Step Retry (V12)', () => {
-  it('should allow retrying individual failed steps', () => {
-    const steps = [
-      { step: 1, name: "学情反馈", status: 'success' as const },
-      { step: 2, name: "复习文档", status: 'error' as const },
-      { step: 3, name: "测试本", status: 'pending' as const },
-      { step: 4, name: "课后信息提取", status: 'pending' as const },
-      { step: 5, name: "气泡图", status: 'pending' as const },
-    ];
-    
-    // 模拟重试步骤2
-    const retryStepIndex = 1;
-    expect(steps[retryStepIndex].status).toBe('error');
-    
-    // 重试后应该变为success
-    steps[retryStepIndex].status = 'success';
-    expect(steps[retryStepIndex].status).toBe('success');
-  });
-
-  it('should not retry if step 1 (feedback) has not succeeded', () => {
-    const feedbackContent = '';
-    const dateStr = '';
-    
-    // 步骤2-5依赖步骤1的结果
-    const canRetryStep2 = !!(feedbackContent && dateStr);
-    expect(canRetryStep2).toBe(false);
-  });
-
-  it('should allow retry after step 1 succeeds', () => {
-    const feedbackContent = '学情反馈内容';
-    const dateStr = '1月15日';
-    
-    // 步骤1成功后，步骤2-5可以重试
-    const canRetryStep2 = !!(feedbackContent && dateStr);
-    expect(canRetryStep2).toBe(true);
-  });
-
-  it('should check all steps success after retry', () => {
-    const steps = [
-      { step: 1, name: "学情反馈", status: 'success' as const },
-      { step: 2, name: "复习文档", status: 'success' as const },
-      { step: 3, name: "测试本", status: 'success' as const },
-      { step: 4, name: "课后信息提取", status: 'success' as const },
-      { step: 5, name: "气泡图", status: 'success' as const },
-    ];
-    
-    const allSuccess = steps.every(s => s.status === 'success');
-    expect(allSuccess).toBe(true);
   });
 });

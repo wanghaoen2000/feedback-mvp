@@ -8,13 +8,6 @@
       "when": 1767591031107,
       "tag": "0000_panoramic_warhawk",
       "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1767612892294,
-      "tag": "0001_silky_cerebro",
-      "breakpoints": true
     }
   ]
 }

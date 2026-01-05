@@ -25,14 +25,4 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// 系统配置表
-export const systemConfig = mysqlTable("system_config", {
-  id: int("id").autoincrement().primaryKey(),
-  key: varchar("key", { length: 64 }).notNull().unique(),
-  value: text("value").notNull(),
-  description: text("description"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type SystemConfig = typeof systemConfig.$inferSelect;
-export type InsertSystemConfig = typeof systemConfig.$inferInsert;
+// TODO: Add your tables here
