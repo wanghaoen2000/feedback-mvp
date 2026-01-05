@@ -6,7 +6,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
-import { systemConfig } from "../drizzle/schema";
+import { systemConfig, taskProgress } from "../drizzle/schema";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus } from "./gdrive";
 import { 
   generateFeedbackContent, 
@@ -479,6 +479,164 @@ export const appRouter = router({
           results: verification.results,
           driveFolder: basePath,
         };
+      }),
+  }),
+
+  // 任务进度管理 - 断点续传
+  task: router({
+    // 创建或获取任务
+    getOrCreate: publicProcedure
+      .input(z.object({
+        studentName: z.string(),
+        inputData: z.string(), // JSON格式的输入数据
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+        
+        // 生成任务key：学生名 + 今天日期
+        const today = new Date().toISOString().split('T')[0];
+        const taskKey = `${input.studentName}_${today}`;
+        
+        // 查找现有任务
+        const existing = await db.select().from(taskProgress).where(eq(taskProgress.taskKey, taskKey)).limit(1);
+        
+        if (existing.length > 0) {
+          const task = existing[0];
+          // 如果任务已完成，返回完成状态
+          if (task.status === 'completed') {
+            return {
+              taskId: task.id,
+              taskKey,
+              studentName: task.studentName,
+              isNew: false,
+              currentStep: task.currentStep,
+              status: task.status,
+              dateStr: task.dateStr,
+              steps: {
+                step1: task.step1Result ? JSON.parse(task.step1Result) : null,
+                step2: task.step2Result ? JSON.parse(task.step2Result) : null,
+                step3: task.step3Result ? JSON.parse(task.step3Result) : null,
+                step4: task.step4Result ? JSON.parse(task.step4Result) : null,
+                step5: task.step5Result ? JSON.parse(task.step5Result) : null,
+              },
+            };
+          }
+          // 如果任务未完成，返回当前进度
+          return {
+            taskId: task.id,
+            taskKey,
+            studentName: task.studentName,
+            isNew: false,
+            currentStep: task.currentStep,
+            status: task.status,
+            dateStr: task.dateStr,
+            steps: {
+              step1: task.step1Result ? JSON.parse(task.step1Result) : null,
+              step2: task.step2Result ? JSON.parse(task.step2Result) : null,
+              step3: task.step3Result ? JSON.parse(task.step3Result) : null,
+              step4: task.step4Result ? JSON.parse(task.step4Result) : null,
+              step5: task.step5Result ? JSON.parse(task.step5Result) : null,
+            },
+          };
+        }
+        
+        // 创建新任务
+        const result = await db.insert(taskProgress).values({
+          taskKey,
+          studentName: input.studentName,
+          inputData: input.inputData,
+          currentStep: 0,
+          status: 'pending',
+        });
+        
+        return {
+          taskId: result[0].insertId,
+          taskKey,
+          studentName: input.studentName,
+          isNew: true,
+          currentStep: 0,
+          status: 'pending',
+          dateStr: null,
+          steps: {
+            step1: null,
+            step2: null,
+            step3: null,
+            step4: null,
+            step5: null,
+          },
+        };
+      }),
+
+    // 更新任务进度
+    updateStep: publicProcedure
+      .input(z.object({
+        taskKey: z.string(),
+        step: z.number().min(1).max(5),
+        result: z.string(), // JSON格式的结果
+        dateStr: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+        
+        const stepField = `step${input.step}Result` as 'step1Result' | 'step2Result' | 'step3Result' | 'step4Result' | 'step5Result';
+        
+        const updateData: any = {
+          [stepField]: input.result,
+          currentStep: input.step,
+          status: input.step === 5 ? 'completed' : 'running',
+        };
+        
+        if (input.dateStr) {
+          updateData.dateStr = input.dateStr;
+        }
+        
+        await db.update(taskProgress)
+          .set(updateData)
+          .where(eq(taskProgress.taskKey, input.taskKey));
+        
+        return { success: true, step: input.step };
+      }),
+
+    // 获取未完成任务列表
+    getPending: publicProcedure
+      .input(z.object({
+        studentName: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        const db = await getDb();
+        if (!db) return [];
+        
+        let query = db.select().from(taskProgress);
+        
+        if (input.studentName) {
+          query = query.where(eq(taskProgress.studentName, input.studentName)) as typeof query;
+        }
+        
+        const tasks = await query;
+        return tasks.filter(t => t.status !== 'completed').map(t => ({
+          taskId: t.id,
+          taskKey: t.taskKey,
+          studentName: t.studentName,
+          currentStep: t.currentStep,
+          status: t.status,
+          dateStr: t.dateStr,
+          createdAt: t.createdAt,
+        }));
+      }),
+
+    // 删除任务
+    delete: publicProcedure
+      .input(z.object({
+        taskKey: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+        
+        await db.delete(taskProgress).where(eq(taskProgress.taskKey, input.taskKey));
+        return { success: true };
       }),
   }),
 

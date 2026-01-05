@@ -1,0 +1,31 @@
+{
+  "query": "SELECT * FROM system_config;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2MZtV6wEbn7VDxk.root --database i28QGEfQiub7RkxMVRZYkr --execute SELECT * FROM system_config;",
+  "rows": [
+    {
+      "id": "1",
+      "key": "apiModel",
+      "value": "claude-opus-4-5-20251101-thinking",
+      "description": "AI模型名称",
+      "updatedAt": "2026-01-05 13:29:46"
+    },
+    {
+      "id": "2",
+      "key": "apiKey",
+      "value": "sk-WyfaRl3qxKk8gpaptVWUfe1ZiJYQg0Vqjd7nscsZMT4l0c9U",
+      "description": "API密钥",
+      "updatedAt": "2026-01-05 13:29:46"
+    },
+    {
+      "id": "3",
+      "key": "apiUrl",
+      "value": "https://www.DMXapi.com/v1",
+      "description": "API地址",
+      "updatedAt": "2026-01-05 13:29:47"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tkey\tvalue\tdescription\tupdatedAt\n1\tapiModel\tclaude-opus-4-5-20251101-thinking\tAI模型名称\t2026-01-05 13:29:46\n2\tapiKey\tsk-WyfaRl3qxKk8gpaptVWUfe1ZiJYQg0Vqjd7nscsZMT4l0c9U\tAPI密钥\t2026-01-05 13:29:46\n3\tapiUrl\thttps://www.DMXapi.com/v1\tAPI地址\t2026-01-05 13:29:47\n",
+  "stderr": "",
+  "execution_time_ms": 120
+}

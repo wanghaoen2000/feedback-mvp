@@ -1,0 +1,22 @@
+{
+  "query": "SELECT `key`, `value` FROM system_config;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2MZtV6wEbn7VDxk.root --database i28QGEfQiub7RkxMVRZYkr --execute SELECT `key`, `value` FROM system_config;",
+  "rows": [
+    {
+      "key": "apiModel",
+      "value": "claude-opus-4-5-20251101-thinking"
+    },
+    {
+      "key": "apiKey",
+      "value": "sk-wOwJ32UuaB0d96sTGVTt4b1LV8oFEETM7PoFbyIj8mZO4fmT"
+    },
+    {
+      "key": "apiUrl",
+      "value": "https://api.whatai.cc/v1"
+    }
+  ],
+  "messages": [],
+  "stdout": "key\tvalue\napiModel\tclaude-opus-4-5-20251101-thinking\napiKey\tsk-wOwJ32UuaB0d96sTGVTt4b1LV8oFEETM7PoFbyIj8mZO4fmT\napiUrl\thttps://api.whatai.cc/v1\n",
+  "stderr": "",
+  "execution_time_ms": 63
+}

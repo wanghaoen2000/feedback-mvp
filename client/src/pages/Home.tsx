@@ -20,7 +20,9 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
-  Save
+  Save,
+  Play,
+  History
 } from "lucide-react";
 
 // 步骤状态类型
@@ -94,6 +96,15 @@ export default function Home() {
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
 
+  // 断点续传状态
+  const [taskKey, setTaskKey] = useState<string | null>(null);
+  const [hasPendingTask, setHasPendingTask] = useState(false);
+  const [pendingTaskInfo, setPendingTaskInfo] = useState<{
+    studentName: string;
+    currentStep: number;
+    dateStr: string | null;
+  } | null>(null);
+
   // tRPC queries and mutations
   const configQuery = trpc.config.getAll.useQuery();
   const updateConfigMutation = trpc.config.update.useMutation();
@@ -103,6 +114,11 @@ export default function Home() {
   const generateTestMutation = trpc.feedback.generateTest.useMutation();
   const generateExtractionMutation = trpc.feedback.generateExtraction.useMutation();
   const generateBubbleChartMutation = trpc.feedback.generateBubbleChart.useMutation();
+
+  // 断点续传API
+  const getOrCreateTaskMutation = trpc.task.getOrCreate.useMutation();
+  const updateTaskStepMutation = trpc.task.updateStep.useMutation();
+  const deleteTaskMutation = trpc.task.delete.useMutation();
 
   // 加载配置
   useEffect(() => {
@@ -140,157 +156,56 @@ export default function Home() {
     ));
   }, []);
 
-  // 执行生成流程
-  const runGeneration = useCallback(async () => {
-    setIsGenerating(true);
-    setIsComplete(false);
-    setHasError(false);
-    setSteps(initialSteps);
-    setCurrentStep(1);
-
-    let content = "";
-    let date = "";
-
-    // 构建配置对象（只传非空值）
-    const configOverride = {
-      apiModel: apiModel.trim() || undefined,
-      apiKey: apiKey.trim() || undefined,
-      apiUrl: apiUrl.trim() || undefined,
-    };
-
-    try {
-      // 步骤1: 生成学情反馈
-      updateStep(0, { status: 'running', message: '正在调用AI生成学情反馈...' });
-      const step1Result = await generateFeedbackMutation.mutateAsync({
-        studentName: studentName.trim(),
-        lessonNumber: lessonNumber.trim(),
-        lastFeedback: lastFeedback.trim(),
-        currentNotes: currentNotes.trim(),
-        transcript: transcript.trim(),
-        isFirstLesson,
-        specialRequirements: specialRequirements.trim(),
-        ...configOverride,
-      });
-      
-      content = step1Result.feedbackContent;
-      date = step1Result.dateStr;
-      setFeedbackContent(content);
-      setDateStr(date);
-      updateStep(0, { 
-        status: 'success', 
-        message: '生成完成',
-        uploadResult: step1Result.uploadResult
-      });
-      setCurrentStep(2);
-
-      // 步骤2: 生成复习文档
-      updateStep(1, { status: 'running', message: '正在生成复习文档...' });
-      const step2Result = await generateReviewMutation.mutateAsync({
-        studentName: studentName.trim(),
-        dateStr: date,
-        feedbackContent: content,
-        ...configOverride,
-      });
-      updateStep(1, { 
-        status: 'success', 
-        message: '生成完成',
-        uploadResult: step2Result.uploadResult
-      });
-      setCurrentStep(3);
-
-      // 步骤3: 生成测试本
-      updateStep(2, { status: 'running', message: '正在生成测试本...' });
-      const step3Result = await generateTestMutation.mutateAsync({
-        studentName: studentName.trim(),
-        dateStr: date,
-        feedbackContent: content,
-        ...configOverride,
-      });
-      updateStep(2, { 
-        status: 'success', 
-        message: '生成完成',
-        uploadResult: step3Result.uploadResult
-      });
-      setCurrentStep(4);
-
-      // 步骤4: 生成课后信息提取
-      updateStep(3, { status: 'running', message: '正在生成课后信息提取...' });
-      const step4Result = await generateExtractionMutation.mutateAsync({
-        studentName: studentName.trim(),
-        dateStr: date,
-        feedbackContent: content,
-        ...configOverride,
-      });
-      updateStep(3, { 
-        status: 'success', 
-        message: '生成完成',
-        uploadResult: step4Result.uploadResult
-      });
-      setCurrentStep(5);
-
-      // 步骤5: 生成气泡图
-      updateStep(4, { status: 'running', message: '正在生成气泡图...' });
-      const step5Result = await generateBubbleChartMutation.mutateAsync({
-        studentName: studentName.trim(),
-        dateStr: date,
-        lessonNumber: lessonNumber.trim(),
-        feedbackContent: content,
-        ...configOverride,
-      });
-      updateStep(4, { 
-        status: 'success', 
-        message: '生成完成',
-        uploadResult: step5Result.uploadResult
-      });
-
-      setIsComplete(true);
-    } catch (error) {
-      console.error("生成失败:", error);
-      setHasError(true);
-      // 标记当前步骤为失败
-      const failedStepIndex = currentStep - 1;
-      if (failedStepIndex >= 0 && failedStepIndex < 5) {
-        updateStep(failedStepIndex, { 
-          status: 'error', 
-          error: error instanceof Error ? error.message : '生成失败'
-        });
-      }
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [
-    studentName, lessonNumber, lastFeedback, currentNotes, transcript, 
-    isFirstLesson, specialRequirements, apiModel, apiKey, apiUrl,
-    generateFeedbackMutation, generateReviewMutation, generateTestMutation,
-    generateExtractionMutation, generateBubbleChartMutation, updateStep, currentStep
-  ]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!studentName.trim() || !currentNotes.trim() || !transcript.trim()) {
-      return;
-    }
-    await runGeneration();
-  };
-
-  // 单步重试函数
-  const retryStep = useCallback(async (stepIndex: number) => {
-    if (isGenerating) return;
+  // 从已保存的步骤结果恢复状态
+  const restoreFromTask = useCallback((taskData: any) => {
+    const newSteps = [...initialSteps];
     
-    setIsGenerating(true);
-    updateStep(stepIndex, { status: 'running', message: '正在重试...' });
+    if (taskData.steps.step1) {
+      const step1 = taskData.steps.step1;
+      newSteps[0] = { ...newSteps[0], status: 'success', uploadResult: step1.uploadResult };
+      if (step1.feedbackContent) setFeedbackContent(step1.feedbackContent);
+      if (step1.dateStr) setDateStr(step1.dateStr);
+    }
+    if (taskData.steps.step2) {
+      newSteps[1] = { ...newSteps[1], status: 'success', uploadResult: taskData.steps.step2.uploadResult };
+    }
+    if (taskData.steps.step3) {
+      newSteps[2] = { ...newSteps[2], status: 'success', uploadResult: taskData.steps.step3.uploadResult };
+    }
+    if (taskData.steps.step4) {
+      newSteps[3] = { ...newSteps[3], status: 'success', uploadResult: taskData.steps.step4.uploadResult };
+    }
+    if (taskData.steps.step5) {
+      newSteps[4] = { ...newSteps[4], status: 'success', uploadResult: taskData.steps.step5.uploadResult };
+    }
+    
+    setSteps(newSteps);
+    setCurrentStep(taskData.currentStep);
+    if (taskData.dateStr) setDateStr(taskData.dateStr);
+    
+    // 检查是否全部完成
+    if (taskData.status === 'completed' || taskData.currentStep === 5) {
+      setIsComplete(true);
+    }
+  }, []);
 
-    const configOverride = {
-      apiModel: apiModel.trim() || undefined,
-      apiKey: apiKey.trim() || undefined,
-      apiUrl: apiUrl.trim() || undefined,
-    };
+  // 执行单个步骤
+  const executeStep = useCallback(async (
+    stepNum: number, 
+    content: string, 
+    date: string, 
+    configOverride: any,
+    currentTaskKey: string
+  ): Promise<{ content: string; date: string; success: boolean }> => {
+    const stepIndex = stepNum - 1;
+    updateStep(stepIndex, { status: 'running', message: '正在生成...' });
 
     try {
       let result;
-      
-      switch (stepIndex) {
-        case 0: // 学情反馈
+      let stepResult: any = {};
+
+      switch (stepNum) {
+        case 1:
           result = await generateFeedbackMutation.mutateAsync({
             studentName: studentName.trim(),
             lessonNumber: lessonNumber.trim(),
@@ -301,87 +216,284 @@ export default function Home() {
             specialRequirements: specialRequirements.trim(),
             ...configOverride,
           });
-          setFeedbackContent(result.feedbackContent);
-          setDateStr(result.dateStr);
-          updateStep(0, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          content = result.feedbackContent;
+          date = result.dateStr;
+          setFeedbackContent(content);
+          setDateStr(date);
+          stepResult = { feedbackContent: content, dateStr: date, uploadResult: result.uploadResult };
           break;
 
-        case 1: // 复习文档
-          if (!feedbackContent || !dateStr) {
-            throw new Error('请先生成学情反馈');
-          }
+        case 2:
           result = await generateReviewMutation.mutateAsync({
             studentName: studentName.trim(),
-            dateStr,
-            feedbackContent,
+            dateStr: date,
+            feedbackContent: content,
             ...configOverride,
           });
-          updateStep(1, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          stepResult = { uploadResult: result.uploadResult };
           break;
 
-        case 2: // 测试本
-          if (!feedbackContent || !dateStr) {
-            throw new Error('请先生成学情反馈');
-          }
+        case 3:
           result = await generateTestMutation.mutateAsync({
             studentName: studentName.trim(),
-            dateStr,
-            feedbackContent,
+            dateStr: date,
+            feedbackContent: content,
             ...configOverride,
           });
-          updateStep(2, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          stepResult = { uploadResult: result.uploadResult };
           break;
 
-        case 3: // 课后信息提取
-          if (!feedbackContent || !dateStr) {
-            throw new Error('请先生成学情反馈');
-          }
+        case 4:
           result = await generateExtractionMutation.mutateAsync({
             studentName: studentName.trim(),
-            dateStr,
-            feedbackContent,
+            dateStr: date,
+            feedbackContent: content,
             ...configOverride,
           });
-          updateStep(3, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          stepResult = { uploadResult: result.uploadResult };
           break;
 
-        case 4: // 气泡图
-          if (!feedbackContent || !dateStr) {
-            throw new Error('请先生成学情反馈');
-          }
+        case 5:
           result = await generateBubbleChartMutation.mutateAsync({
             studentName: studentName.trim(),
-            dateStr,
+            dateStr: date,
             lessonNumber: lessonNumber.trim(),
-            feedbackContent,
+            feedbackContent: content,
             ...configOverride,
           });
-          updateStep(4, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          stepResult = { uploadResult: result.uploadResult };
           break;
       }
 
+      // 保存进度到数据库
+      await updateTaskStepMutation.mutateAsync({
+        taskKey: currentTaskKey,
+        step: stepNum,
+        result: JSON.stringify(stepResult),
+        dateStr: stepNum === 1 ? date : undefined,
+      });
+
+      updateStep(stepIndex, { 
+        status: 'success', 
+        message: '生成完成',
+        uploadResult: result?.uploadResult
+      });
+
+      return { content, date, success: true };
+    } catch (error) {
+      console.error(`步骤${stepNum}失败:`, error);
+      updateStep(stepIndex, { 
+        status: 'error', 
+        error: error instanceof Error ? error.message : '生成失败'
+      });
+      return { content, date, success: false };
+    }
+  }, [
+    studentName, lessonNumber, lastFeedback, currentNotes, transcript,
+    isFirstLesson, specialRequirements, updateStep,
+    generateFeedbackMutation, generateReviewMutation, generateTestMutation,
+    generateExtractionMutation, generateBubbleChartMutation, updateTaskStepMutation
+  ]);
+
+  // 执行生成流程（支持从指定步骤开始）
+  const runGeneration = useCallback(async (startFromStep: number = 1, existingContent?: string, existingDate?: string) => {
+    setIsGenerating(true);
+    setIsComplete(false);
+    setHasError(false);
+    
+    if (startFromStep === 1) {
+      setSteps(initialSteps);
+    }
+    setCurrentStep(startFromStep);
+
+    let content = existingContent || feedbackContent;
+    let date = existingDate || dateStr;
+
+    // 构建配置对象（只传非空值）
+    const configOverride = {
+      apiModel: apiModel.trim() || undefined,
+      apiKey: apiKey.trim() || undefined,
+      apiUrl: apiUrl.trim() || undefined,
+    };
+
+    // 获取或创建任务
+    let currentTaskKey = taskKey;
+    if (!currentTaskKey) {
+      try {
+        const inputData = JSON.stringify({
+          studentName: studentName.trim(),
+          lessonNumber: lessonNumber.trim(),
+          lastFeedback: lastFeedback.trim(),
+          currentNotes: currentNotes.trim(),
+          transcript: transcript.trim(),
+          isFirstLesson,
+          specialRequirements: specialRequirements.trim(),
+        });
+        
+        const taskResult = await getOrCreateTaskMutation.mutateAsync({
+          studentName: studentName.trim(),
+          inputData,
+        });
+        
+        currentTaskKey = taskResult.taskKey;
+        setTaskKey(currentTaskKey);
+
+        // 如果有未完成的任务，恢复状态
+        if (!taskResult.isNew && taskResult.currentStep > 0) {
+          restoreFromTask(taskResult);
+          content = taskResult.steps.step1?.feedbackContent || content;
+          date = taskResult.dateStr || date;
+          
+          // 从下一个未完成的步骤开始
+          const nextStep = taskResult.currentStep + 1;
+          if (nextStep <= 5) {
+            startFromStep = nextStep;
+            setCurrentStep(nextStep);
+          } else {
+            // 已全部完成
+            setIsComplete(true);
+            setIsGenerating(false);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("创建任务失败:", error);
+        setHasError(true);
+        setIsGenerating(false);
+        return;
+      }
+    }
+
+    // 执行步骤
+    for (let stepNum = startFromStep; stepNum <= 5; stepNum++) {
+      setCurrentStep(stepNum);
+      
+      const result = await executeStep(stepNum, content, date, configOverride, currentTaskKey!);
+      
+      if (!result.success) {
+        setHasError(true);
+        setIsGenerating(false);
+        return;
+      }
+      
+      content = result.content;
+      date = result.date;
+    }
+
+    setIsComplete(true);
+    setIsGenerating(false);
+  }, [
+    feedbackContent, dateStr, apiModel, apiKey, apiUrl, taskKey,
+    studentName, lessonNumber, lastFeedback, currentNotes, transcript,
+    isFirstLesson, specialRequirements,
+    getOrCreateTaskMutation, executeStep, restoreFromTask
+  ]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!studentName.trim() || !currentNotes.trim() || !transcript.trim()) {
+      return;
+    }
+    
+    // 检查是否有未完成的任务
+    try {
+      const inputData = JSON.stringify({
+        studentName: studentName.trim(),
+        lessonNumber: lessonNumber.trim(),
+        lastFeedback: lastFeedback.trim(),
+        currentNotes: currentNotes.trim(),
+        transcript: transcript.trim(),
+        isFirstLesson,
+        specialRequirements: specialRequirements.trim(),
+      });
+      
+      const taskResult = await getOrCreateTaskMutation.mutateAsync({
+        studentName: studentName.trim(),
+        inputData,
+      });
+      
+      setTaskKey(taskResult.taskKey);
+      
+      if (!taskResult.isNew && taskResult.currentStep > 0 && taskResult.status !== 'completed') {
+        // 有未完成的任务
+        setHasPendingTask(true);
+        setPendingTaskInfo({
+          studentName: taskResult.studentName,
+          currentStep: taskResult.currentStep,
+          dateStr: taskResult.dateStr,
+        });
+        restoreFromTask(taskResult);
+        return;
+      }
+      
+      // 没有未完成的任务，直接开始
+      await runGeneration(1);
+    } catch (error) {
+      console.error("检查任务失败:", error);
+      // 出错时直接开始新任务
+      await runGeneration(1);
+    }
+  };
+
+  // 继续未完成的任务
+  const handleContinueTask = async () => {
+    setHasPendingTask(false);
+    const nextStep = (pendingTaskInfo?.currentStep || 0) + 1;
+    await runGeneration(nextStep, feedbackContent, dateStr);
+  };
+
+  // 放弃未完成的任务，重新开始
+  const handleRestartTask = async () => {
+    if (taskKey) {
+      try {
+        await deleteTaskMutation.mutateAsync({ taskKey });
+      } catch (e) {
+        console.error("删除任务失败:", e);
+      }
+    }
+    setTaskKey(null);
+    setHasPendingTask(false);
+    setPendingTaskInfo(null);
+    setSteps(initialSteps);
+    setFeedbackContent("");
+    setDateStr("");
+    await runGeneration(1);
+  };
+
+  // 单步重试函数
+  const retryStep = useCallback(async (stepIndex: number) => {
+    if (isGenerating) return;
+    
+    setIsGenerating(true);
+    
+    const configOverride = {
+      apiModel: apiModel.trim() || undefined,
+      apiKey: apiKey.trim() || undefined,
+      apiUrl: apiUrl.trim() || undefined,
+    };
+
+    const result = await executeStep(
+      stepIndex + 1, 
+      feedbackContent, 
+      dateStr, 
+      configOverride,
+      taskKey!
+    );
+
+    if (result.success) {
       // 检查是否所有步骤都成功
-      const allSuccess = steps.every((s, i) => i === stepIndex || s.status === 'success');
+      const updatedSteps = steps.map((s, i) => 
+        i === stepIndex ? { ...s, status: 'success' as const } : s
+      );
+      const allSuccess = updatedSteps.every(s => s.status === 'success');
       if (allSuccess) {
         setIsComplete(true);
         setHasError(false);
       }
-    } catch (error) {
-      console.error(`步骤${stepIndex + 1}重试失败:`, error);
-      updateStep(stepIndex, { 
-        status: 'error', 
-        error: error instanceof Error ? error.message : '重试失败'
-      });
-    } finally {
-      setIsGenerating(false);
     }
-  }, [
-    isGenerating, steps, feedbackContent, dateStr, studentName, lessonNumber,
-    lastFeedback, currentNotes, transcript, isFirstLesson, specialRequirements,
-    apiModel, apiKey, apiUrl, updateStep,
-    generateFeedbackMutation, generateReviewMutation, generateTestMutation,
-    generateExtractionMutation, generateBubbleChartMutation
-  ]);
+
+    setIsGenerating(false);
+  }, [isGenerating, feedbackContent, dateStr, apiModel, apiKey, apiUrl, taskKey, steps, executeStep]);
 
   const handleReset = () => {
     setSteps(initialSteps);
@@ -390,6 +502,9 @@ export default function Home() {
     setDateStr("");
     setIsComplete(false);
     setHasError(false);
+    setTaskKey(null);
+    setHasPendingTask(false);
+    setPendingTaskInfo(null);
   };
 
   const isFormValid = studentName.trim() && currentNotes.trim() && transcript.trim();
@@ -406,6 +521,34 @@ export default function Home() {
           <h1 className="text-3xl font-bold text-gray-800 mb-2">托福阅读学情反馈系统</h1>
           <p className="text-gray-600">输入课堂信息，自动生成5个文档并存储到Google Drive</p>
         </div>
+
+        {/* 未完成任务提示 */}
+        {hasPendingTask && pendingTaskInfo && (
+          <Card className="mb-6 border-yellow-300 bg-yellow-50">
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-4">
+                <History className="w-8 h-8 text-yellow-600 flex-shrink-0" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-yellow-800 mb-2">发现未完成的任务</h3>
+                  <p className="text-sm text-yellow-700 mb-3">
+                    学生 <strong>{pendingTaskInfo.studentName}</strong> 的反馈生成已完成 {pendingTaskInfo.currentStep}/5 步
+                    {pendingTaskInfo.dateStr && `（${pendingTaskInfo.dateStr}）`}
+                  </p>
+                  <div className="flex gap-3">
+                    <Button onClick={handleContinueTask} className="bg-yellow-600 hover:bg-yellow-700">
+                      <Play className="w-4 h-4 mr-2" />
+                      继续生成（从第{pendingTaskInfo.currentStep + 1}步开始）
+                    </Button>
+                    <Button variant="outline" onClick={handleRestartTask}>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      放弃并重新开始
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="shadow-xl">
           <CardHeader>
@@ -620,7 +763,7 @@ export default function Home() {
               <Button 
                 type="submit" 
                 className="w-full h-12 text-lg"
-                disabled={isGenerating || !isFormValid}
+                disabled={isGenerating || !isFormValid || hasPendingTask}
               >
                 {isGenerating ? (
                   <>
@@ -661,7 +804,7 @@ export default function Home() {
                       }`}>
                         {isGenerating ? `正在生成第 ${currentStep} 个文档...` :
                          isComplete ? '✅ 全部完成！' :
-                         '⚠️ 生成过程中出错'}
+                         '⚠️ 生成过程中出错（已保存进度，可点击重试）'}
                       </span>
                     </div>
                     {(isComplete || hasError) && (
@@ -687,6 +830,14 @@ export default function Home() {
                         <div className="text-2xl font-bold text-red-600">{errorCount}</div>
                         <div className="text-gray-500">失败</div>
                       </div>
+                    </div>
+                  )}
+
+                  {/* 断点续传提示 */}
+                  {hasError && (
+                    <div className="bg-yellow-100 border border-yellow-300 rounded p-3 mb-4 text-sm text-yellow-800">
+                      <strong>💡 进度已保存：</strong>已完成的步骤不会重复执行，点击"重试"只会重新执行失败的步骤。
+                      即使关闭网页，下次打开也可以继续。
                     </div>
                   )}
 
@@ -768,6 +919,8 @@ export default function Home() {
                 {isGenerating && (
                   <p className="text-xs text-gray-500 text-center">
                     每个文档独立生成，预计每个需要1-2分钟，请耐心等待...
+                    <br />
+                    <span className="text-green-600">✓ 进度自动保存，即使网络中断也不会丢失已完成的步骤</span>
                   </p>
                 )}
               </div>
@@ -780,6 +933,7 @@ export default function Home() {
           <p>系统会自动生成5个文档：学情反馈、复习文档、测试本、课后信息提取、气泡图</p>
           <p className="mt-1">文档将按照V9路书规范格式化，并自动存储到Google Drive对应文件夹</p>
           <p className="mt-1">日期信息将从课堂笔记中自动提取，无需手动填写</p>
+          <p className="mt-1 text-green-600">✓ 支持断点续传：网络中断后可从上次进度继续</p>
         </div>
       </div>
     </div>
