@@ -191,9 +191,52 @@ export const appRouter = router({
           specialRequirements: input.specialRequirements || "",
         }, { apiModel, apiKey, apiUrl });
 
-        // 从反馈内容中提取日期（AI会在反馈开头写日期）
-        const dateMatch = feedbackContent.match(/(\d{1,2}月\d{1,2}日)/);
-        const dateStr = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
+        // 从反馈内容中提取本次课日期
+        // 优先级：“本次课：XXXX-XX-XX” > “本次课：X月X日” > 第一个日期
+        let dateStr = '';
+        
+        // 尝试匹配“本次课：2025-01-15”格式
+        const isoDateMatch = feedbackContent.match(/本次课[：:][\s]*(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+        if (isoDateMatch) {
+          dateStr = `${parseInt(isoDateMatch[2])}月${parseInt(isoDateMatch[3])}日`;
+        }
+        
+        // 尝试匹配“本次课：1月15日”格式
+        if (!dateStr) {
+          const cnDateMatch = feedbackContent.match(/本次课[：:][\s]*(\d{1,2})月(\d{1,2})日/);
+          if (cnDateMatch) {
+            dateStr = `${cnDateMatch[1]}月${cnDateMatch[2]}日`;
+          }
+        }
+        
+        // 尝试匹配“本次课：1/15”格式
+        if (!dateStr) {
+          const slashDateMatch = feedbackContent.match(/本次课[：:][\s]*(\d{1,2})\/(\d{1,2})/);
+          if (slashDateMatch) {
+            dateStr = `${slashDateMatch[1]}月${slashDateMatch[2]}日`;
+          }
+        }
+        
+        // 如果都没匹配到，从课堂笔记中提取
+        if (!dateStr) {
+          const notesIsoMatch = input.currentNotes.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+          if (notesIsoMatch) {
+            dateStr = `${parseInt(notesIsoMatch[2])}月${parseInt(notesIsoMatch[3])}日`;
+          }
+        }
+        
+        if (!dateStr) {
+          const notesCnMatch = input.currentNotes.match(/(\d{1,2})月(\d{1,2})日/);
+          if (notesCnMatch) {
+            dateStr = `${notesCnMatch[1]}月${notesCnMatch[2]}日`;
+          }
+        }
+        
+        // 最后备选：使用今天日期
+        if (!dateStr) {
+          const today = new Date();
+          dateStr = `${today.getMonth() + 1}月${today.getDate()}日`;
+        }
 
         // 上传到Google Drive
         const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;

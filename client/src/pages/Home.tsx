@@ -712,17 +712,19 @@ export default function Home() {
                           )}
                           {step.uploadResult && step.status === 'success' && (
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs text-gray-500">{step.uploadResult.fileName}</span>
-                              {step.uploadResult.url && (
+                              {step.uploadResult.url ? (
                                 <a 
                                   href={step.uploadResult.url} 
                                   target="_blank" 
                                   rel="noopener noreferrer"
                                   className="text-xs text-blue-600 hover:underline flex items-center gap-1"
                                 >
+                                  <FileText className="w-3 h-3" />
+                                  {step.uploadResult.fileName}
                                   <ExternalLink className="w-3 h-3" />
-                                  查看
                                 </a>
+                              ) : (
+                                <span className="text-xs text-gray-500">{step.uploadResult.fileName}</span>
                               )}
                             </div>
                           )}
