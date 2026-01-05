@@ -592,8 +592,23 @@ ${feedback}
 1. 不要使用markdown标记，输出纯文本
 2. 生词顺序、数量必须和反馈里的【生词】部分完全一致！`;
 
+  // 如果配置中有自定义路书，使用自定义路书；否则使用默认的 REVIEW_SYSTEM_PROMPT
+  const systemPrompt = config?.roadmap && config.roadmap.trim() 
+    ? `你是一个复习文档生成助手。根据学情反馈生成复习文档。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+4. 生词顺序和数量必须与学情反馈中的【生词】部分完全一致！
+
+=== 用户自定义路书内容（复习文档部分） ===
+${config.roadmap}
+=== 路书内容结束 ===`
+    : REVIEW_SYSTEM_PROMPT;
+
   const response = await invokeWhatAI([
-    { role: "system", content: REVIEW_SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
     { role: "user", content: prompt },
   ], { max_tokens: 16000 }, config);
 
@@ -614,8 +629,24 @@ ${feedback}
 2. 不要使用HTML代码
 3. 答案部分前面用"===== 答案部分 ====="分隔`;
 
+  // 如果配置中有自定义路书，使用自定义路书；否则使用默认的 TEST_SYSTEM_PROMPT
+  const systemPrompt = config?.roadmap && config.roadmap.trim() 
+    ? `你是一个测试本生成助手。根据学情反馈生成测试本。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+4. 测试内容必须与学情反馈中的生词、长难句、错题一一对应！
+5. 答案部分前面用"===== 答案部分 ====="分隔
+
+=== 用户自定义路书内容（测试本部分） ===
+${config.roadmap}
+=== 路书内容结束 ===`
+    : TEST_SYSTEM_PROMPT;
+
   const response = await invokeWhatAI([
-    { role: "system", content: TEST_SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
     { role: "user", content: prompt },
   ], { max_tokens: 16000 }, config);
 
@@ -635,8 +666,23 @@ ${feedback}
 
 请严格按照课后信息提取格式规范生成作业管理档案。不要使用markdown标记。`;
 
+  // 如果配置中有自定义路书，使用自定义路书；否则使用默认的 EXTRACTION_SYSTEM_PROMPT
+  const systemPrompt = config?.roadmap && config.roadmap.trim() 
+    ? `你是一个课后信息提取助手。根据学情反馈生成作业管理档案。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+4. 这是给助教用的作业管理档案
+
+=== 用户自定义路书内容（课后信息提取部分） ===
+${config.roadmap}
+=== 路书内容结束 ===`
+    : EXTRACTION_SYSTEM_PROMPT;
+
   const response = await invokeWhatAI([
-    { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
     { role: "user", content: prompt },
   ], { max_tokens: 16000 }, config);
 
