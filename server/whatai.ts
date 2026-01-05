@@ -91,7 +91,7 @@ export async function invokeWhatAI(
   const model = options?.model || MODELS.DEFAULT;
   const max_tokens = options?.max_tokens || 8000;
   const temperature = options?.temperature ?? 0.7;
-  const timeout = options?.timeout || 180000; // 默认3分钟
+  const timeout = options?.timeout || 600000; // 默认10分钟
   const maxRetries = options?.retries ?? 2; // 默认重试2次
 
   console.log(`[WhatAI] 调用模型: ${model}`);
@@ -173,7 +173,7 @@ export async function invokeWhatAISimple(
   return invokeWhatAI(messages, {
     model: MODELS.HAIKU,
     max_tokens: max_tokens || 2000,
-    timeout: 60000, // 简单任务1分钟超时
+    timeout: 180000, // 简单任务3分钟超时
     retries: 1,
   });
 }
@@ -188,7 +188,7 @@ export async function invokeWhatAIComplex(
   return invokeWhatAI(messages, {
     model: MODELS.DEFAULT,
     max_tokens: max_tokens || 8000,
-    timeout: 300000, // 复杂任务5分钟超时
+    timeout: 600000, // 复杂任务10分钟超时
     retries: 2,
   });
 }
