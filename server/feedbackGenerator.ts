@@ -1,4 +1,4 @@
-import { invokeWhatAI, MODELS } from "./whatai";
+import { invokeWhatAI, MODELS, APIConfig } from "./whatai";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
 import sharp from "sharp";
 
@@ -46,6 +46,13 @@ const FEEDBACK_SYSTEM_PROMPT = `你是新东方托福阅读教师的反馈助手
 【核心红线】
 1. 本次课内容只能来自「本次课笔记」和「录音转文字」，绝对不要把上次反馈里的内容复制过来
 2. 内容必须一一对应：反馈里有多少生词→复习文档讲解多少→测试本测多少
+
+【日期提取】
+请从课堂笔记中自动识别以下日期信息：
+- 上次课日期
+- 本次课日期
+- 下次课日期
+如果笔记中有明确的日期信息，请使用笔记中的日期。
 
 【学情反馈文档结构】
 
@@ -98,350 +105,279 @@ const FEEDBACK_SYSTEM_PROMPT = `你是新东方托福阅读教师的反馈助手
 
 【表现及建议】
 按主题分段：分数稳定性、定位能力、推断边界、时间心态、语法障碍、复盘沉淀等。
-每段用可执行的短句，写清楚"做什么+什么时候做+做到什么程度"。
 
-注意：
-- 改善方案要和后面的作业布置一致，不要开空头支票
-- 不要重复前面随堂测试/作业批改里已经列过的生词长难句
-- 如果课上聊到了单词背诵进度（背到哪个单元、APP完成百分比），要记录下来
-- 根据生词掌握情况，给出具体的单词背诵建议
+每段3-5句，先描述表现，再给具体建议。
+不要空泛地说"继续努力"，要给出具体的行动建议。
 
-【生词】（必须15-25个，这是硬性要求！）
-收录本次课讲解的生词，格式：1 pristine - 原始的；崭新的
+【生词】（15-25个，硬性要求！）
+这是最重要的部分！必须达到15-25个生词！
 
-重要：
-- 必须达到15个以上！不足15个必须从课堂材料（笔记和录音转文字）中补齐
-- 超过25个则精选最重要的25个
-- 避免和上节课重复
-- 优先收录动词、形容词，少收专业术语
-- 如果课堂材料中生词不够15个，从录音转文字中提取老师讲解过的任何英文词汇
+格式：
+1. 单词 /音标/ 词性. 中文释义
 
-【长难句讲解】
-每句包含：结构拆分 + 讲解要点 + 翻译
-只用本次课讲解过的句子。
+示例：
+1. contemplate /ˈkɒntəmpleɪt/ v. 沉思；考虑
+2. unprecedented /ʌnˈpresɪdentɪd/ adj. 前所未有的
 
-【作业布置】
-按周一~周日的周期细分，不要只写总量：
-【第一阶段】1月15日(周三)-1月19日(周日)：
-- 完成主谓一致练习册第1组（30题）
-- 复习课上笔记+生词+长难句+错题，完成《测试版》自测
+来源优先级：
+1. 课堂笔记中明确标注的生词
+2. 录音中老师讲解的生词
+3. 课堂材料中学生不认识的词
 
-【第二阶段】1月20日(周一)-1月22日(周三)：
-- 完成主谓一致练习册第2组（30题）
-- 生词二次自测
+如果课堂笔记中的生词不足15个，必须从课堂材料（阅读文章、练习题等）中补充！
 
-关于模考：
-- 不一定是TPO，还有XPO、NPO，没明确就不要写TPO
-- 2023年改革后阅读是2篇文章36分钟，不要再写3篇54分钟
+【长难句】（2-5句）
+格式：
+1. 原句
+结构分析：[主干] + [修饰成分]
+翻译：中文翻译
 
-间隔较长时：如果两次课隔得久，每周都要安排复习+自测
+【错题】
+格式：
+1. 题目描述
+错误选项：X
+正确答案：Y
+错因分析：具体分析为什么选错
+改进建议：具体的解题策略`;
 
-【错题合集】
-收录所有课上讲过的错题，宁多勿漏。正确率很低的练习（如10题对2题）必须收录。
-
-格式要求：
-- 完整复制原文、题干、所有选项，不要缩写改写
-- 插入题用【Y】标记插入点
-- 句子简化题把目标句标注出来
-- 全部错题列完后，统一给答案与解析
-
-特殊题型处理：
-- 小结题：删掉"An introductory sentence..."那个介绍句，只保留ABCDEF选项
-- 句子简化题：如果只有一个长难句+选项，不要硬加无关段落
-
-【答案与解析】
-在错题合集之后，统一给出所有错题的答案和解析。
-
-【敏感词替换】
-- 「大波」→「较大的波动」
-- 「被插」→「被插入句打断」
-- 「口爆」→「人口爆发式增长」
-
-最后以【OK】结尾表示反馈完成。`;
-
-// ========== 复习文档提示词 ==========
-const REVIEW_SYSTEM_PROMPT = `你是专业的托福阅读教师，请根据学情反馈生成详细的复习文档。
+const REVIEW_SYSTEM_PROMPT = `你是一个复习文档生成助手。根据学情反馈生成复习文档。
 
 【重要格式要求】
-这是Word文档内容，请使用纯文本格式：
-1. 用"一、""二、""三、"等中文序号作为章节标题
-2. 不要使用markdown标记（不要用#、**、*等）
-3. 不要使用HTML代码
-4. 可以用空行分隔段落
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+4. 生词顺序和数量必须与学情反馈中的【生词】部分完全一致！
 
 【复习文档结构】
 
-一、课堂笔记
-直接复制学情反馈中的【课堂笔记】部分，保持一致。
+第一部分：生词复习
+（按照学情反馈中【生词】的顺序，逐个展开）
 
-二、生词列表
-从学情反馈的【生词】部分提取，每个词扩展为：
+1. 单词 /音标/ 词性. 中文释义
+词根词缀：xxx（如有）
+例句：xxx
+同义词：xxx
+反义词：xxx
 
-1. pristine /ˈprɪstiːn/
-   词性：adj.
-   词根词缀：prist-(最初的) + -ine(形容词后缀)
-   英文释义：in its original condition; unspoiled
-   中文释义：原始的；崭新的；纯净的
-   例句：The pristine beaches of the island attract many tourists.
-   例句翻译：这座岛屿原始的海滩吸引了许多游客。
+第二部分：长难句复习
+（按照学情反馈中【长难句】的内容）
 
-重要：生词顺序、数量必须和反馈里的【生词】部分完全一致！
+1. 原句
+结构分析：xxx
+翻译：xxx
+语法要点：xxx
 
-三、长难句讲解
-直接复制学情反馈中的【长难句讲解】部分，保持一致。
-每句包含：原句 + 结构拆分 + 讲解要点 + 翻译
+第三部分：错题复习
+（按照学情反馈中【错题】的内容）
 
-四、错题汇总
-从学情反馈的【错题合集】提取：
-- 先列出所有题目（原文、题干、选项）
-- 最后统一给答案和解析
+1. 题目
+错误选项及原因：xxx
+正确答案及解析：xxx
+同类题型注意点：xxx`;
 
-末尾加一句：好好复习，早日出分！`;
-
-// ========== 测试本提示词 ==========
-const TEST_SYSTEM_PROMPT = `你是专业的托福阅读教师，请根据学情反馈生成测试版本。
+const TEST_SYSTEM_PROMPT = `你是一个测试本生成助手。根据学情反馈生成测试本。
 
 【重要格式要求】
-这是Word文档内容，请使用纯文本格式：
-1. 用"一、""二、""三、"等中文序号作为章节标题
-2. 不要使用markdown标记（不要用#、**、*等）
-3. 不要使用HTML代码（不要用<div>等标签）
-4. 答案部分前面写"===== 答案部分 ====="作为分隔（系统会自动转换为分页符）
-5. 可以用空行分隔段落
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+4. 测试内容必须与学情反馈中的生词、长难句、错题一一对应！
 
 【测试本结构】
 
-一、生词测试
-只保留英文单词，去掉所有中文释义、词根词缀、例句：
+===== 测试部分 =====
 
-1. pristine - 你的答案：______
-2. elaborate - 你的答案：______
-3. subsequent - 你的答案：______
+一、生词测试
+（根据学情反馈中的【生词】出题，顺序可以打乱）
+
+A. 英译中（10题）
+1. contemplate
+2. unprecedented
+...
+
+B. 中译英（10题）
+1. 沉思；考虑
+2. 前所未有的
 ...
 
 二、长难句翻译
-只保留英文原句，去掉结构拆分、讲解要点和翻译：
+（根据学情反馈中的【长难句】出题）
 
-1. The rapid expansion of urban areas has led to significant changes in local ecosystems, affecting both flora and fauna in ways that scientists are only beginning to understand.
+请翻译以下句子：
+1. [原句]
+2. [原句]
 
-请翻译：______
+三、错题重做
+（根据学情反馈中的【错题】出题）
 
-2. ...
-
-三、错题练习
-只保留题目（原文、题干、选项），去掉所有答案和解析。
+1. [题目描述]
+A. xxx
+B. xxx
+C. xxx
+D. xxx
 
 ===== 答案部分 =====
 
-一、生词答案
-1. pristine - 原始的；崭新的
-2. elaborate - 详细的；精心制作的
-3. subsequent - 随后的
+一、生词测试答案
+A. 英译中
+1. contemplate - 沉思；考虑
 ...
 
-二、长难句翻译参考
-1. 城市地区的快速扩张导致了当地生态系统的重大变化，以科学家们才刚刚开始理解的方式影响着动植物。
+B. 中译英
+1. 沉思；考虑 - contemplate
+...
+
+二、长难句翻译答案
+1. [翻译]
 ...
 
 三、错题答案
-第1题：C
-解析：...
-第2题：A
-解析：...
-...
+1. 正确答案：X
+解析：xxx`;
 
-重要：答案部分必须和题目部分分开，中间用"===== 答案部分 ====="分隔！`;
+const EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。从学情反馈中提取关键信息，生成助教用的作业管理档案。
 
-// ========== 课后信息提取提示词 ==========
-const EXTRACTION_SYSTEM_PROMPT = `你是专业的托福阅读教师，请根据学情反馈生成课后信息提取文档（给助教用的作业管理档案）。
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 输出纯文本格式
 
-【重要说明】
-这是给助教用的作业管理档案，不是课程摘要。
-不要放生词、长难句、错题详情（已经在复习文档里了）。
-使用纯文本格式，不要用markdown标记。
+【课后信息提取结构】
 
-【格式模板】
+学生姓名：xxx
+本次课日期：xxx
+下次课日期：xxx
 
-=== 张三 作业管理档案 ===
+【作业布置】
+1. 生词复习：复习本次课xxx个生词，下次课测试
+2. 长难句练习：翻译xxx个长难句
+3. 错题重做：重做本次课xxx道错题
+4. 其他作业：xxx（如有）
 
-【时间轴】
-上次课：2025-01-08
-下次课：2025-01-22
-考试目标：2025年3月（如有）
+【重点关注】
+- 薄弱点：xxx
+- 需要强化：xxx
+- 家长沟通要点：xxx
 
-【旧账核对】
-上次作业完成度：80%
-已完成：主谓一致练习册第1组
-未完成：第2组只做了一半
-遗留问题：就近原则还不熟
+【下次课计划】
+- 复习内容：xxx
+- 新授内容：xxx
+- 测试安排：xxx`;
 
-【新任务清单】
-【第一阶段】1月15日-1月19日：
-1. 完成主谓一致练习册第2组
-2. 复习文档+测试版自测
-
-【第二阶段】1月20日-1月22日：
-1. 完成第3组
-2. 二次自测
-
-【每日固定任务】
-- 每日背单词30-40分钟
-
-【助教备注】
-当前状态：语法基础在补
-重点跟进：就近原则掌握情况`;
-
-// ========== 气泡图提示词 ==========
-const BUBBLE_CHART_SYSTEM_PROMPT = `你是专业的托福阅读教师，请从学情反馈中提取问题和解决方案，用于制作气泡图。
-
-【提取规则】
-1. 从反馈的「随堂测试」「作业批改」「表现及建议」中提取3-6个问题-方案对
-2. 方案必须是反馈里写过的，不能自己编
-3. 如果某个问题在反馈里没有对应方案，就不要放这个问题
-
-【文字精简规则】
-每个框里放两行字：主标题 + 副标题
-
-示例：
-原文：历史类文章生词障碍严重
-主标题：历史类文章
-副标题：生词障碍严重
-
-原文：猜词练习针对历史/天文/艺术薄弱题材
-主标题：猜词练习针对
-副标题：历史/天文/艺术薄弱题材
-
-【输出格式】
-只输出JSON，不要其他内容：
-[
-  {"problem": ["主标题", "副标题"], "solution": ["主标题", "副标题"]},
-  ...
-]`;
+// ========== 辅助函数 ==========
 
 /**
- * 清理文本中的markdown和HTML标记
+ * 清理markdown和HTML标记
  */
-function cleanMarkdownAndHtml(content: string): string {
-  let cleaned = content;
-  
-  // 移除HTML标签
-  cleaned = cleaned.replace(/<[^>]+>/g, '');
-  
-  // 移除markdown粗体标记 **text** 或 __text__
-  cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1');
-  cleaned = cleaned.replace(/__([^_]+)__/g, '$1');
-  
-  // 移除markdown斜体标记 *text* 或 _text_
-  cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');
-  cleaned = cleaned.replace(/_([^_]+)_/g, '$1');
-  
-  // 移除markdown标题标记
-  cleaned = cleaned.replace(/^#{1,6}\s+/gm, '');
-  
-  // 移除代码块标记
-  cleaned = cleaned.replace(/```[\s\S]*?```/g, (match) => {
-    return match.replace(/```\w*\n?/g, '').replace(/```/g, '');
-  });
-  
-  // 移除行内代码标记
-  cleaned = cleaned.replace(/`([^`]+)`/g, '$1');
-  
-  return cleaned;
+function cleanMarkdownAndHtml(text: string): string {
+  return text
+    // 移除markdown标题
+    .replace(/^#{1,6}\s+/gm, '')
+    // 移除粗体/斜体
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    // 移除代码块
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    // 移除HTML标签
+    .replace(/<[^>]+>/g, '')
+    // 移除多余空行
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**
- * 将纯文本内容转换为DOCX格式（使用docx库）
+ * 文本转Word文档
  */
-async function textToDocx(content: string, title: string): Promise<Buffer> {
-  // 先清理markdown和HTML标记
-  const cleanedContent = cleanMarkdownAndHtml(content);
+async function textToDocx(text: string, title: string): Promise<Buffer> {
+  const cleanedText = cleanMarkdownAndHtml(text);
+  const lines = cleanedText.split('\n');
   
-  const lines = cleanedContent.split('\n');
   const children: Paragraph[] = [];
+  
+  // 添加标题
+  children.push(
+    new Paragraph({
+      children: [new TextRun({ text: title, bold: true, size: 32 })],
+      heading: HeadingLevel.HEADING_1,
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 400 },
+    })
+  );
+  
+  let inAnswerSection = false;
   
   for (const line of lines) {
     const trimmedLine = line.trim();
     
-    // 检测分页符标记
-    if (trimmedLine.includes('===== 答案') || trimmedLine.includes('=====答案') || 
-        trimmedLine === '---' || trimmedLine.startsWith('=====')) {
+    // 检测答案分隔符
+    if (trimmedLine.includes('===== 答案部分 =====') || trimmedLine.includes('答案部分')) {
       // 添加分页符
-      children.push(new Paragraph({
-        children: [new PageBreak()],
-      }));
-      // 如果有文字内容，也添加
-      if (trimmedLine.includes('答案')) {
-        children.push(new Paragraph({
-          text: trimmedLine.replace(/=/g, '').trim(),
+      children.push(
+        new Paragraph({
+          children: [new PageBreak()],
+        })
+      );
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: '答案部分', bold: true, size: 28 })],
           heading: HeadingLevel.HEADING_1,
           alignment: AlignmentType.CENTER,
-          spacing: { before: 400, after: 200 },
-        }));
-      }
-    } else if (trimmedLine.startsWith('一、') || trimmedLine.startsWith('二、') || 
-               trimmedLine.startsWith('三、') || trimmedLine.startsWith('四、') ||
-               trimmedLine.startsWith('五、') || trimmedLine.startsWith('六、')) {
-      // 中文序号标题
-      children.push(new Paragraph({
-        text: trimmedLine,
-        heading: HeadingLevel.HEADING_1,
-        spacing: { before: 400, after: 200 },
-      }));
-    } else if (trimmedLine.startsWith('【') && trimmedLine.endsWith('】')) {
-      // 中括号标题
-      children.push(new Paragraph({
-        text: trimmedLine,
-        heading: HeadingLevel.HEADING_2,
-        spacing: { before: 300, after: 150 },
-      }));
-    } else if (trimmedLine.startsWith('【')) {
-      // 以中括号开头的标题
-      children.push(new Paragraph({
-        text: trimmedLine,
-        heading: HeadingLevel.HEADING_2,
-        spacing: { before: 300, after: 150 },
-      }));
-    } else if (trimmedLine.startsWith('- ') || trimmedLine.startsWith('• ')) {
-      // 无序列表
-      children.push(new Paragraph({
-        text: '• ' + trimmedLine.substring(2),
-        spacing: { before: 50, after: 50 },
-        indent: { left: 720 },
-      }));
-    } else if (/^\d+[\.\、]\s*/.test(trimmedLine)) {
-      // 有序列表（支持 1. 或 1、 格式）
-      children.push(new Paragraph({
-        text: trimmedLine,
-        spacing: { before: 50, after: 50 },
-        indent: { left: 360 },
-      }));
-    } else if (trimmedLine === '') {
-      // 空行
-      children.push(new Paragraph({
-        text: '',
-        spacing: { before: 100, after: 100 },
-      }));
+          spacing: { before: 200, after: 400 },
+        })
+      );
+      inAnswerSection = true;
+      continue;
+    }
+    
+    // 检测章节标题（【xxx】格式）
+    if (trimmedLine.match(/^【.+】$/)) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: trimmedLine, bold: true, size: 26 })],
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 300, after: 200 },
+        })
+      );
+      continue;
+    }
+    
+    // 检测小节标题（一、二、三等）
+    if (trimmedLine.match(/^[一二三四五六七八九十]+、/)) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: trimmedLine, bold: true, size: 24 })],
+          heading: HeadingLevel.HEADING_3,
+          spacing: { before: 200, after: 150 },
+        })
+      );
+      continue;
+    }
+    
+    // 普通段落
+    if (trimmedLine) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: trimmedLine, size: 22 })],
+          spacing: { after: 100 },
+        })
+      );
     } else {
-      // 普通段落
-      children.push(new Paragraph({
-        text: trimmedLine,
-        spacing: { before: 100, after: 100 },
-      }));
+      // 空行
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: '' })],
+          spacing: { after: 50 },
+        })
+      );
     }
   }
   
   const doc = new Document({
     sections: [{
       properties: {},
-      children: [
-        new Paragraph({
-          text: title,
-          heading: HeadingLevel.TITLE,
-          alignment: AlignmentType.CENTER,
-          spacing: { after: 400 },
-        }),
-        ...children,
-      ],
+      children,
     }],
   });
   
@@ -449,124 +385,153 @@ async function textToDocx(content: string, title: string): Promise<Buffer> {
 }
 
 /**
+ * 从反馈中提取问题和解决方案
+ */
+async function extractProblemsAndSolutions(feedback: string): Promise<Array<{problem: [string, string], solution: [string, string]}>> {
+  // 简单的提取逻辑：从【表现及建议】部分提取
+  const suggestionsMatch = feedback.match(/【表现及建议】([\s\S]*?)(?=【|$)/);
+  if (!suggestionsMatch) {
+    return [];
+  }
+  
+  const suggestions = suggestionsMatch[1];
+  const results: Array<{problem: [string, string], solution: [string, string]}> = [];
+  
+  // 按段落分割
+  const paragraphs = suggestions.split(/\n\n+/).filter(p => p.trim());
+  
+  for (const para of paragraphs.slice(0, 4)) { // 最多取4个问题
+    const lines = para.trim().split('\n').filter(l => l.trim());
+    if (lines.length >= 2) {
+      // 第一行作为问题，后面作为解决方案
+      const problemText = lines[0].replace(/^[\d.、]+/, '').trim();
+      const solutionText = lines.slice(1).join(' ').replace(/^[\d.、]+/, '').trim();
+      
+      if (problemText && solutionText) {
+        results.push({
+          problem: [problemText.slice(0, 20), problemText.slice(20, 40) || ''],
+          solution: [solutionText.slice(0, 20), solutionText.slice(20, 40) || ''],
+        });
+      }
+    }
+  }
+  
+  return results;
+}
+
+/**
  * 生成气泡图SVG
  */
 function generateBubbleChartSVG(
   studentName: string,
-  lessonDate: string,
+  dateStr: string,
   lessonNumber: string,
-  items: Array<{problem: string[], solution: string[]}>
+  problemsAndSolutions: Array<{problem: [string, string], solution: [string, string]}>
 ): string {
-  const colors = ['#FFE4E1', '#E8F5E9', '#E3F2FD', '#F3E5F5', '#FFF9C4', '#FFE0B2'];
-  const boxWidth = 200, boxHeight = 90, gap = 20;
-  const leftX = 80, rightX = 520;
-  const startY = 120;
-  const height = Math.max(700, startY + items.length * (boxHeight + gap) + 80);
-
-  const itemsSVG = items.map((item, i) => {
-    const y = startY + i * (boxHeight + gap);
-    const color = colors[i % colors.length];
-    return `
-    <g>
-      <!-- 问题框 -->
-      <rect x="${leftX}" y="${y}" width="${boxWidth}" height="${boxHeight}" rx="12" fill="white" stroke="#4ECDC4" stroke-width="3"/>
-      <text x="${leftX + boxWidth/2}" y="${y + 35}" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">${item.problem[0] || ''}</text>
-      <text x="${leftX + boxWidth/2}" y="${y + 58}" text-anchor="middle" font-size="16" fill="#333">${item.problem[1] || ''}</text>
-      
-      <!-- 箭头 -->
-      <line x1="${leftX + boxWidth + 10}" y1="${y + boxHeight/2}" x2="${rightX - 10}" y2="${y + boxHeight/2}" stroke="#AAA" stroke-width="2" marker-end="url(#arrow)"/>
-      
-      <!-- 方案框 -->
-      <rect x="${rightX}" y="${y}" width="${boxWidth}" height="${boxHeight}" rx="12" fill="${color}" stroke="none"/>
-      <text x="${rightX + boxWidth/2}" y="${y + 35}" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">${item.solution[0] || ''}</text>
-      <text x="${rightX + boxWidth/2}" y="${y + 58}" text-anchor="middle" font-size="16" fill="#333">${item.solution[1] || ''}</text>
-    </g>`;
-  }).join('\n');
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 900 ${height}" xmlns="http://www.w3.org/2000/svg">
-  <style>text { font-family: "Noto Sans CJK SC", "WenQuanYi Micro Hei", "Microsoft YaHei", sans-serif; }</style>
+  const width = 1200;
+  const height = 800;
+  const centerX = width / 2;
+  const centerY = height / 2;
   
-  <!-- 背景 -->
-  <rect width="900" height="${height}" fill="white"/>
+  // 颜色方案
+  const colors = {
+    problem: ['#FF6B6B', '#FF8E8E', '#FFB4B4', '#FFD4D4'],
+    solution: ['#4ECDC4', '#6ED9D1', '#8EE5DE', '#AEF1EB'],
+    center: '#FFE66D',
+    text: '#2C3E50',
+    line: '#95A5A6',
+  };
   
-  <!-- 标题 -->
-  <text x="450" y="45" text-anchor="middle" font-size="28" font-weight="bold" fill="#333">
-    ${studentName}${lessonDate}阅读课｜问题-方案气泡图
-  </text>
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
+    <defs>
+      <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.3"/>
+      </filter>
+    </defs>
+    <rect width="${width}" height="${height}" fill="#F8F9FA"/>
+    
+    <!-- 标题 -->
+    <text x="${centerX}" y="50" text-anchor="middle" font-size="28" font-weight="bold" fill="${colors.text}">
+      ${studentName} ${lessonNumber ? lessonNumber + ' ' : ''}${dateStr} 问题-方案对应图
+    </text>
+    
+    <!-- 中心圆 -->
+    <circle cx="${centerX}" cy="${centerY}" r="80" fill="${colors.center}" filter="url(#shadow)"/>
+    <text x="${centerX}" y="${centerY - 10}" text-anchor="middle" font-size="20" font-weight="bold" fill="${colors.text}">本次课</text>
+    <text x="${centerX}" y="${centerY + 15}" text-anchor="middle" font-size="16" fill="${colors.text}">核心问题</text>
+  `;
   
-  <!-- 列标题 -->
-  <text x="${leftX + boxWidth/2}" y="85" text-anchor="middle" font-size="20" font-weight="bold" fill="#E74C3C">问题</text>
-  <text x="${rightX + boxWidth/2}" y="85" text-anchor="middle" font-size="20" font-weight="bold" fill="#27AE60">解决方案</text>
+  // 计算问题和解决方案的位置
+  const problemCount = problemsAndSolutions.length;
+  const angleStep = (2 * Math.PI) / problemCount;
+  const problemRadius = 200;
+  const solutionRadius = 350;
   
-  ${itemsSVG}
+  problemsAndSolutions.forEach((item, index) => {
+    const angle = -Math.PI / 2 + index * angleStep; // 从顶部开始
+    
+    // 问题气泡位置
+    const px = centerX + problemRadius * Math.cos(angle);
+    const py = centerY + problemRadius * Math.sin(angle);
+    
+    // 解决方案气泡位置
+    const sx = centerX + solutionRadius * Math.cos(angle);
+    const sy = centerY + solutionRadius * Math.sin(angle);
+    
+    // 连接线
+    svg += `
+      <line x1="${centerX}" y1="${centerY}" x2="${px}" y2="${py}" stroke="${colors.line}" stroke-width="2" stroke-dasharray="5,5"/>
+      <line x1="${px}" y1="${py}" x2="${sx}" y2="${sy}" stroke="${colors.line}" stroke-width="2"/>
+    `;
+    
+    // 问题气泡
+    svg += `
+      <ellipse cx="${px}" cy="${py}" rx="90" ry="50" fill="${colors.problem[index % 4]}" filter="url(#shadow)"/>
+      <text x="${px}" y="${py - 8}" text-anchor="middle" font-size="14" fill="${colors.text}">${item.problem[0]}</text>
+      <text x="${px}" y="${py + 12}" text-anchor="middle" font-size="12" fill="${colors.text}">${item.problem[1]}</text>
+    `;
+    
+    // 解决方案气泡
+    svg += `
+      <ellipse cx="${sx}" cy="${sy}" rx="100" ry="55" fill="${colors.solution[index % 4]}" filter="url(#shadow)"/>
+      <text x="${sx}" y="${sy - 8}" text-anchor="middle" font-size="14" fill="${colors.text}">${item.solution[0]}</text>
+      <text x="${sx}" y="${sy + 12}" text-anchor="middle" font-size="12" fill="${colors.text}">${item.solution[1]}</text>
+    `;
+  });
   
-  <!-- 箭头定义 -->
-  <defs>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
-      <path d="M0,0 L0,6 L9,3 z" fill="#AAA"/>
-    </marker>
-  </defs>
+  // 图例
+  svg += `
+    <rect x="50" y="${height - 80}" width="20" height="20" fill="${colors.problem[0]}" rx="5"/>
+    <text x="80" y="${height - 65}" font-size="14" fill="${colors.text}">问题</text>
+    
+    <rect x="150" y="${height - 80}" width="20" height="20" fill="${colors.solution[0]}" rx="5"/>
+    <text x="180" y="${height - 65}" font-size="14" fill="${colors.text}">解决方案</text>
+  `;
   
-  <!-- 底部日期 -->
-  <text x="450" y="${height - 20}" text-anchor="middle" font-size="14" fill="#666">
-    2025年${lessonDate} ${lessonNumber || ''}
-  </text>
-</svg>`;
+  svg += '</svg>';
+  return svg;
 }
 
 /**
- * 将SVG转换为PNG（使用sharp）
+ * SVG转PNG
  */
-async function svgToPng(svgContent: string): Promise<Buffer> {
-  try {
-    const pngBuffer = await sharp(Buffer.from(svgContent))
-      .png()
-      .toBuffer();
-    return pngBuffer;
-  } catch (error) {
-    console.error("[气泡图] SVG转PNG失败:", error);
-    throw error;
-  }
+async function svgToPng(svgString: string): Promise<Buffer> {
+  return await sharp(Buffer.from(svgString))
+    .png()
+    .toBuffer();
 }
 
-/**
- * 从反馈中提取问题和方案，用于气泡图
- */
-async function extractProblemsAndSolutions(feedback: string): Promise<Array<{problem: string[], solution: string[]}>> {
-  const prompt = `学情反馈内容：
-${feedback}
-
-请提取3-6个问题-方案对，只输出JSON格式。`;
-
-  const response = await invokeWhatAI([
-    { role: "system", content: BUBBLE_CHART_SYSTEM_PROMPT },
-    { role: "user", content: prompt },
-  ], { model: MODELS.DEFAULT, max_tokens: 1000 });
-
-  try {
-    const content = response.choices[0]?.message?.content || "[]";
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-// ========== 导出的独立生成函数 ==========
+// ========== 导出的生成函数 ==========
 
 /**
  * 步骤1: 生成学情反馈文档
  */
-export async function generateFeedbackContent(input: FeedbackInput): Promise<string> {
+export async function generateFeedbackContent(input: FeedbackInput, config?: APIConfig): Promise<string> {
   const prompt = `## 学生信息
 - 学生姓名：${input.studentName}
 - 课次：${input.lessonNumber || "未指定"}
-- 本次课日期：${input.lessonDate}
-- 下次课日期：${input.nextLessonDate || "待定"}
+${input.lessonDate ? `- 本次课日期：${input.lessonDate}` : "- 本次课日期：请从课堂笔记中提取"}
+${input.nextLessonDate ? `- 下次课日期：${input.nextLessonDate}` : "- 下次课日期：请从课堂笔记中提取，如无则写待定"}
 ${input.isFirstLesson ? "- 这是新生首次课" : ""}
 ${input.specialRequirements ? `- 特殊要求：${input.specialRequirements}` : ""}
 
@@ -582,12 +547,13 @@ ${input.transcript}
 请严格按照V9路书规范生成完整的学情反馈文档。
 特别注意：
 1. 不要使用任何markdown标记，输出纯文本
-2. 【生词】部分必须达到15-25个，不足15个必须从课堂材料中补齐！`;
+2. 【生词】部分必须达到15-25个，不足15个必须从课堂材料中补齐！
+3. 请从课堂笔记中自动识别日期信息`;
 
   const response = await invokeWhatAI([
     { role: "system", content: FEEDBACK_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { model: MODELS.DEFAULT, max_tokens: 8000 });
+  ], { max_tokens: 8000 }, config);
 
   const content = response.choices[0]?.message?.content || "";
   return cleanMarkdownAndHtml(content);
@@ -596,7 +562,7 @@ ${input.transcript}
 /**
  * 步骤2: 生成复习文档（返回Buffer）
  */
-export async function generateReviewContent(feedback: string, studentName: string, dateStr: string): Promise<Buffer> {
+export async function generateReviewContent(feedback: string, studentName: string, dateStr: string, config?: APIConfig): Promise<Buffer> {
   const prompt = `学生姓名：${studentName}
 
 学情反馈内容：
@@ -610,7 +576,7 @@ ${feedback}
   const response = await invokeWhatAI([
     { role: "system", content: REVIEW_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { model: MODELS.DEFAULT, max_tokens: 8000 });
+  ], { max_tokens: 8000 }, config);
 
   const reviewContent = response.choices[0]?.message?.content || "";
   return await textToDocx(reviewContent, `${studentName}${dateStr}复习文档`);
@@ -619,7 +585,7 @@ ${feedback}
 /**
  * 步骤3: 生成测试本（返回Buffer）
  */
-export async function generateTestContent(feedback: string, studentName: string, dateStr: string): Promise<Buffer> {
+export async function generateTestContent(feedback: string, studentName: string, dateStr: string, config?: APIConfig): Promise<Buffer> {
   const prompt = `学情反馈内容：
 ${feedback}
 
@@ -632,7 +598,7 @@ ${feedback}
   const response = await invokeWhatAI([
     { role: "system", content: TEST_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { model: MODELS.DEFAULT, max_tokens: 6000 });
+  ], { max_tokens: 6000 }, config);
 
   const testContent = response.choices[0]?.message?.content || "";
   return await textToDocx(testContent, `${studentName}${dateStr}测试本`);
@@ -641,9 +607,9 @@ ${feedback}
 /**
  * 步骤4: 生成课后信息提取
  */
-export async function generateExtractionContent(studentName: string, nextLessonDate: string, feedback: string): Promise<string> {
+export async function generateExtractionContent(studentName: string, nextLessonDate: string, feedback: string, config?: APIConfig): Promise<string> {
   const prompt = `学生姓名：${studentName}
-下次课日期：${nextLessonDate || "待定"}
+下次课日期：${nextLessonDate || "请从学情反馈中提取，如无则写待定"}
 
 学情反馈内容：
 ${feedback}
@@ -653,7 +619,7 @@ ${feedback}
   const response = await invokeWhatAI([
     { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { model: MODELS.DEFAULT, max_tokens: 2000 });
+  ], { max_tokens: 2000 }, config);
 
   const content = response.choices[0]?.message?.content || "";
   return cleanMarkdownAndHtml(content);
@@ -666,7 +632,8 @@ export async function generateBubbleChart(
   feedback: string,
   studentName: string,
   dateStr: string,
-  lessonNumber: string
+  lessonNumber: string,
+  config?: APIConfig
 ): Promise<Buffer> {
   const problemsAndSolutions = await extractProblemsAndSolutions(feedback);
   const bubbleChartSVG = generateBubbleChartSVG(
@@ -703,67 +670,53 @@ export async function generateFeedbackDocuments(
   };
 
   let feedback = '';
+  let review: Buffer = Buffer.from('');
+  let test: Buffer = Buffer.from('');
   let extraction = '';
-  let reviewDocx = Buffer.from('');
-  let testDocx = Buffer.from('');
-  let bubbleChartPng = Buffer.from('');
+  let bubbleChart: Buffer = Buffer.from('');
 
-  // 1. 生成学情反馈
   try {
-    updateStep(0, 'running', '正在调用Claude生成学情反馈...');
+    // 步骤1: 生成学情反馈
+    updateStep(0, 'running', '正在生成学情反馈...');
     feedback = await generateFeedbackContent(input);
-    updateStep(0, 'success', `生成完成，共${feedback.length}字`);
-  } catch (err) {
-    updateStep(0, 'error', undefined, err instanceof Error ? err.message : '生成失败');
-    throw err;
-  }
+    updateStep(0, 'success', '学情反馈生成完成');
 
-  // 2. 生成复习文档
-  try {
+    // 步骤2: 生成复习文档
     updateStep(1, 'running', '正在生成复习文档...');
-    reviewDocx = await generateReviewContent(feedback, input.studentName, input.lessonDate);
-    updateStep(1, 'success', '生成完成');
-  } catch (err) {
-    updateStep(1, 'error', undefined, err instanceof Error ? err.message : '生成失败');
-    throw err;
-  }
+    const dateStr = input.lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
+    review = await generateReviewContent(feedback, input.studentName, dateStr);
+    updateStep(1, 'success', '复习文档生成完成');
 
-  // 3. 生成测试本
-  try {
+    // 步骤3: 生成测试本
     updateStep(2, 'running', '正在生成测试本...');
-    testDocx = await generateTestContent(feedback, input.studentName, input.lessonDate);
-    updateStep(2, 'success', '生成完成');
-  } catch (err) {
-    updateStep(2, 'error', undefined, err instanceof Error ? err.message : '生成失败');
-    throw err;
-  }
+    test = await generateTestContent(feedback, input.studentName, dateStr);
+    updateStep(2, 'success', '测试本生成完成');
 
-  // 4. 生成课后信息提取
-  try {
+    // 步骤4: 生成课后信息提取
     updateStep(3, 'running', '正在生成课后信息提取...');
     extraction = await generateExtractionContent(input.studentName, input.nextLessonDate, feedback);
-    updateStep(3, 'success', `生成完成，共${extraction.length}字`);
-  } catch (err) {
-    updateStep(3, 'error', undefined, err instanceof Error ? err.message : '生成失败');
-    throw err;
-  }
+    updateStep(3, 'success', '课后信息提取生成完成');
 
-  // 5. 生成气泡图
-  try {
+    // 步骤5: 生成气泡图
     updateStep(4, 'running', '正在生成气泡图...');
-    bubbleChartPng = await generateBubbleChart(feedback, input.studentName, input.lessonDate, input.lessonNumber);
-    updateStep(4, 'success', '生成完成');
-  } catch (err) {
-    updateStep(4, 'error', undefined, err instanceof Error ? err.message : '生成失败');
-    throw err;
+    bubbleChart = await generateBubbleChart(feedback, input.studentName, dateStr, input.lessonNumber);
+    updateStep(4, 'success', '气泡图生成完成');
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : '未知错误';
+    const failedIndex = steps.findIndex(s => s.status === 'running');
+    if (failedIndex >= 0) {
+      updateStep(failedIndex, 'error', undefined, errorMessage);
+    }
+    throw error;
   }
 
   return {
     feedback,
-    review: reviewDocx,
-    test: testDocx,
+    review,
+    test,
     extraction,
-    bubbleChart: bubbleChartPng,
+    bubbleChart,
     steps,
   };
 }
