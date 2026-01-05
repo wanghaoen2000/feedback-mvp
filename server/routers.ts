@@ -4,8 +4,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
-import { uploadToGoogleDrive, uploadMultipleFiles } from "./gdrive";
-import { generateFeedbackDocuments } from "./feedbackGenerator";
+import { uploadToGoogleDrive, uploadMultipleFiles, verifyAllFiles, UploadResult } from "./gdrive";
+import { generateFeedbackDocuments, StepStatus } from "./feedbackGenerator";
 
 export const appRouter = router({
   system: systemRouter,
@@ -47,35 +47,75 @@ export const appRouter = router({
           specialRequirements,
         } = input;
 
+        const dateStr = lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
+
+        // 记录生成步骤状态
+        const generationSteps: StepStatus[] = [];
+        
         // 生成5个文档
+        console.log(`[${new Date().toLocaleTimeString()}] 开始为 ${studentName} 生成文档...`);
+        
         const documents = await generateFeedbackDocuments({
           studentName,
           lessonNumber: lessonNumber || "",
-          lessonDate: lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日',
+          lessonDate: dateStr,
           nextLessonDate: nextLessonDate || "",
           lastFeedback: lastFeedback || "",
           currentNotes,
           transcript,
           isFirstLesson,
           specialRequirements: specialRequirements || "",
+        }, (step) => {
+          console.log(`[${new Date().toLocaleTimeString()}] ${step.step}: ${step.status} - ${step.message || step.error || ''}`);
+          generationSteps.push({ ...step });
         });
 
         // 上传到Google Drive
         const basePath = `Mac/Documents/XDF/学生档案/${studentName}`;
         
-        const uploadResults = await uploadMultipleFiles([
-          { content: documents.feedback, fileName: `${studentName}${lessonDate || ''}阅读课反馈.md`, folderPath: `${basePath}/学情反馈` },
-          { content: documents.review, fileName: `${studentName}${lessonDate || ''}复习文档.docx`, folderPath: `${basePath}/复习文档`, isBinary: true },
-          { content: documents.test, fileName: `${studentName}${lessonDate || ''}测试文档.docx`, folderPath: `${basePath}/复习文档`, isBinary: true },
-          { content: documents.extraction, fileName: `${studentName}${lessonDate || ''}课后信息提取.md`, folderPath: `${basePath}/课后信息` },
-          { content: documents.bubbleChart, fileName: `${studentName}${lessonDate || ''}气泡图.png`, folderPath: `${basePath}/气泡图`, isBinary: true },
-        ]);
+        const filesToUpload = [
+          { content: documents.feedback, fileName: `${studentName}${dateStr}阅读课反馈.md`, folderPath: `${basePath}/学情反馈`, isBinary: false },
+          { content: documents.review, fileName: `${studentName}${dateStr}复习文档.docx`, folderPath: `${basePath}/复习文档`, isBinary: true },
+          { content: documents.test, fileName: `${studentName}${dateStr}测试文档.docx`, folderPath: `${basePath}/复习文档`, isBinary: true },
+          { content: documents.extraction, fileName: `${studentName}${dateStr}课后信息提取.md`, folderPath: `${basePath}/课后信息`, isBinary: false },
+          { content: documents.bubbleChart, fileName: `${studentName}${dateStr}气泡图.png`, folderPath: `${basePath}/气泡图`, isBinary: true },
+        ];
+
+        console.log(`[${new Date().toLocaleTimeString()}] 开始上传文件到Google Drive...`);
+        
+        const uploadResults = await uploadMultipleFiles(filesToUpload, (fileName, status) => {
+          console.log(`[${new Date().toLocaleTimeString()}] 上传 ${fileName}: ${status.status} - ${status.message || status.error || ''}`);
+        });
+
+        // 最终验证所有文件
+        console.log(`[${new Date().toLocaleTimeString()}] 开始最终验证...`);
+        const filePaths = filesToUpload.map((f, i) => uploadResults[i]?.path || `${f.folderPath}/${f.fileName}`);
+        const verification = await verifyAllFiles(filePaths);
+
+        // 统计结果
+        const successCount = uploadResults.filter(r => r.status === 'success').length;
+        const errorCount = uploadResults.filter(r => r.status === 'error').length;
+        const verifiedCount = verification.results.filter(r => r.exists).length;
+
+        console.log(`[${new Date().toLocaleTimeString()}] 完成！成功: ${successCount}, 失败: ${errorCount}, 验证通过: ${verifiedCount}`);
 
         return {
-          success: true,
-          files: uploadResults.map(r => ({ name: r.fileName, url: r.url })),
+          success: errorCount === 0,
+          summary: {
+            totalFiles: 5,
+            successCount,
+            errorCount,
+            verifiedCount,
+            allVerified: verification.allExist,
+          },
+          generationSteps: documents.steps,
+          uploadResults: uploadResults.map((r, i) => ({
+            ...r,
+            verified: verification.results[i]?.exists || false,
+            fileSize: verification.results[i]?.size,
+          })),
           driveFolder: basePath,
-          driveUrl: uploadResults[0]?.folderUrl,
+          driveUrl: uploadResults.find(r => r.folderUrl)?.folderUrl || '',
         };
       }),
   }),

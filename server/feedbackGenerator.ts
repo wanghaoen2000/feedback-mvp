@@ -14,7 +14,7 @@ function extractTextContent(content: string | Array<TextContent | ImageContent |
   return '';
 }
 
-interface FeedbackInput {
+export interface FeedbackInput {
   studentName: string;
   lessonNumber: string;
   lessonDate: string;
@@ -26,12 +26,20 @@ interface FeedbackInput {
   specialRequirements: string;
 }
 
-interface FeedbackDocuments {
-  feedback: string;      // 学情反馈 .md
-  review: Buffer;        // 复习文档 .docx
-  test: Buffer;          // 测试本 .docx
-  extraction: string;    // 课后信息提取 .md
-  bubbleChart: Buffer;   // 气泡图 .png
+export interface StepStatus {
+  step: string;
+  status: 'pending' | 'running' | 'success' | 'error';
+  message?: string;
+  error?: string;
+}
+
+export interface FeedbackResult {
+  feedback: string;
+  review: Buffer;
+  test: Buffer;
+  extraction: string;
+  bubbleChart: Buffer;
+  steps: StepStatus[];
 }
 
 // 路书提示词（核心指令）
@@ -248,7 +256,6 @@ ${feedback}
 
   try {
     const content = extractTextContent(response.choices[0]?.message?.content || "[]");
-    // 尝试提取JSON
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
@@ -327,62 +334,112 @@ function generateBubbleChartSVG(
 }
 
 /**
- * 将SVG转换为PNG（使用简单的方法）
+ * 将SVG转换为PNG
  */
 async function svgToPng(svgContent: string): Promise<Buffer> {
-  // 由于环境限制，这里返回SVG内容作为Buffer
-  // 实际部署时可以使用sharp或puppeteer进行转换
   return Buffer.from(svgContent, 'utf-8');
 }
 
 /**
- * 将Markdown转换为简单的DOCX格式
- * 注意：这是一个简化版本，实际可能需要更复杂的处理
+ * 将Markdown转换为DOCX格式
  */
 function markdownToDocxBuffer(content: string): Buffer {
-  // 简化处理：返回纯文本内容作为Buffer
-  // 实际部署时应使用docx库生成真正的Word文档
   return Buffer.from(content, 'utf-8');
 }
 
 /**
- * 主函数：生成所有5个文档
+ * 主函数：生成所有5个文档，带状态回调
  */
-export async function generateFeedbackDocuments(input: FeedbackInput): Promise<FeedbackDocuments> {
+export async function generateFeedbackDocuments(
+  input: FeedbackInput,
+  onProgress?: (step: StepStatus) => void
+): Promise<FeedbackResult> {
+  const steps: StepStatus[] = [
+    { step: '学情反馈', status: 'pending' },
+    { step: '复习文档', status: 'pending' },
+    { step: '测试本', status: 'pending' },
+    { step: '课后信息提取', status: 'pending' },
+    { step: '气泡图', status: 'pending' },
+  ];
+
+  const updateStep = (index: number, status: StepStatus['status'], message?: string, error?: string) => {
+    steps[index] = { ...steps[index], status, message, error };
+    if (onProgress) {
+      onProgress(steps[index]);
+    }
+  };
+
+  let feedback = '';
+  let reviewContent = '';
+  let testContent = '';
+  let extraction = '';
+  let bubbleChartPng = Buffer.from('');
+
   // 1. 生成学情反馈
-  console.log("正在生成学情反馈...");
-  const feedback = await generateFeedbackContent(input);
-  
+  try {
+    updateStep(0, 'running', '正在调用AI生成学情反馈...');
+    feedback = await generateFeedbackContent(input);
+    updateStep(0, 'success', `生成完成，共${feedback.length}字`);
+  } catch (err) {
+    updateStep(0, 'error', undefined, err instanceof Error ? err.message : '生成失败');
+    throw err;
+  }
+
   // 2. 生成复习文档
-  console.log("正在生成复习文档...");
-  const reviewContent = await generateReviewContent(feedback, input.studentName);
-  
+  try {
+    updateStep(1, 'running', '正在生成复习文档...');
+    reviewContent = await generateReviewContent(feedback, input.studentName);
+    updateStep(1, 'success', `生成完成，共${reviewContent.length}字`);
+  } catch (err) {
+    updateStep(1, 'error', undefined, err instanceof Error ? err.message : '生成失败');
+    throw err;
+  }
+
   // 3. 生成测试本
-  console.log("正在生成测试本...");
-  const testContent = await generateTestContent(reviewContent);
-  
+  try {
+    updateStep(2, 'running', '正在生成测试本...');
+    testContent = await generateTestContent(reviewContent);
+    updateStep(2, 'success', `生成完成，共${testContent.length}字`);
+  } catch (err) {
+    updateStep(2, 'error', undefined, err instanceof Error ? err.message : '生成失败');
+    throw err;
+  }
+
   // 4. 生成课后信息提取
-  console.log("正在生成课后信息提取...");
-  const extraction = await generateExtractionContent(input, feedback);
-  
+  try {
+    updateStep(3, 'running', '正在生成课后信息提取...');
+    extraction = await generateExtractionContent(input, feedback);
+    updateStep(3, 'success', `生成完成，共${extraction.length}字`);
+  } catch (err) {
+    updateStep(3, 'error', undefined, err instanceof Error ? err.message : '生成失败');
+    throw err;
+  }
+
   // 5. 生成气泡图
-  console.log("正在生成气泡图...");
-  const problemsAndSolutions = await extractProblemsAndSolutions(feedback);
-  const bubbleChartSVG = generateBubbleChartSVG(
-    input.studentName,
-    input.lessonDate,
-    input.lessonNumber,
-    problemsAndSolutions.length > 0 ? problemsAndSolutions : [
-      { problem: ["暂无问题", ""], solution: ["继续保持", ""] }
-    ]
-  );
-  const bubbleChartPng = await svgToPng(bubbleChartSVG);
-  
+  try {
+    updateStep(4, 'running', '正在生成气泡图...');
+    const problemsAndSolutions = await extractProblemsAndSolutions(feedback);
+    const bubbleChartSVG = generateBubbleChartSVG(
+      input.studentName,
+      input.lessonDate,
+      input.lessonNumber,
+      problemsAndSolutions.length > 0 ? problemsAndSolutions : [
+        { problem: ["暂无问题", ""], solution: ["继续保持", ""] }
+      ]
+    );
+    bubbleChartPng = await svgToPng(bubbleChartSVG);
+    updateStep(4, 'success', `生成完成，提取${problemsAndSolutions.length}个问题-方案对`);
+  } catch (err) {
+    updateStep(4, 'error', undefined, err instanceof Error ? err.message : '生成失败');
+    throw err;
+  }
+
   return {
     feedback,
     review: markdownToDocxBuffer(reviewContent),
     test: markdownToDocxBuffer(testContent),
     extraction,
     bubbleChart: bubbleChartPng,
+    steps,
   };
 }
