@@ -43,7 +43,36 @@ export interface WhatAIResponse {
 }
 
 /**
- * 调用神马中转API
+ * 带超时的fetch
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = 180000 // 默认3分钟超时
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * 延迟函数
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 调用神马中转API（带重试机制）
  * @param messages 消息列表
  * @param options 可选参数
  */
@@ -53,39 +82,83 @@ export async function invokeWhatAI(
     model?: string;
     max_tokens?: number;
     temperature?: number;
+    timeout?: number; // 超时时间（毫秒）
+    retries?: number; // 重试次数
   }
 ): Promise<WhatAIResponse> {
   const model = options?.model || MODELS.OPUS;
   const max_tokens = options?.max_tokens || 8000;
   const temperature = options?.temperature ?? 0.7;
+  const timeout = options?.timeout || 180000; // 默认3分钟
+  const maxRetries = options?.retries ?? 2; // 默认重试2次
 
   console.log(`[WhatAI] 调用模型: ${model}`);
   console.log(`[WhatAI] 消息数量: ${messages.length}`);
+  console.log(`[WhatAI] 超时设置: ${timeout / 1000}秒`);
 
-  const response = await fetch(`${WHATAI_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${WHATAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      max_tokens,
-      temperature,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[WhatAI] API错误: ${response.status} - ${errorText}`);
-    throw new Error(`WhatAI API错误: ${response.status} - ${errorText}`);
-  }
-
-  const data = await response.json() as WhatAIResponse;
-  console.log(`[WhatAI] 响应完成，使用tokens: ${data.usage?.total_tokens || "未知"}`);
+  let lastError: Error | null = null;
   
-  return data;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      console.log(`[WhatAI] 第${attempt}次重试...`);
+      await delay(2000 * attempt); // 递增延迟
+    }
+    
+    try {
+      const response = await fetchWithTimeout(
+        `${WHATAI_BASE_URL}/chat/completions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${WHATAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            max_tokens,
+            temperature,
+          }),
+        },
+        timeout
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[WhatAI] API错误: ${response.status} - ${errorText}`);
+        
+        // 如果是余额不足等不可重试的错误，直接抛出
+        if (response.status === 403 || response.status === 401) {
+          throw new Error(`WhatAI API错误: ${response.status} - ${errorText}`);
+        }
+        
+        lastError = new Error(`WhatAI API错误: ${response.status} - ${errorText}`);
+        continue; // 尝试重试
+      }
+
+      const data = await response.json() as WhatAIResponse;
+      console.log(`[WhatAI] 响应完成，使用tokens: ${data.usage?.total_tokens || "未知"}`);
+      
+      return data;
+    } catch (error: any) {
+      console.error(`[WhatAI] 请求失败 (尝试 ${attempt + 1}/${maxRetries + 1}):`, error.message);
+      
+      // 如果是AbortError（超时），记录并继续重试
+      if (error.name === 'AbortError') {
+        lastError = new Error(`请求超时（${timeout / 1000}秒）`);
+      } else {
+        lastError = error;
+      }
+      
+      // 如果是不可重试的错误，直接抛出
+      if (error.message?.includes('403') || error.message?.includes('401')) {
+        throw error;
+      }
+    }
+  }
+  
+  // 所有重试都失败
+  throw lastError || new Error('API调用失败');
 }
 
 /**
@@ -98,6 +171,8 @@ export async function invokeWhatAISimple(
   return invokeWhatAI(messages, {
     model: MODELS.HAIKU,
     max_tokens: max_tokens || 2000,
+    timeout: 60000, // 简单任务1分钟超时
+    retries: 1,
   });
 }
 
@@ -111,5 +186,7 @@ export async function invokeWhatAIComplex(
   return invokeWhatAI(messages, {
     model: MODELS.OPUS,
     max_tokens: max_tokens || 8000,
+    timeout: 300000, // 复杂任务5分钟超时
+    retries: 2,
   });
 }

@@ -45,3 +45,6 @@
 - [x] 切换到神马中转API（https://api.whatai.cc/v1）
 - [x] 配置默认使用claude-opus-4-5-20251101-thinking模型
 - [x] 测试验证所有修复
+
+## Bug修复（V6）
+- [x] 诊断并修复API fetch failed错误（添加超时设置和重试机制）
