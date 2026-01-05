@@ -181,6 +181,143 @@ export async function invokeWhatAI(
 }
 
 /**
+ * 流式调用神马中转API（防止超时）
+ * 使用SSE流式返回，实时获取生成内容
+ * @param messages 消息列表
+ * @param options 可选参数
+ * @param config 自定义API配置
+ * @param onChunk 每收到一块内容时的回调
+ */
+export async function invokeWhatAIStream(
+  messages: WhatAIMessage[],
+  options?: {
+    model?: string;
+    max_tokens?: number;
+    temperature?: number;
+    timeout?: number;
+    retries?: number;
+  },
+  config?: APIConfig,
+  onChunk?: (chunk: string) => void
+): Promise<string> {
+  const apiKey = config?.apiKey || DEFAULT_API_KEY;
+  const baseUrl = config?.apiUrl || DEFAULT_BASE_URL;
+  const model = config?.apiModel || options?.model || DEFAULT_MODEL;
+  
+  const max_tokens = options?.max_tokens || 16000;
+  const temperature = options?.temperature ?? 0.7;
+  const timeout = options?.timeout || 600000; // 默认10分钟
+  const maxRetries = options?.retries ?? 2;
+
+  console.log(`[WhatAI流式] 调用模型: ${model}`);
+  console.log(`[WhatAI流式] API地址: ${baseUrl}`);
+  console.log(`[WhatAI流式] 消息数量: ${messages.length}`);
+
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      console.log(`[WhatAI流式] 第${attempt}次重试...`);
+      await delay(2000 * attempt);
+    }
+    
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          max_tokens,
+          temperature,
+          stream: true, // 启用流式输出
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[WhatAI流式] API错误: ${response.status} - ${errorText}`);
+        
+        if (response.status === 403 || response.status === 401) {
+          throw new Error(`WhatAI API错误: ${response.status} - ${errorText}`);
+        }
+        
+        lastError = new Error(`WhatAI API错误: ${response.status} - ${errorText}`);
+        continue;
+      }
+
+      // 读取流式响应
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('无法获取响应流');
+      }
+
+      const decoder = new TextDecoder();
+      let fullContent = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        
+        // 处理SSE格式的数据
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // 保留未完成的行
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') continue;
+            
+            try {
+              const parsed = JSON.parse(data);
+              const content = parsed.choices?.[0]?.delta?.content || '';
+              if (content) {
+                fullContent += content;
+                if (onChunk) {
+                  onChunk(content);
+                }
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+
+      console.log(`[WhatAI流式] 响应完成，内容长度: ${fullContent.length}字符`);
+      return fullContent;
+      
+    } catch (error: any) {
+      console.error(`[WhatAI流式] 请求失败 (尝试 ${attempt + 1}/${maxRetries + 1}):`, error.message);
+      
+      if (error.name === 'AbortError') {
+        lastError = new Error(`请求超时（${timeout / 1000}秒）`);
+      } else {
+        lastError = error;
+      }
+      
+      if (error.message?.includes('403') || error.message?.includes('401')) {
+        throw error;
+      }
+    }
+  }
+  
+  throw lastError || new Error('API调用失败');
+}
+
+/**
  * 简单任务调用（使用Haiku模型）
  */
 export async function invokeWhatAISimple(

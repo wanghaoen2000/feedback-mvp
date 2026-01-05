@@ -1,4 +1,4 @@
-import { invokeWhatAI, MODELS, APIConfig } from "./whatai";
+import { invokeWhatAI, invokeWhatAIStream, MODELS, APIConfig } from "./whatai";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
 import sharp from "sharp";
 
@@ -715,12 +715,22 @@ ${config.roadmap}
 === 路书内容结束 ===`
     : FEEDBACK_SYSTEM_PROMPT;
 
-  const response = await invokeWhatAI([
-    { role: "system", content: systemPrompt },
-    { role: "user", content: prompt },
-  ], { max_tokens: 16000 }, config);
-
-  const content = response.choices[0]?.message?.content || "";
+  // 使用流式输出防止超时
+  console.log(`[学情反馈] 开始流式生成...`);
+  const content = await invokeWhatAIStream(
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: prompt },
+    ],
+    { max_tokens: 16000 },
+    config,
+    (chunk) => {
+      // 每收到一块内容就打印进度（防止超时）
+      process.stdout.write('.');
+    }
+  );
+  console.log(`\n[学情反馈] 流式生成完成，内容长度: ${content.length}字符`);
+  
   return cleanMarkdownAndHtml(content);
 }
 
@@ -753,12 +763,21 @@ ${config.roadmap}
 === 路书内容结束 ===`
     : REVIEW_SYSTEM_PROMPT;
 
-  const response = await invokeWhatAI([
-    { role: "system", content: systemPrompt },
-    { role: "user", content: prompt },
-  ], { max_tokens: 16000 }, config);
-
-  const reviewContent = response.choices[0]?.message?.content || "";
+  // 使用流式输出防止超时
+  console.log(`[复习文档] 开始流式生成...`);
+  const reviewContent = await invokeWhatAIStream(
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: prompt },
+    ],
+    { max_tokens: 16000 },
+    config,
+    (chunk) => {
+      process.stdout.write('.');
+    }
+  );
+  console.log(`\n[复习文档] 流式生成完成，内容长度: ${reviewContent.length}字符`);
+  
   return await textToDocx(reviewContent, `${studentName}${dateStr}复习文档`);
 }
 
@@ -791,12 +810,21 @@ ${config.roadmap}
 === 路书内容结束 ===`
     : TEST_SYSTEM_PROMPT;
 
-  const response = await invokeWhatAI([
-    { role: "system", content: systemPrompt },
-    { role: "user", content: prompt },
-  ], { max_tokens: 16000 }, config);
-
-  const testContent = response.choices[0]?.message?.content || "";
+  // 使用流式输出防止超时
+  console.log(`[测试本] 开始流式生成...`);
+  const testContent = await invokeWhatAIStream(
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: prompt },
+    ],
+    { max_tokens: 16000 },
+    config,
+    (chunk) => {
+      process.stdout.write('.');
+    }
+  );
+  console.log(`\n[测试本] 流式生成完成，内容长度: ${testContent.length}字符`);
+  
   return await textToDocx(testContent, `${studentName}${dateStr}测试本`);
 }
 
@@ -827,12 +855,21 @@ ${config.roadmap}
 === 路书内容结束 ===`
     : EXTRACTION_SYSTEM_PROMPT;
 
-  const response = await invokeWhatAI([
-    { role: "system", content: systemPrompt },
-    { role: "user", content: prompt },
-  ], { max_tokens: 16000 }, config);
-
-  const content = response.choices[0]?.message?.content || "";
+  // 使用流式输出防止超时
+  console.log(`[课后信息提取] 开始流式生成...`);
+  const content = await invokeWhatAIStream(
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: prompt },
+    ],
+    { max_tokens: 16000 },
+    config,
+    (chunk) => {
+      process.stdout.write('.');
+    }
+  );
+  console.log(`\n[课后信息提取] 流式生成完成，内容长度: ${content.length}字符`);
+  
   return cleanMarkdownAndHtml(content);
 }
 
