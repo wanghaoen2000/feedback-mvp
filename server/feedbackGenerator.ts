@@ -385,10 +385,57 @@ async function textToDocx(text: string, title: string): Promise<Buffer> {
 }
 
 /**
- * 从反馈中提取问题和解决方案
+ * 从反馈中提取问题和解决方案（使用AI和自定义路书）
  */
-async function extractProblemsAndSolutions(feedback: string): Promise<Array<{problem: [string, string], solution: [string, string]}>> {
-  // 简单的提取逻辑：从【表现及建议】部分提取
+async function extractProblemsAndSolutions(feedback: string, config?: APIConfig): Promise<Array<{problem: [string, string], solution: [string, string]}>> {
+  // 使用AI提取问题和方案
+  const defaultPrompt = `你是一个气泡图内容提取助手。从学情反馈中提取问题和解决方案。
+
+【提取规则】
+1. 从「随堂测试」「作业批改」「表现及建议」中提取问题和方案
+2. 提取3-6个问题，太多会罗列不下
+3. 方案必须是反馈里写过的，不能自己编
+4. 每个框里放两行字：主标题 + 副标题
+
+【输出格式】
+请输出严格的JSON数组，每个元素包含：
+- problem: ["主标题", "副标题"]
+- solution: ["主标题", "副标题"]
+
+示例：
+[
+  {"problem": ["历史类文章", "生词障碍严重"], "solution": ["猜词练习针对", "历史/天文/艺术薄弱题材"]},
+  {"problem": ["选非题", "未看全句子"], "solution": ["读到快记不住", "就去核对选项看全句子含义"]}
+]
+
+注意：主标题最多10个字，副标题最多15个字。只输出JSON，不要其他内容。`;
+
+  // 如果有自定义路书，添加路书内容
+  const systemPrompt = config?.roadmap && config.roadmap.trim()
+    ? `${defaultPrompt}\n\n=== 用户自定义路书内容（气泡图部分） ===\n${config.roadmap}\n=== 路书内容结束 ===`
+    : defaultPrompt;
+
+  try {
+    const response = await invokeWhatAI([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `请从以下学情反馈中提取问题和解决方案：\n\n${feedback}` },
+    ], { max_tokens: 2000 }, config);
+
+    const content = response.choices[0]?.message?.content || "[]";
+    // 提取JSON数组
+    const jsonMatch = content.match(/\[([\s\S]*?)\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(`[${jsonMatch[1]}]`);
+      return parsed.map((item: any) => ({
+        problem: [item.problem?.[0] || "", item.problem?.[1] || ""],
+        solution: [item.solution?.[0] || "", item.solution?.[1] || ""],
+      }));
+    }
+  } catch (error) {
+    console.error("提取问题和方案失败，使用备用方案:", error);
+  }
+
+  // 备用方案：简单的文本提取
   const suggestionsMatch = feedback.match(/【表现及建议】([\s\S]*?)(?=【|$)/);
   if (!suggestionsMatch) {
     return [];
@@ -397,20 +444,18 @@ async function extractProblemsAndSolutions(feedback: string): Promise<Array<{pro
   const suggestions = suggestionsMatch[1];
   const results: Array<{problem: [string, string], solution: [string, string]}> = [];
   
-  // 按段落分割
   const paragraphs = suggestions.split(/\n\n+/).filter(p => p.trim());
   
-  for (const para of paragraphs.slice(0, 4)) { // 最多取4个问题
+  for (const para of paragraphs.slice(0, 4)) {
     const lines = para.trim().split('\n').filter(l => l.trim());
     if (lines.length >= 2) {
-      // 第一行作为问题，后面作为解决方案
       const problemText = lines[0].replace(/^[\d.、]+/, '').trim();
       const solutionText = lines.slice(1).join(' ').replace(/^[\d.、]+/, '').trim();
       
       if (problemText && solutionText) {
         results.push({
-          problem: [problemText.slice(0, 20), problemText.slice(20, 40) || ''],
-          solution: [solutionText.slice(0, 20), solutionText.slice(20, 40) || ''],
+          problem: [problemText.slice(0, 10), problemText.slice(10, 25) || ''],
+          solution: [solutionText.slice(0, 10), solutionText.slice(10, 25) || ''],
         });
       }
     }
@@ -700,7 +745,8 @@ export async function generateBubbleChart(
   lessonNumber: string,
   config?: APIConfig
 ): Promise<Buffer> {
-  const problemsAndSolutions = await extractProblemsAndSolutions(feedback);
+  // 传递config给extractProblemsAndSolutions，以便使用自定义路书
+  const problemsAndSolutions = await extractProblemsAndSolutions(feedback, config);
   const bubbleChartSVG = generateBubbleChartSVG(
     studentName,
     dateStr,

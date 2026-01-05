@@ -409,15 +409,17 @@ export const appRouter = router({
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap; // 获取自定义路书
         
         console.log(`[${new Date().toLocaleTimeString()}] 步骤5: 开始生成气泡图...`);
+        console.log(`[${new Date().toLocaleTimeString()}] 自定义路书: ${roadmap ? '已配置(' + roadmap.length + '字符)' : '未配置，使用默认'}`);
         
         const bubbleChartPng = await generateBubbleChart(
           input.feedbackContent,
           input.studentName,
           input.dateStr,
           input.lessonNumber || "",
-          { apiModel, apiKey, apiUrl }
+          { apiModel, apiKey, apiUrl, roadmap }
         );
 
         const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
