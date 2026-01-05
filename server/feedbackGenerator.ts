@@ -331,7 +331,8 @@ async function compressTranscript(transcript: string, config?: APIConfig): Promi
     console.log(`[录音压缩] 压缩第${i + 1}/${finalChunks.length}段 (原长${chunk.length}字符)...`);
     
     try {
-      const response = await invokeWhatAI([
+      // 使用流式输出防止超时
+      const compressed = await invokeWhatAIStream([
         { role: "system", content: `你是一个课堂录音压缩助手。请压缩以下课堂录音转文字内容，保留核心教学内容。
 
 【压缩规则】
@@ -340,14 +341,12 @@ async function compressTranscript(transcript: string, config?: APIConfig): Promi
 3. 保留所有长难句分析
 4. 保留学生表现评价和建议
 5. 删除重复的导读词、口头禅、无关闲聊
-6. 删除“嗯”“啊”“那个”等语气词
+6. 删除"嗯""啊""那个"等语气词
 7. 压缩后长度应为原文的50%左右
 
 直接输出压缩后的内容，不要添加任何解释。` },
         { role: "user", content: chunk },
-      ], { max_tokens: 4000 }, config);
-
-      const compressed = response.choices[0]?.message?.content || chunk;
+      ], { max_tokens: 4000 }, config, (c) => process.stdout.write('.'));
       compressedChunks.push(compressed);
       console.log(`[录音压缩] 第${i + 1}段压缩完成: ${chunk.length} -> ${compressed.length}字符`);
     } catch (error) {
@@ -514,12 +513,13 @@ async function extractProblemsAndSolutions(feedback: string, config?: APIConfig)
     : defaultPrompt;
 
   try {
-    const response = await invokeWhatAI([
+    // 使用流式输出防止超时
+    console.log(`[气泡图] 开始流式提取问题和方案...`);
+    const content = await invokeWhatAIStream([
       { role: "system", content: systemPrompt },
       { role: "user", content: `请从以下学情反馈中提取问题和解决方案：\n\n${feedback}` },
-    ], { max_tokens: 2000 }, config);
-
-    const content = response.choices[0]?.message?.content || "[]";
+    ], { max_tokens: 2000 }, config, (c) => process.stdout.write('.'));
+    console.log(`\n[气泡图] 提取完成`);
     // 提取JSON数组
     const jsonMatch = content.match(/\[([\s\S]*?)\]/);
     if (jsonMatch) {
