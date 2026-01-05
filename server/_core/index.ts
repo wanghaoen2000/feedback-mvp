@@ -30,14 +30,26 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  
+  // 设置服务器超时为15分钟（用于长时间运行的API调用）
+  server.timeout = 15 * 60 * 1000; // 15 minutes
+  server.keepAliveTimeout = 15 * 60 * 1000;
+  server.headersTimeout = 15 * 60 * 1000 + 1000;
+  
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
-  // tRPC API
+  // tRPC API - 设置请求超时为15分钟
   app.use(
     "/api/trpc",
+    (req, res, next) => {
+      // 为tRPC请求设置更长的超时时间
+      req.setTimeout(15 * 60 * 1000); // 15 minutes
+      res.setTimeout(15 * 60 * 1000);
+      next();
+    },
     createExpressMiddleware({
       router: appRouter,
       createContext,

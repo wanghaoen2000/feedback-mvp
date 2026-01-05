@@ -16,6 +16,7 @@ export interface UploadStatus {
   error?: string;
   url?: string;
   path?: string;
+  folderUrl?: string;
   verified?: boolean;
   fileSize?: number;
 }
