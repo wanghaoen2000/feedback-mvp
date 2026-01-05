@@ -553,7 +553,7 @@ ${input.transcript}
   const response = await invokeWhatAI([
     { role: "system", content: FEEDBACK_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { max_tokens: 8000 }, config);
+  ], { max_tokens: 16000 }, config);
 
   const content = response.choices[0]?.message?.content || "";
   return cleanMarkdownAndHtml(content);
@@ -576,7 +576,7 @@ ${feedback}
   const response = await invokeWhatAI([
     { role: "system", content: REVIEW_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { max_tokens: 8000 }, config);
+  ], { max_tokens: 16000 }, config);
 
   const reviewContent = response.choices[0]?.message?.content || "";
   return await textToDocx(reviewContent, `${studentName}${dateStr}复习文档`);
@@ -598,7 +598,7 @@ ${feedback}
   const response = await invokeWhatAI([
     { role: "system", content: TEST_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { max_tokens: 6000 }, config);
+  ], { max_tokens: 16000 }, config);
 
   const testContent = response.choices[0]?.message?.content || "";
   return await textToDocx(testContent, `${studentName}${dateStr}测试本`);
@@ -619,7 +619,7 @@ ${feedback}
   const response = await invokeWhatAI([
     { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
     { role: "user", content: prompt },
-  ], { max_tokens: 2000 }, config);
+  ], { max_tokens: 16000 }, config);
 
   const content = response.choices[0]?.message?.content || "";
   return cleanMarkdownAndHtml(content);

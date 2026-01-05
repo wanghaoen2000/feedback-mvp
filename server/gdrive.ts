@@ -40,13 +40,45 @@ export async function verifyFileExists(filePath: string): Promise<{ exists: bool
 }
 
 /**
- * 上传文件到Google Drive（带状态回调）
+ * 带重试机制的上传函数
+ */
+async function uploadWithRetry<T>(
+  uploadFn: () => Promise<T>,
+  maxRetries: number = 3,
+  retryDelay: number = 2000,
+  onRetry?: (attempt: number, error: Error) => void
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await uploadFn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.log(`[上传重试] 第${attempt}次尝试失败: ${lastError.message}`);
+      
+      if (attempt < maxRetries) {
+        if (onRetry) {
+          onRetry(attempt, lastError);
+        }
+        console.log(`[上传重试] ${retryDelay/1000}秒后进行第${attempt + 1}次尝试...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
+  }
+  
+  throw lastError || new Error('上传失败');
+}
+
+/**
+ * 上传文件到Google Drive（带状态回调和重试机制）
  */
 export async function uploadToGoogleDrive(
   content: string,
   fileName: string,
   folderPath: string,
-  onStatus?: (status: UploadStatus) => void
+  onStatus?: (status: UploadStatus) => void,
+  maxRetries: number = 3
 ): Promise<UploadStatus> {
   const status: UploadStatus = {
     fileName,
@@ -61,7 +93,8 @@ export async function uploadToGoogleDrive(
   const tempDir = os.tmpdir();
   const tempFilePath = path.join(tempDir, fileName);
   
-  try {
+  // 内部上传函数（用于重试）
+  const doUpload = async (): Promise<UploadStatus> => {
     updateStatus({ status: 'uploading', message: '正在创建文件夹...' });
     await fs.promises.writeFile(tempFilePath, content, "utf-8");
     
@@ -78,12 +111,7 @@ export async function uploadToGoogleDrive(
     const verification = await verifyFileExists(fullPath);
     
     if (!verification.exists) {
-      updateStatus({ 
-        status: 'error', 
-        error: '文件上传后验证失败，文件可能未成功保存',
-        verified: false 
-      });
-      return status;
+      throw new Error('文件上传后验证失败，文件可能未成功保存');
     }
     
     updateStatus({ message: '正在获取分享链接...' });
@@ -101,10 +129,24 @@ export async function uploadToGoogleDrive(
     });
     
     return status;
+  };
+  
+  try {
+    // 使用重试机制执行上传
+    await uploadWithRetry(
+      doUpload,
+      maxRetries,
+      2000,
+      (attempt, error) => {
+        console.log(`[上传重试] ${fileName}: 第${attempt}次失败 - ${error.message}`);
+        updateStatus({ message: `上传失败，正在重试(${attempt}/${maxRetries})...` });
+      }
+    );
+    return status;
   } catch (err) {
     updateStatus({
       status: 'error',
-      error: err instanceof Error ? err.message : '上传失败',
+      error: err instanceof Error ? err.message : '上传失败（已重试' + maxRetries + '次）',
       verified: false,
     });
     return status;
@@ -118,13 +160,14 @@ export async function uploadToGoogleDrive(
 }
 
 /**
- * 上传二进制文件到Google Drive（带状态回调）
+ * 上传二进制文件到Google Drive（带状态回调和重试机制）
  */
 export async function uploadBinaryToGoogleDrive(
   content: Buffer,
   fileName: string,
   folderPath: string,
-  onStatus?: (status: UploadStatus) => void
+  onStatus?: (status: UploadStatus) => void,
+  maxRetries: number = 3
 ): Promise<UploadStatus> {
   const status: UploadStatus = {
     fileName,
@@ -139,7 +182,8 @@ export async function uploadBinaryToGoogleDrive(
   const tempDir = os.tmpdir();
   const tempFilePath = path.join(tempDir, fileName);
   
-  try {
+  // 内部上传函数（用于重试）
+  const doUpload = async (): Promise<UploadStatus> => {
     updateStatus({ status: 'uploading', message: '正在创建文件夹...' });
     await fs.promises.writeFile(tempFilePath, content);
     
@@ -156,12 +200,7 @@ export async function uploadBinaryToGoogleDrive(
     const verification = await verifyFileExists(fullPath);
     
     if (!verification.exists) {
-      updateStatus({ 
-        status: 'error', 
-        error: '文件上传后验证失败，文件可能未成功保存',
-        verified: false 
-      });
-      return status;
+      throw new Error('文件上传后验证失败，文件可能未成功保存');
     }
     
     updateStatus({ message: '正在获取分享链接...' });
@@ -179,10 +218,24 @@ export async function uploadBinaryToGoogleDrive(
     });
     
     return status;
+  };
+  
+  try {
+    // 使用重试机制执行上传
+    await uploadWithRetry(
+      doUpload,
+      maxRetries,
+      2000,
+      (attempt, error) => {
+        console.log(`[上传重试] ${fileName}: 第${attempt}次失败 - ${error.message}`);
+        updateStatus({ message: `上传失败，正在重试(${attempt}/${maxRetries})...` });
+      }
+    );
+    return status;
   } catch (err) {
     updateStatus({
       status: 'error',
-      error: err instanceof Error ? err.message : '上传失败',
+      error: err instanceof Error ? err.message : '上传失败（已重试' + maxRetries + '次）',
       verified: false,
     });
     return status;

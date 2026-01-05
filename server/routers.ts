@@ -22,6 +22,8 @@ const DEFAULT_CONFIG = {
   apiModel: "claude-sonnet-4-5-20250929",
   apiKey: process.env.WHATAI_API_KEY || "sk-WyfaRl3qxKk8gpaptVWUfe1ZiJYQg0Vqjd7nscsZMT4l0c9U",
   apiUrl: "https://www.DMXapi.com/v1",
+  currentYear: "2026",
+  roadmap: "",
 };
 
 // 获取配置值（优先从数据库，否则用默认值）
@@ -56,10 +58,12 @@ async function setConfig(key: string, value: string, description?: string): Prom
   }
 }
 
-// 共享的输入schema（移除日期字段）
+// 共享的输入schema
 const feedbackInputSchema = z.object({
   studentName: z.string().min(1, "请输入学生姓名"),
   lessonNumber: z.string().optional(),
+  lessonDate: z.string().optional(), // 本次课日期，如"1月5日"
+  currentYear: z.string().optional(), // 年份，如"2026"
   lastFeedback: z.string().optional(),
   currentNotes: z.string().min(1, "请输入本次课笔记"),
   transcript: z.string().min(1, "请输入录音转文字"),
@@ -91,16 +95,21 @@ export const appRouter = router({
       const apiModel = await getConfig("apiModel");
       const apiKey = await getConfig("apiKey");
       const apiUrl = await getConfig("apiUrl");
+      const currentYear = await getConfig("currentYear");
+      const roadmap = await getConfig("roadmap");
       
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
         apiKey: apiKey || DEFAULT_CONFIG.apiKey,
         apiUrl: apiUrl || DEFAULT_CONFIG.apiUrl,
+        currentYear: currentYear || DEFAULT_CONFIG.currentYear,
+        roadmap: roadmap || "",
         // 返回是否使用默认值
         isDefault: {
           apiModel: !apiModel,
           apiKey: !apiKey,
           apiUrl: !apiUrl,
+          currentYear: !currentYear,
         }
       };
     }),
@@ -111,6 +120,8 @@ export const appRouter = router({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
         apiUrl: z.string().optional(),
+        currentYear: z.string().optional(),
+        roadmap: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -130,6 +141,16 @@ export const appRouter = router({
           updates.push("apiUrl");
         }
         
+        if (input.currentYear !== undefined && input.currentYear.trim()) {
+          await setConfig("currentYear", input.currentYear.trim(), "当前年份");
+          updates.push("currentYear");
+        }
+        
+        if (input.roadmap !== undefined) {
+          await setConfig("roadmap", input.roadmap, "V9路书内容");
+          updates.push("roadmap");
+        }
+        
         return {
           success: true,
           updated: updates,
@@ -142,7 +163,7 @@ export const appRouter = router({
     // 重置为默认值
     reset: publicProcedure
       .input(z.object({
-        keys: z.array(z.enum(["apiModel", "apiKey", "apiUrl"])),
+        keys: z.array(z.enum(["apiModel", "apiKey", "apiUrl", "currentYear", "roadmap"])),
       }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -173,14 +194,19 @@ export const appRouter = router({
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
         
         console.log(`[${new Date().toLocaleTimeString()}] 步骤1: 开始生成学情反馈...`);
         console.log(`[${new Date().toLocaleTimeString()}] 使用模型: ${apiModel}`);
+        console.log(`[${new Date().toLocaleTimeString()}] 年份: ${currentYear}, 日期: ${input.lessonDate || '自动提取'}`);
+        
+        // 组合年份和日期
+        const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
         
         const feedbackContent = await generateFeedbackContent({
           studentName: input.studentName,
           lessonNumber: input.lessonNumber || "",
-          lessonDate: "", // AI会自动从笔记中提取
+          lessonDate: lessonDate, // 使用用户输入的日期
           nextLessonDate: "", // AI会自动从笔记中提取
           lastFeedback: input.lastFeedback || "",
           currentNotes: input.currentNotes,
@@ -189,9 +215,12 @@ export const appRouter = router({
           specialRequirements: input.specialRequirements || "",
         }, { apiModel, apiKey, apiUrl });
 
-        // 从反馈内容中提取日期（AI会在反馈开头写日期）
-        const dateMatch = feedbackContent.match(/(\d{1,2}月\d{1,2}日)/);
-        const dateStr = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
+        // 优先使用用户输入的日期，否则从反馈内容中提取
+        let dateStr = input.lessonDate || "";
+        if (!dateStr) {
+          const dateMatch = feedbackContent.match(/(\d{1,2}月\d{1,2}日)/);
+          dateStr = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
+        }
 
         // 上传到Google Drive
         const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;

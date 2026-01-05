@@ -15,48 +15,6 @@
       "when": 1767612892294,
       "tag": "0001_silky_cerebro",
       "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "5",
-      "when": 1767622109576,
-      "tag": "0002_outgoing_nick_fury",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "5",
-      "when": 1767622676562,
-      "tag": "0003_careful_tana_nile",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "5",
-      "when": 1767624131166,
-      "tag": "0004_fluffy_ozymandias",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "5",
-      "when": 1767624847749,
-      "tag": "0005_sloppy_marvel_boy",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "5",
-      "when": 1767624948293,
-      "tag": "0006_chubby_punisher",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "5",
-      "when": 1767627140958,
-      "tag": "0007_nebulous_silk_fever",
-      "breakpoints": true
     }
   ]
 }

@@ -67,6 +67,8 @@ export default function Home() {
   // 基本信息
   const [studentName, setStudentName] = useState("");
   const [lessonNumber, setLessonNumber] = useState("");
+  const [lessonDate, setLessonDate] = useState(""); // 本次课日期，如"1月5日"
+  const [currentYear, setCurrentYear] = useState("2026"); // 年份
   
   // 三段文本
   const [lastFeedback, setLastFeedback] = useState("");
@@ -82,6 +84,7 @@ export default function Home() {
   const [apiModel, setApiModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiUrl, setApiUrl] = useState("");
+  const [roadmap, setRoadmap] = useState(""); // V9路书内容
   const [configLoaded, setConfigLoaded] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
 
@@ -110,6 +113,8 @@ export default function Home() {
       setApiModel(configQuery.data.apiModel);
       setApiKey(configQuery.data.apiKey);
       setApiUrl(configQuery.data.apiUrl);
+      setCurrentYear(configQuery.data.currentYear || "2026");
+      setRoadmap(configQuery.data.roadmap || "");
       setConfigLoaded(true);
     }
   }, [configQuery.data, configLoaded]);
@@ -122,6 +127,8 @@ export default function Home() {
         apiModel: apiModel.trim() || undefined,
         apiKey: apiKey.trim() || undefined,
         apiUrl: apiUrl.trim() || undefined,
+        currentYear: currentYear.trim() || undefined,
+        roadmap: roadmap || undefined,
       });
       // 刷新配置
       await configQuery.refetch();
@@ -156,6 +163,8 @@ export default function Home() {
       apiModel: apiModel.trim() || undefined,
       apiKey: apiKey.trim() || undefined,
       apiUrl: apiUrl.trim() || undefined,
+      lessonDate: lessonDate.trim() || undefined,
+      currentYear: currentYear.trim() || undefined,
     };
 
     try {
@@ -284,6 +293,8 @@ export default function Home() {
       apiModel: apiModel.trim() || undefined,
       apiKey: apiKey.trim() || undefined,
       apiUrl: apiUrl.trim() || undefined,
+      lessonDate: lessonDate.trim() || undefined,
+      currentYear: currentYear.trim() || undefined,
     };
 
     try {
@@ -377,7 +388,7 @@ export default function Home() {
     }
   }, [
     isGenerating, steps, feedbackContent, dateStr, studentName, lessonNumber,
-    lastFeedback, currentNotes, transcript, isFirstLesson, specialRequirements,
+    lessonDate, currentYear, lastFeedback, currentNotes, transcript, isFirstLesson, specialRequirements,
     apiModel, apiKey, apiUrl, updateStep,
     generateFeedbackMutation, generateReviewMutation, generateTestMutation,
     generateExtractionMutation, generateBubbleChartMutation
@@ -445,6 +456,32 @@ export default function Home() {
                       onChange={(e) => setLessonNumber(e.target.value)}
                       disabled={isGenerating}
                     />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="currentYear">年份</Label>
+                    <Input
+                      id="currentYear"
+                      placeholder="例如：2026"
+                      value={currentYear}
+                      onChange={(e) => setCurrentYear(e.target.value)}
+                      disabled={isGenerating}
+                    />
+                    <p className="text-xs text-gray-500">默认2026，修改后在高级设置中保存可持久化</p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="lessonDate">本次课日期</Label>
+                    <Input
+                      id="lessonDate"
+                      placeholder="例如：1月5日"
+                      value={lessonDate}
+                      onChange={(e) => setLessonDate(e.target.value)}
+                      disabled={isGenerating}
+                    />
+                    <p className="text-xs text-gray-500">可留空，AI会从笔记中自动提取</p>
                   </div>
                 </div>
 
@@ -591,6 +628,36 @@ export default function Home() {
                       <p className="text-xs text-gray-500">
                         留空则使用默认地址
                       </p>
+                    </div>
+
+                    {/* 路书管理 */}
+                    <div className="border-t pt-4 mt-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="roadmap">V9路书内容（可选）</Label>
+                        <Textarea
+                          id="roadmap"
+                          placeholder="粘贴更新后的V9路书内容...留空则使用系统内置的路书"
+                          value={roadmap}
+                          onChange={(e) => setRoadmap(e.target.value)}
+                          className="min-h-[150px] font-mono text-xs"
+                          disabled={isGenerating}
+                        />
+                        <p className="text-xs text-gray-500">
+                          如果路书有更新，可以在此粘贴新版本。保存后系统将使用新路书生成文档。
+                          留空则使用系统内置的默认路书。
+                        </p>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setRoadmap("")}
+                            disabled={isGenerating || !roadmap}
+                          >
+                            清空路书
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                     
                     <Button 
