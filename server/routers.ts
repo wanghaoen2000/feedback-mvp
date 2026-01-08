@@ -590,6 +590,15 @@ export const appRouter = router({
         
         try {
           const uploadResult = await uploadToGoogleDrive(content, fileName, folderPath);
+          
+          // 检查上传结果状态
+          if (uploadResult.status === 'error') {
+            return {
+              success: false,
+              message: `导出失败: ${uploadResult.error || '上传失败'}`,
+            };
+          }
+          
           return {
             success: true,
             message: "日志已导出到Google Drive",
