@@ -325,6 +325,7 @@ export const appRouter = router({
         } catch (error: any) {
           const structuredError = parseError(error, "review");
           logger.stepFailed("复习文档", structuredError);
+          logger.endLogSession(); // 确保日志会话结束
           
           throw new Error(JSON.stringify({
             code: structuredError.code,
@@ -385,6 +386,7 @@ export const appRouter = router({
         } catch (error: any) {
           const structuredError = parseError(error, "test");
           logger.stepFailed("测试本", structuredError);
+          logger.endLogSession(); // 确保日志会话结束
           
           throw new Error(JSON.stringify({
             code: structuredError.code,
@@ -445,6 +447,7 @@ export const appRouter = router({
         } catch (error: any) {
           const structuredError = parseError(error, "extraction");
           logger.stepFailed("课后信息提取", structuredError);
+          logger.endLogSession(); // 确保日志会话结束
           
           throw new Error(JSON.stringify({
             code: structuredError.code,
@@ -573,7 +576,7 @@ export const appRouter = router({
       .mutation(async () => {
         const logPath = logger.getLatestLogPath();
         if (!logPath) {
-          return { success: false, message: "没有找到日志文件" };
+          return { success: false, message: "没有找到日志文件，请先运行一次生成" };
         }
         
         const content = logger.getLogContent(logPath);
@@ -583,14 +586,16 @@ export const appRouter = router({
         
         const fileName = logPath.split('/').pop() || 'log.txt';
         const folderPath = 'Mac/Documents/XDF/日志';
+        const fullPath = `${folderPath}/${fileName}`;
         
         try {
           const uploadResult = await uploadToGoogleDrive(content, fileName, folderPath);
           return {
             success: true,
             message: "日志已导出到Google Drive",
-            url: uploadResult.url,
-            path: uploadResult.path,
+            url: uploadResult.url || "",
+            path: fullPath,
+            fileName: fileName,
           };
         } catch (error: any) {
           return {

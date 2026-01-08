@@ -104,7 +104,12 @@ export default function Home() {
   const [hasError, setHasError] = useState(false);
   const [isStopping, setIsStopping] = useState(false); // 是否正在停止
   const [isExportingLog, setIsExportingLog] = useState(false); // 是否正在导出日志
-  const [exportLogResult, setExportLogResult] = useState<string | null>(null); // 导出结果消息
+  const [exportLogResult, setExportLogResult] = useState<{
+    success: boolean;
+    message: string;
+    path?: string;
+    url?: string;
+  } | null>(null); // 导出结果
   const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
 
   // tRPC queries and mutations
@@ -559,13 +564,17 @@ export default function Home() {
     setExportLogResult(null);
     try {
       const result = await exportLogMutation.mutateAsync();
-      if (result.success) {
-        setExportLogResult(`✅ ${result.message}`);
-      } else {
-        setExportLogResult(`❌ ${result.message}`);
-      }
+      setExportLogResult({
+        success: result.success,
+        message: result.message,
+        path: result.path,
+        url: result.url,
+      });
     } catch (error) {
-      setExportLogResult(`❌ 导出失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      setExportLogResult({
+        success: false,
+        message: `导出失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      });
     } finally {
       setIsExportingLog(false);
     }
@@ -929,6 +938,16 @@ export default function Home() {
                       </Button>
                     )}
                   </div>
+                  
+                  {/* 显示具体错误信息 */}
+                  {hasError && !isGenerating && (
+                    <div className="mb-4 p-3 bg-red-100 rounded-lg border border-red-200">
+                      <p className="text-sm text-red-700 font-medium">错误详情：</p>
+                      <p className="text-sm text-red-600 mt-1">
+                        {steps.find(s => s.status === 'error')?.error || '未知错误'}
+                      </p>
+                    </div>
+                  )}
 
                   {/* 统计摘要 */}
                   {(isComplete || hasError) && (
@@ -1067,9 +1086,32 @@ export default function Home() {
                       </Button>
                     </div>
                     {exportLogResult && (
-                      <p className={`text-sm mt-2 ${exportLogResult.startsWith('✅') ? 'text-green-600' : 'text-red-600'}`}>
-                        {exportLogResult}
-                      </p>
+                      <div className={`mt-3 p-3 rounded-lg ${exportLogResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                        <p className={`text-sm font-medium ${exportLogResult.success ? 'text-green-700' : 'text-red-700'}`}>
+                          {exportLogResult.success ? '✅' : '❌'} {exportLogResult.message}
+                        </p>
+                        {exportLogResult.success && exportLogResult.path && (
+                          <div className="mt-2 text-sm text-gray-600">
+                            <p className="flex items-center gap-1">
+                              <FolderOpen className="w-4 h-4" />
+                              <span>路径：{exportLogResult.path}</span>
+                            </p>
+                            {exportLogResult.url && (
+                              <p className="flex items-center gap-1 mt-1">
+                                <ExternalLink className="w-4 h-4" />
+                                <a 
+                                  href={exportLogResult.url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline"
+                                >
+                                  点击打开Google Drive
+                                </a>
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
