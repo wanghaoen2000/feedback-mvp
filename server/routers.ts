@@ -10,6 +10,7 @@ import { systemConfig } from "../drizzle/schema";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus } from "./gdrive";
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
 import * as logger from "./logger";
+import { runSystemCheck } from "./systemCheck";
 import { 
   generateFeedbackContent, 
   generateReviewContent, 
@@ -651,6 +652,27 @@ export const appRouter = router({
             mtime: l.mtime.toISOString(),
           })),
         };
+      }),
+
+    // 系统自检
+    systemCheck: publicProcedure
+      .mutation(async () => {
+        try {
+          const results = await runSystemCheck();
+          return {
+            success: true,
+            ...results,
+          };
+        } catch (error: any) {
+          return {
+            success: false,
+            results: [],
+            passed: 0,
+            total: 8,
+            allPassed: false,
+            error: error.message,
+          };
+        }
       }),
   }),
 

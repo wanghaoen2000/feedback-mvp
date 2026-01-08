@@ -193,3 +193,20 @@
 - [ ] 重新授权Google Drive（token过期）- 需要用户在Manus设置中手动操作
 - [ ] 验证授权成功
 - [x] 修复文件上传的错误处理 - 已为5个步骤都添加了uploadResult.status检查
+
+
+## V33 一键自检功能
+
+- [x] 后端：新增systemCheck API端点
+  - [x] 数据库连接检测
+  - [x] API配置完整性检测
+  - [x] API连通性检测
+  - [x] API密钥有效性检测
+  - [x] API余额检测
+  - [x] Google Drive授权检测
+  - [x] Google Drive写入权限检测
+  - [x] V9路书配置检测
+- [x] 前端：自检界面组件
+  - [x] 添加“系统自检”按钮
+  - [x] 逐项显示检测结果
+  - [x] 显示总结和修复建议
