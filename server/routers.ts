@@ -8,6 +8,8 @@ import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus } from "./gdrive";
+import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
+import * as logger from "./logger";
 import { 
   generateFeedbackContent, 
   generateReviewContent, 
@@ -195,59 +197,83 @@ export const appRouter = router({
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
         const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
-        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap; // 获取自定义路书
+        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
         
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤1: 开始生成学情反馈...`);
-        console.log(`[${new Date().toLocaleTimeString()}] 使用模型: ${apiModel}`);
-        console.log(`[${new Date().toLocaleTimeString()}] 年份: ${currentYear}, 日期: ${input.lessonDate || '自动提取'}`);
-        console.log(`[${new Date().toLocaleTimeString()}] 自定义路书: ${roadmap ? '已配置(' + roadmap.length + '字符)' : '未配置，使用默认'}`);
-        
-        // 组合年份和日期
-        const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
-        
-        const feedbackContent = await generateFeedbackContent({
-          studentName: input.studentName,
-          lessonNumber: input.lessonNumber || "",
-          lessonDate: lessonDate, // 使用用户输入的日期
-          nextLessonDate: "", // AI会自动从笔记中提取
-          lastFeedback: input.lastFeedback || "",
-          currentNotes: input.currentNotes,
-          transcript: input.transcript,
-          isFirstLesson: input.isFirstLesson,
-          specialRequirements: input.specialRequirements || "",
-        }, { apiModel, apiKey, apiUrl, roadmap });
-
-        // 优先使用用户输入的日期，否则从反馈内容中提取
-        let dateStr = input.lessonDate || "";
-        if (!dateStr) {
-          const dateMatch = feedbackContent.match(/(\d{1,2}月\d{1,2}日)/);
-          dateStr = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
-        }
-
-        // 上传到Google Drive
-        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
-        const fileName = `${input.studentName}${dateStr}阅读课反馈.md`;
-        const folderPath = `${basePath}/学情反馈`;
-        
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤1: 上传学情反馈到Google Drive...`);
-        const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
-        
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤1: 学情反馈完成`);
-        
-        return {
-          success: true,
-          step: 1,
-          stepName: "学情反馈",
-          feedbackContent,
-          uploadResult: {
-            fileName,
-            url: uploadResult.url || "",
-            path: uploadResult.path || "",
-            folderUrl: uploadResult.folderUrl || "",
+        // 开始日志会话
+        logger.startLogSession(
+          input.studentName,
+          { apiUrl, apiModel, maxTokens: 16000 },
+          {
+            notesLength: input.currentNotes.length,
+            transcriptLength: input.transcript.length,
+            lastFeedbackLength: (input.lastFeedback || "").length,
           },
-          dateStr,
-          usedConfig: { apiModel, apiUrl },
-        };
+          input.lessonNumber,
+          input.lessonDate
+        );
+        
+        logger.startStep("学情反馈");
+        
+        try {
+          // 组合年份和日期
+          const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
+          
+          const feedbackContent = await generateFeedbackContent({
+            studentName: input.studentName,
+            lessonNumber: input.lessonNumber || "",
+            lessonDate: lessonDate,
+            nextLessonDate: "",
+            lastFeedback: input.lastFeedback || "",
+            currentNotes: input.currentNotes,
+            transcript: input.transcript,
+            isFirstLesson: input.isFirstLesson,
+            specialRequirements: input.specialRequirements || "",
+          }, { apiModel, apiKey, apiUrl, roadmap });
+
+          // 优先使用用户输入的日期，否则从反馈内容中提取
+          let dateStr = input.lessonDate || "";
+          if (!dateStr) {
+            const dateMatch = feedbackContent.match(/(\d{1,2}月\d{1,2}日)/);
+            dateStr = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
+          }
+
+          // 上传到Google Drive
+          const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+          const fileName = `${input.studentName}${dateStr}阅读课反馈.md`;
+          const folderPath = `${basePath}/学情反馈`;
+          
+          logger.logInfo("学情反馈", `上传到Google Drive: ${folderPath}/${fileName}`);
+          const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
+          
+          logger.stepSuccess("学情反馈", feedbackContent.length);
+          
+          return {
+            success: true,
+            step: 1,
+            stepName: "学情反馈",
+            feedbackContent,
+            uploadResult: {
+              fileName,
+              url: uploadResult.url || "",
+              path: uploadResult.path || "",
+              folderUrl: uploadResult.folderUrl || "",
+            },
+            dateStr,
+            usedConfig: { apiModel, apiUrl },
+          };
+        } catch (error: any) {
+          const structuredError = parseError(error, "feedback");
+          logger.stepFailed("学情反馈", structuredError);
+          logger.endLogSession();
+          
+          throw new Error(JSON.stringify({
+            code: structuredError.code,
+            step: structuredError.step,
+            message: structuredError.message,
+            suggestion: structuredError.suggestion,
+            userMessage: formatErrorMessage(structuredError),
+          }));
+        }
       }),
 
     // 步骤2: 生成复习文档
@@ -264,38 +290,50 @@ export const appRouter = router({
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap; // 获取自定义路书
+        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
         
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤2: 开始生成复习文档...`);
-        console.log(`[${new Date().toLocaleTimeString()}] 自定义路书: ${roadmap ? '已配置(' + roadmap.length + '字符)' : '未配置，使用默认'}`);
+        logger.startStep("复习文档");
         
-        const reviewDocx = await generateReviewContent(
-          input.feedbackContent, 
-          input.studentName, 
-          input.dateStr,
-          { apiModel, apiKey, apiUrl, roadmap }
-        );
+        try {
+          const reviewDocx = await generateReviewContent(
+            input.feedbackContent, 
+            input.studentName, 
+            input.dateStr,
+            { apiModel, apiKey, apiUrl, roadmap }
+          );
 
-        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
-        const fileName = `${input.studentName}${input.dateStr}复习文档.docx`;
-        const folderPath = `${basePath}/复习文档`;
-        
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤2: 上传复习文档到Google Drive...`);
-        const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
-        
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤2: 复习文档完成`);
-        
-        return {
-          success: true,
-          step: 2,
-          stepName: "复习文档",
-          uploadResult: {
-            fileName,
-            url: uploadResult.url || "",
-            path: uploadResult.path || "",
-            folderUrl: uploadResult.folderUrl || "",
-          },
-        };
+          const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+          const fileName = `${input.studentName}${input.dateStr}复习文档.docx`;
+          const folderPath = `${basePath}/复习文档`;
+          
+          logger.logInfo("复习文档", `上传到Google Drive: ${folderPath}/${fileName}`);
+          const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
+          
+          logger.stepSuccess("复习文档", reviewDocx.length);
+          
+          return {
+            success: true,
+            step: 2,
+            stepName: "复习文档",
+            uploadResult: {
+              fileName,
+              url: uploadResult.url || "",
+              path: uploadResult.path || "",
+              folderUrl: uploadResult.folderUrl || "",
+            },
+          };
+        } catch (error: any) {
+          const structuredError = parseError(error, "review");
+          logger.stepFailed("复习文档", structuredError);
+          
+          throw new Error(JSON.stringify({
+            code: structuredError.code,
+            step: structuredError.step,
+            message: structuredError.message,
+            suggestion: structuredError.suggestion,
+            userMessage: formatErrorMessage(structuredError),
+          }));
+        }
       }),
 
     // 步骤3: 生成测试本
@@ -312,38 +350,50 @@ export const appRouter = router({
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap; // 获取自定义路书
+        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
         
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤3: 开始生成测试本...`);
-        console.log(`[${new Date().toLocaleTimeString()}] 自定义路书: ${roadmap ? '已配置(' + roadmap.length + '字符)' : '未配置，使用默认'}`);
+        logger.startStep("测试本");
         
-        const testDocx = await generateTestContent(
-          input.feedbackContent, 
-          input.studentName, 
-          input.dateStr,
-          { apiModel, apiKey, apiUrl, roadmap }
-        );
+        try {
+          const testDocx = await generateTestContent(
+            input.feedbackContent, 
+            input.studentName, 
+            input.dateStr,
+            { apiModel, apiKey, apiUrl, roadmap }
+          );
 
-        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
-        const fileName = `${input.studentName}${input.dateStr}测试文档.docx`;
-        const folderPath = `${basePath}/复习文档`;
-        
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤3: 上传测试本到Google Drive...`);
-        const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
-        
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤3: 测试本完成`);
-        
-        return {
-          success: true,
-          step: 3,
-          stepName: "测试本",
-          uploadResult: {
-            fileName,
-            url: uploadResult.url || "",
-            path: uploadResult.path || "",
-            folderUrl: uploadResult.folderUrl || "",
-          },
-        };
+          const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+          const fileName = `${input.studentName}${input.dateStr}测试文档.docx`;
+          const folderPath = `${basePath}/复习文档`;
+          
+          logger.logInfo("测试本", `上传到Google Drive: ${folderPath}/${fileName}`);
+          const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
+          
+          logger.stepSuccess("测试本", testDocx.length);
+          
+          return {
+            success: true,
+            step: 3,
+            stepName: "测试本",
+            uploadResult: {
+              fileName,
+              url: uploadResult.url || "",
+              path: uploadResult.path || "",
+              folderUrl: uploadResult.folderUrl || "",
+            },
+          };
+        } catch (error: any) {
+          const structuredError = parseError(error, "test");
+          logger.stepFailed("测试本", structuredError);
+          
+          throw new Error(JSON.stringify({
+            code: structuredError.code,
+            step: structuredError.step,
+            message: structuredError.message,
+            suggestion: structuredError.suggestion,
+            userMessage: formatErrorMessage(structuredError),
+          }));
+        }
       }),
 
     // 步骤4: 生成课后信息提取
@@ -360,38 +410,50 @@ export const appRouter = router({
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap; // 获取自定义路书
+        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
         
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤4: 开始生成课后信息提取...`);
-        console.log(`[${new Date().toLocaleTimeString()}] 自定义路书: ${roadmap ? '已配置(' + roadmap.length + '字符)' : '未配置，使用默认'}`);
+        logger.startStep("课后信息提取");
         
-        const extractionContent = await generateExtractionContent(
-          input.studentName, 
-          "", // 下次课日期由AI从笔记中提取
-          input.feedbackContent,
-          { apiModel, apiKey, apiUrl, roadmap }
-        );
+        try {
+          const extractionContent = await generateExtractionContent(
+            input.studentName, 
+            "",
+            input.feedbackContent,
+            { apiModel, apiKey, apiUrl, roadmap }
+          );
 
-        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
-        const fileName = `${input.studentName}${input.dateStr}课后信息提取.md`;
-        const folderPath = `${basePath}/课后信息`;
-        
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤4: 上传课后信息提取到Google Drive...`);
-        const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
-        
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤4: 课后信息提取完成`);
-        
-        return {
-          success: true,
-          step: 4,
-          stepName: "课后信息提取",
-          uploadResult: {
-            fileName,
-            url: uploadResult.url || "",
-            path: uploadResult.path || "",
-            folderUrl: uploadResult.folderUrl || "",
-          },
-        };
+          const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+          const fileName = `${input.studentName}${input.dateStr}课后信息提取.md`;
+          const folderPath = `${basePath}/课后信息`;
+          
+          logger.logInfo("课后信息提取", `上传到Google Drive: ${folderPath}/${fileName}`);
+          const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+          
+          logger.stepSuccess("课后信息提取", extractionContent.length);
+          
+          return {
+            success: true,
+            step: 4,
+            stepName: "课后信息提取",
+            uploadResult: {
+              fileName,
+              url: uploadResult.url || "",
+              path: uploadResult.path || "",
+              folderUrl: uploadResult.folderUrl || "",
+            },
+          };
+        } catch (error: any) {
+          const structuredError = parseError(error, "extraction");
+          logger.stepFailed("课后信息提取", structuredError);
+          
+          throw new Error(JSON.stringify({
+            code: structuredError.code,
+            step: structuredError.step,
+            message: structuredError.message,
+            suggestion: structuredError.suggestion,
+            userMessage: formatErrorMessage(structuredError),
+          }));
+        }
       }),
 
     // 步骤5: 生成气泡图
@@ -409,39 +471,55 @@ export const appRouter = router({
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap; // 获取自定义路书
+        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
         
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤5: 开始生成气泡图...`);
-        console.log(`[${new Date().toLocaleTimeString()}] 自定义路书: ${roadmap ? '已配置(' + roadmap.length + '字符)' : '未配置，使用默认'}`);
+        logger.startStep("气泡图");
         
-        const bubbleChartPng = await generateBubbleChart(
-          input.feedbackContent,
-          input.studentName,
-          input.dateStr,
-          input.lessonNumber || "",
-          { apiModel, apiKey, apiUrl, roadmap }
-        );
+        try {
+          const bubbleChartPng = await generateBubbleChart(
+            input.feedbackContent,
+            input.studentName,
+            input.dateStr,
+            input.lessonNumber || "",
+            { apiModel, apiKey, apiUrl, roadmap }
+          );
 
-        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
-        const fileName = `${input.studentName}${input.dateStr}气泡图.png`;
-        const folderPath = `${basePath}/气泡图`;
-        
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤5: 上传气泡图到Google Drive...`);
-        const uploadResult = await uploadBinaryToGoogleDrive(bubbleChartPng, fileName, folderPath);
-        
-        console.log(`[${new Date().toLocaleTimeString()}] 步骤5: 气泡图完成`);
-        
-        return {
-          success: true,
-          step: 5,
-          stepName: "气泡图",
-          uploadResult: {
-            fileName,
-            url: uploadResult.url || "",
-            path: uploadResult.path || "",
-            folderUrl: uploadResult.folderUrl || "",
-          },
-        };
+          const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+          const fileName = `${input.studentName}${input.dateStr}气泡图.png`;
+          const folderPath = `${basePath}/气泡图`;
+          
+          logger.logInfo("气泡图", `上传到Google Drive: ${folderPath}/${fileName}`);
+          const uploadResult = await uploadBinaryToGoogleDrive(bubbleChartPng, fileName, folderPath);
+          
+          logger.stepSuccess("气泡图", bubbleChartPng.length);
+          
+          // 最后一步完成，结束日志会话
+          logger.endLogSession();
+          
+          return {
+            success: true,
+            step: 5,
+            stepName: "气泡图",
+            uploadResult: {
+              fileName,
+              url: uploadResult.url || "",
+              path: uploadResult.path || "",
+              folderUrl: uploadResult.folderUrl || "",
+            },
+          };
+        } catch (error: any) {
+          const structuredError = parseError(error, "bubbleChart");
+          logger.stepFailed("气泡图", structuredError);
+          logger.endLogSession();
+          
+          throw new Error(JSON.stringify({
+            code: structuredError.code,
+            step: structuredError.step,
+            message: structuredError.message,
+            suggestion: structuredError.suggestion,
+            userMessage: formatErrorMessage(structuredError),
+          }));
+        }
       }),
 
     // 最终验证
@@ -472,6 +550,67 @@ export const appRouter = router({
           totalCount: 5,
           results: verification.results,
           driveFolder: basePath,
+        };
+      }),
+
+    // 获取最新日志
+    getLatestLog: publicProcedure
+      .query(async () => {
+        const logPath = logger.getLatestLogPath();
+        if (!logPath) {
+          return { success: false, message: "没有找到日志文件" };
+        }
+        const content = logger.getLogContent(logPath);
+        return {
+          success: true,
+          path: logPath,
+          content,
+        };
+      }),
+
+    // 导出日志到Google Drive
+    exportLog: publicProcedure
+      .mutation(async () => {
+        const logPath = logger.getLatestLogPath();
+        if (!logPath) {
+          return { success: false, message: "没有找到日志文件" };
+        }
+        
+        const content = logger.getLogContent(logPath);
+        if (!content) {
+          return { success: false, message: "无法读取日志文件" };
+        }
+        
+        const fileName = logPath.split('/').pop() || 'log.txt';
+        const folderPath = 'Mac/Documents/XDF/日志';
+        
+        try {
+          const uploadResult = await uploadToGoogleDrive(content, fileName, folderPath);
+          return {
+            success: true,
+            message: "日志已导出到Google Drive",
+            url: uploadResult.url,
+            path: uploadResult.path,
+          };
+        } catch (error: any) {
+          return {
+            success: false,
+            message: `导出失败: ${error.message}`,
+          };
+        }
+      }),
+
+    // 列出所有日志文件
+    listLogs: publicProcedure
+      .query(async () => {
+        const logs = logger.listLogFiles();
+        return {
+          success: true,
+          logs: logs.map(l => ({
+            name: l.name,
+            path: l.path,
+            mtime: l.mtime.toISOString(),
+          })),
         };
       }),
   }),

@@ -21,7 +21,8 @@ import {
   ChevronDown,
   ChevronRight,
   Save,
-  Square
+  Square,
+  Download
 } from "lucide-react";
 
 // 步骤状态类型
@@ -31,6 +32,10 @@ interface StepStatus {
   status: 'pending' | 'running' | 'success' | 'error';
   message?: string;
   error?: string;
+  detail?: string; // 详细信息，如“AI正在生成中...”
+  progress?: number; // 进度百分比 0-100
+  startTime?: number; // 开始时间戳
+  endTime?: number; // 结束时间戳
   uploadResult?: {
     fileName: string;
     url: string;
@@ -98,6 +103,8 @@ export default function Home() {
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [isStopping, setIsStopping] = useState(false); // 是否正在停止
+  const [isExportingLog, setIsExportingLog] = useState(false); // 是否正在导出日志
+  const [exportLogResult, setExportLogResult] = useState<string | null>(null); // 导出结果消息
   const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
 
   // tRPC queries and mutations
@@ -109,6 +116,7 @@ export default function Home() {
   const generateTestMutation = trpc.feedback.generateTest.useMutation();
   const generateExtractionMutation = trpc.feedback.generateExtraction.useMutation();
   const generateBubbleChartMutation = trpc.feedback.generateBubbleChart.useMutation();
+  const exportLogMutation = trpc.feedback.exportLog.useMutation();
 
   // 加载配置
   useEffect(() => {
@@ -201,7 +209,13 @@ export default function Home() {
     try {
       // 步骤1: 生成学情反馈
       checkAborted();
-      updateStep(0, { status: 'running', message: '正在调用AI生成学情反馈...' });
+      const step1Start = Date.now();
+      updateStep(0, { 
+        status: 'running', 
+        message: '正在调用AI生成学情反馈...',
+        detail: '连接AI服务中，预计1-2分钟',
+        startTime: step1Start
+      });
       const step1Result = await generateFeedbackMutation.mutateAsync({
         studentName: studentName.trim(),
         lessonNumber: lessonNumber.trim(),
@@ -217,64 +231,100 @@ export default function Home() {
       date = step1Result.dateStr;
       setFeedbackContent(content);
       setDateStr(date);
+      const step1End = Date.now();
       updateStep(0, { 
         status: 'success', 
-        message: '生成完成',
+        message: `生成完成 (耗时${Math.round((step1End - step1Start) / 1000)}秒)`,
+        detail: `学情反馈已生成，共${content.length}字`,
+        endTime: step1End,
         uploadResult: step1Result.uploadResult
       });
       setCurrentStep(2);
 
       // 步骤2: 生成复习文档
       checkAborted();
-      updateStep(1, { status: 'running', message: '正在生成复习文档...' });
+      const step2Start = Date.now();
+      updateStep(1, { 
+        status: 'running', 
+        message: '正在生成复习文档...',
+        detail: '提取生词和错题，生成Word文档',
+        startTime: step2Start
+      });
       const step2Result = await generateReviewMutation.mutateAsync({
         studentName: studentName.trim(),
         dateStr: date,
         feedbackContent: content,
         ...configOverride,
       });
+      const step2End = Date.now();
       updateStep(1, { 
         status: 'success', 
-        message: '生成完成',
+        message: `生成完成 (耗时${Math.round((step2End - step2Start) / 1000)}秒)`,
+        detail: '复习文档已上传到Google Drive',
+        endTime: step2End,
         uploadResult: step2Result.uploadResult
       });
       setCurrentStep(3);
 
       // 步骤3: 生成测试本
       checkAborted();
-      updateStep(2, { status: 'running', message: '正在生成测试本...' });
+      const step3Start = Date.now();
+      updateStep(2, { 
+        status: 'running', 
+        message: '正在生成测试本...',
+        detail: '生成学生自测文档',
+        startTime: step3Start
+      });
       const step3Result = await generateTestMutation.mutateAsync({
         studentName: studentName.trim(),
         dateStr: date,
         feedbackContent: content,
         ...configOverride,
       });
+      const step3End = Date.now();
       updateStep(2, { 
         status: 'success', 
-        message: '生成完成',
+        message: `生成完成 (耗时${Math.round((step3End - step3Start) / 1000)}秒)`,
+        detail: '测试本已上传到Google Drive',
+        endTime: step3End,
         uploadResult: step3Result.uploadResult
       });
       setCurrentStep(4);
 
       // 步骤4: 生成课后信息提取
       checkAborted();
-      updateStep(3, { status: 'running', message: '正在生成课后信息提取...' });
+      const step4Start = Date.now();
+      updateStep(3, { 
+        status: 'running', 
+        message: '正在生成课后信息提取...',
+        detail: '提取课后作业和下次课信息',
+        startTime: step4Start
+      });
       const step4Result = await generateExtractionMutation.mutateAsync({
         studentName: studentName.trim(),
         dateStr: date,
         feedbackContent: content,
         ...configOverride,
       });
+      const step4End = Date.now();
       updateStep(3, { 
         status: 'success', 
-        message: '生成完成',
+        message: `生成完成 (耗时${Math.round((step4End - step4Start) / 1000)}秒)`,
+        detail: '课后信息已上传到Google Drive',
+        endTime: step4End,
         uploadResult: step4Result.uploadResult
       });
       setCurrentStep(5);
 
       // 步骤5: 生成气泡图
       checkAborted();
-      updateStep(4, { status: 'running', message: '正在生成气泡图...' });
+      const step5Start = Date.now();
+      updateStep(4, { 
+        status: 'running', 
+        message: '正在生成气泡图...',
+        detail: '生成问题-方案对应的可视化图',
+        startTime: step5Start
+      });
       const step5Result = await generateBubbleChartMutation.mutateAsync({
         studentName: studentName.trim(),
         dateStr: date,
@@ -282,26 +332,56 @@ export default function Home() {
         feedbackContent: content,
         ...configOverride,
       });
+      const step5End = Date.now();
       updateStep(4, { 
         status: 'success', 
-        message: '生成完成',
+        message: `生成完成 (耗时${Math.round((step5End - step5Start) / 1000)}秒)`,
+        detail: '气泡图已上传到Google Drive',
+        endTime: step5End,
         uploadResult: step5Result.uploadResult
       });
 
       setIsComplete(true);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '生成失败';
-      const wasStopped = errorMessage.includes('取消') || stopped;
+      const rawMessage = error instanceof Error ? error.message : '生成失败';
+      const wasStopped = rawMessage.includes('取消') || stopped;
       
       console.error("生成失败:", error);
       setHasError(true);
+      
+      // 尝试解析结构化错误
+      let displayError = rawMessage;
+      try {
+        const parsed = JSON.parse(rawMessage);
+        if (parsed.userMessage) {
+          displayError = parsed.userMessage;
+        } else if (parsed.message && parsed.suggestion) {
+          displayError = `${parsed.message}。${parsed.suggestion}`;
+        }
+      } catch (e) {
+        // 不是JSON，使用原始消息
+        // 尝试匹配常见错误并转换为中文
+        if (rawMessage.toLowerCase().includes('failed to fetch') || rawMessage.toLowerCase().includes('fetch failed')) {
+          displayError = '网络连接失败，请检查网络后重试';
+        } else if (rawMessage.includes('insufficient_user_quota') || rawMessage.includes('预扣费额度失败')) {
+          displayError = 'API余额不足，请登录DMXapi充值后重试';
+        } else if (rawMessage.includes('401') || rawMessage.includes('Unauthorized')) {
+          displayError = 'API密钥无效，请在高级设置中检查密钥';
+        } else if (rawMessage.includes('403')) {
+          displayError = 'API访问被拒绝，可能是余额不足或密钥权限问题';
+        } else if (rawMessage.includes('429') || rawMessage.includes('rate limit')) {
+          displayError = '请求太频繁，请稍等1分钟后重试';
+        } else if (rawMessage.includes('timeout') || rawMessage.includes('超时')) {
+          displayError = '请求超时，可能是网络问题或AI响应太慢，请稍后重试';
+        }
+      }
       
       // 标记当前步骤为失败或取消
       const failedStepIndex = currentStep - 1;
       if (failedStepIndex >= 0 && failedStepIndex < 5) {
         updateStep(failedStepIndex, { 
           status: 'error', 
-          error: wasStopped ? '已取消' : errorMessage
+          error: wasStopped ? '已取消' : displayError
         });
       }
     } finally {
@@ -421,9 +501,36 @@ export default function Home() {
       }
     } catch (error) {
       console.error(`步骤${stepIndex + 1}重试失败:`, error);
+      
+      // 解析错误信息
+      const rawMessage = error instanceof Error ? error.message : '重试失败';
+      let displayError = rawMessage;
+      try {
+        const parsed = JSON.parse(rawMessage);
+        if (parsed.userMessage) {
+          displayError = parsed.userMessage;
+        } else if (parsed.message && parsed.suggestion) {
+          displayError = `${parsed.message}。${parsed.suggestion}`;
+        }
+      } catch (e) {
+        if (rawMessage.toLowerCase().includes('failed to fetch') || rawMessage.toLowerCase().includes('fetch failed')) {
+          displayError = '网络连接失败，请检查网络后重试';
+        } else if (rawMessage.includes('insufficient_user_quota') || rawMessage.includes('预扣费额度失败')) {
+          displayError = 'API余额不足，请登录DMXapi充值后重试';
+        } else if (rawMessage.includes('401') || rawMessage.includes('Unauthorized')) {
+          displayError = 'API密钥无效，请在高级设置中检查密钥';
+        } else if (rawMessage.includes('403')) {
+          displayError = 'API访问被拒绝，可能是余额不足或密钥权限问题';
+        } else if (rawMessage.includes('429') || rawMessage.includes('rate limit')) {
+          displayError = '请求太频繁，请稍等1分钟后重试';
+        } else if (rawMessage.includes('timeout') || rawMessage.includes('超时')) {
+          displayError = '请求超时，可能是网络问题或AI响应太慢，请稍后重试';
+        }
+      }
+      
       updateStep(stepIndex, { 
         status: 'error', 
-        error: error instanceof Error ? error.message : '重试失败'
+        error: displayError
       });
     } finally {
       setIsGenerating(false);
@@ -443,6 +550,25 @@ export default function Home() {
     setDateStr("");
     setIsComplete(false);
     setHasError(false);
+    setExportLogResult(null);
+  };
+
+  // 导出日志到Google Drive
+  const handleExportLog = async () => {
+    setIsExportingLog(true);
+    setExportLogResult(null);
+    try {
+      const result = await exportLogMutation.mutateAsync();
+      if (result.success) {
+        setExportLogResult(`✅ ${result.message}`);
+      } else {
+        setExportLogResult(`❌ ${result.message}`);
+      }
+    } catch (error) {
+      setExportLogResult(`❌ 导出失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setIsExportingLog(false);
+    }
   };
 
   const isFormValid = studentName.trim() && currentNotes.trim() && transcript.trim();
@@ -825,53 +951,73 @@ export default function Home() {
                   {/* 步骤列表 */}
                   <div className="space-y-3">
                     {steps.map((step, index) => (
-                      <div key={index} className={`flex items-center gap-3 p-2 rounded ${
-                        step.status === 'running' ? 'bg-blue-100' :
-                        step.status === 'success' ? 'bg-green-100' :
-                        step.status === 'error' ? 'bg-red-100' :
-                        'bg-white'
+                      <div key={index} className={`p-3 rounded-lg border ${
+                        step.status === 'running' ? 'bg-blue-50 border-blue-200' :
+                        step.status === 'success' ? 'bg-green-50 border-green-200' :
+                        step.status === 'error' ? 'bg-red-50 border-red-200' :
+                        'bg-white border-gray-200'
                       }`}>
-                        <StatusIcon status={step.status} />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">{step.step}. {step.name}</span>
-                            {step.status === 'running' && (
-                              <span className="text-xs text-blue-600">{step.message}</span>
-                            )}
-                          </div>
-                          {step.error && (
-                            <p className="text-xs text-red-600 mt-1">{step.error}</p>
-                          )}
-                          {step.uploadResult && step.status === 'success' && (
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs text-gray-500">{step.uploadResult.fileName}</span>
-                              {step.uploadResult.url && (
-                                <a 
-                                  href={step.uploadResult.url} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                                >
-                                  <ExternalLink className="w-3 h-3" />
-                                  查看
-                                </a>
+                        <div className="flex items-center gap-3">
+                          <StatusIcon status={step.status} />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{step.step}. {step.name}</span>
+                              {step.status === 'success' && step.message && (
+                                <span className="text-xs text-green-600">{step.message}</span>
                               )}
                             </div>
+                            {/* 运行中状态 */}
+                            {step.status === 'running' && (
+                              <div className="mt-1">
+                                <p className="text-xs text-blue-600">{step.message}</p>
+                                {step.detail && (
+                                  <p className="text-xs text-blue-500 mt-0.5">{step.detail}</p>
+                                )}
+                              </div>
+                            )}
+                            {/* 成功状态 */}
+                            {step.status === 'success' && (
+                              <div className="mt-1">
+                                {step.detail && (
+                                  <p className="text-xs text-green-600">{step.detail}</p>
+                                )}
+                                {step.uploadResult && (
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-xs text-gray-500">{step.uploadResult.fileName}</span>
+                                    {step.uploadResult.url && (
+                                      <a 
+                                        href={step.uploadResult.url} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                        查看
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {/* 错误状态 */}
+                            {step.error && (
+                              <p className="text-xs text-red-600 mt-1">{step.error}</p>
+                            )}
+                          </div>
+                          {/* 重试按钮 */}
+                          {step.status === 'error' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => retryStep(index)}
+                              disabled={isGenerating}
+                              className="text-xs"
+                            >
+                              <RefreshCw className="w-3 h-3 mr-1" />
+                              重试
+                            </Button>
                           )}
                         </div>
-                        {/* 重试按钮 */}
-                        {step.status === 'error' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => retryStep(index)}
-                            disabled={isGenerating}
-                            className="text-xs"
-                          >
-                            <RefreshCw className="w-3 h-3 mr-1" />
-                            重试
-                          </Button>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -891,6 +1037,40 @@ export default function Home() {
                         Mac/Documents/XDF/学生档案/{studentName}/
                       </code>
                     </p>
+                  </div>
+                )}
+
+                {/* 导出日志按钮 */}
+                {(hasError || isComplete) && (
+                  <div className="p-4 bg-gray-50 rounded-lg border">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-semibold text-gray-700 flex items-center gap-2">
+                          <Download className="w-4 h-4" />
+                          导出日志
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-1">
+                          将本次生成的详细日志导出到Google Drive，方便排查问题
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleExportLog}
+                        disabled={isExportingLog}
+                      >
+                        {isExportingLog ? (
+                          <><Loader2 className="w-4 h-4 mr-1 animate-spin" />导出中...</>
+                        ) : (
+                          <><Download className="w-4 h-4 mr-1" />导出日志</>
+                        )}
+                      </Button>
+                    </div>
+                    {exportLogResult && (
+                      <p className={`text-sm mt-2 ${exportLogResult.startsWith('✅') ? 'text-green-600' : 'text-red-600'}`}>
+                        {exportLogResult}
+                      </p>
+                    )}
                   </div>
                 )}
 
