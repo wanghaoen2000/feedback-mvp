@@ -245,6 +245,11 @@ export const appRouter = router({
           logger.logInfo("学情反馈", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
           
+          // 检查上传结果状态
+          if (uploadResult.status === 'error') {
+            throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
+          }
+          
           logger.stepSuccess("学情反馈", feedbackContent.length);
           
           return {
@@ -309,6 +314,11 @@ export const appRouter = router({
           logger.logInfo("复习文档", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
           
+          // 检查上传结果状态
+          if (uploadResult.status === 'error') {
+            throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
+          }
+          
           logger.stepSuccess("复习文档", reviewDocx.length);
           
           return {
@@ -370,6 +380,11 @@ export const appRouter = router({
           logger.logInfo("测试本", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
           
+          // 检查上传结果状态
+          if (uploadResult.status === 'error') {
+            throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
+          }
+          
           logger.stepSuccess("测试本", testDocx.length);
           
           return {
@@ -430,6 +445,11 @@ export const appRouter = router({
           
           logger.logInfo("课后信息提取", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+          
+          // 检查上传结果状态
+          if (uploadResult.status === 'error') {
+            throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
+          }
           
           logger.stepSuccess("课后信息提取", extractionContent.length);
           
@@ -493,6 +513,11 @@ export const appRouter = router({
           
           logger.logInfo("气泡图", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadBinaryToGoogleDrive(bubbleChartPng, fileName, folderPath);
+          
+          // 检查上传结果状态
+          if (uploadResult.status === 'error') {
+            throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
+          }
           
           logger.stepSuccess("气泡图", bubbleChartPng.length);
           
