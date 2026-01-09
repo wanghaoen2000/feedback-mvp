@@ -223,3 +223,4 @@
 - [x] 修复 redirect_uri 使用固定部署域名而非动态 VITE_APP_ID
 - [x] 前端显示当前回调地址，方便用户复制添加到 Google Cloud Console
 - [x] 注册 /api/google/callback Express 路由处理 Google OAuth 回调
+- [x] 排查 Google Drive 写入权限失败问题 - 已修复，8/8 检测项全部通过

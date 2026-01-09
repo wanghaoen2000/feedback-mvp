@@ -409,10 +409,12 @@ async function checkGDriveWrite(authPassed: boolean): Promise<CheckResult> {
       message: '写入正常'
     };
   } catch (e: any) {
+    console.error('[checkGDriveWrite] Error:', e.message || e);
+    console.error('[checkGDriveWrite] Stderr:', e.stderr || 'N/A');
     return {
       name: 'Google Drive写入权限',
       status: 'error',
-      message: '写入失败',
+      message: `写入失败: ${e.message || '未知错误'}`,
       suggestion: '请检查Google Drive权限设置'
     };
   }
