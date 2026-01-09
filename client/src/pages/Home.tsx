@@ -229,13 +229,15 @@ export default function Home() {
     let date = "";
     let stopped = false;
 
-    // 构建配置对象（只传非空值）
-    const configOverride = {
+    // 构建配置快照（并发安全，所有步骤使用相同的配置）
+    const configSnapshot = {
       apiModel: apiModel.trim() || undefined,
       apiKey: apiKey.trim() || undefined,
       apiUrl: apiUrl.trim() || undefined,
       lessonDate: lessonDate.trim() || undefined,
       currentYear: currentYear.trim() || undefined,
+      roadmap: roadmap || undefined,
+      driveBasePath: driveBasePath.trim() || undefined,
     };
 
     // 检查是否已停止的辅助函数
@@ -264,7 +266,7 @@ export default function Home() {
         transcript: transcript.trim(),
         isFirstLesson,
         specialRequirements: specialRequirements.trim(),
-        ...configOverride,
+        ...configSnapshot,
       });
       
       content = step1Result.feedbackContent;
@@ -294,7 +296,7 @@ export default function Home() {
         studentName: studentName.trim(),
         dateStr: date,
         feedbackContent: content,
-        ...configOverride,
+        ...configSnapshot,
       });
       const step2End = Date.now();
       updateStep(1, { 
@@ -319,7 +321,7 @@ export default function Home() {
         studentName: studentName.trim(),
         dateStr: date,
         feedbackContent: content,
-        ...configOverride,
+        ...configSnapshot,
       });
       const step3End = Date.now();
       updateStep(2, { 
@@ -344,7 +346,7 @@ export default function Home() {
         studentName: studentName.trim(),
         dateStr: date,
         feedbackContent: content,
-        ...configOverride,
+        ...configSnapshot,
       });
       const step4End = Date.now();
       updateStep(3, { 
@@ -370,7 +372,7 @@ export default function Home() {
         dateStr: date,
         lessonNumber: lessonNumber.trim(),
         feedbackContent: content,
-        ...configOverride,
+        ...configSnapshot,
       });
       const step5End = Date.now();
       updateStep(4, { 
@@ -451,12 +453,15 @@ export default function Home() {
     setIsGenerating(true);
     updateStep(stepIndex, { status: 'running', message: '正在重试...' });
 
-    const configOverride = {
+    // 构建配置快照（并发安全）
+    const configSnapshot = {
       apiModel: apiModel.trim() || undefined,
       apiKey: apiKey.trim() || undefined,
       apiUrl: apiUrl.trim() || undefined,
       lessonDate: lessonDate.trim() || undefined,
       currentYear: currentYear.trim() || undefined,
+      roadmap: roadmap || undefined,
+      driveBasePath: driveBasePath.trim() || undefined,
     };
 
     try {
@@ -472,7 +477,7 @@ export default function Home() {
             transcript: transcript.trim(),
             isFirstLesson,
             specialRequirements: specialRequirements.trim(),
-            ...configOverride,
+            ...configSnapshot,
           });
           setFeedbackContent(result.feedbackContent);
           setDateStr(result.dateStr);
@@ -487,7 +492,7 @@ export default function Home() {
             studentName: studentName.trim(),
             dateStr,
             feedbackContent,
-            ...configOverride,
+            ...configSnapshot,
           });
           updateStep(1, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
           break;
@@ -500,7 +505,7 @@ export default function Home() {
             studentName: studentName.trim(),
             dateStr,
             feedbackContent,
-            ...configOverride,
+            ...configSnapshot,
           });
           updateStep(2, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
           break;
@@ -513,7 +518,7 @@ export default function Home() {
             studentName: studentName.trim(),
             dateStr,
             feedbackContent,
-            ...configOverride,
+            ...configSnapshot,
           });
           updateStep(3, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
           break;
@@ -527,7 +532,7 @@ export default function Home() {
             dateStr,
             lessonNumber: lessonNumber.trim(),
             feedbackContent,
-            ...configOverride,
+            ...configSnapshot,
           });
           updateStep(4, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
           break;

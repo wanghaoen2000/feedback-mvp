@@ -74,10 +74,12 @@ const feedbackInputSchema = z.object({
   transcript: z.string().min(1, "请输入录音转文字"),
   isFirstLesson: z.boolean().default(false),
   specialRequirements: z.string().optional(),
-  // 可选的配置覆盖
+  // 配置参数（并发安全，由前端传入快照）
   apiModel: z.string().optional(),
   apiKey: z.string().optional(),
   apiUrl: z.string().optional(),
+  roadmap: z.string().optional(),
+  driveBasePath: z.string().optional(),
 });
 
 export const appRouter = router({
@@ -212,13 +214,13 @@ export const appRouter = router({
     generateFeedback: publicProcedure
       .input(feedbackInputSchema)
       .mutation(async ({ input }) => {
-        // 获取配置（优先使用传入的，否则用数据库的，最后用默认的）
+        // 获取配置（优先使用传入的快照，确保并发安全）
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
         const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
-        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
-        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         // 开始日志会话
         logger.startLogSession(
@@ -311,13 +313,15 @@ export const appRouter = router({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
         apiUrl: z.string().optional(),
+        roadmap: z.string().optional(),
+        driveBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
-        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         logger.startStep("复习文档");
         
@@ -378,13 +382,15 @@ export const appRouter = router({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
         apiUrl: z.string().optional(),
+        roadmap: z.string().optional(),
+        driveBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
-        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         logger.startStep("测试本");
         
@@ -445,13 +451,15 @@ export const appRouter = router({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
         apiUrl: z.string().optional(),
+        roadmap: z.string().optional(),
+        driveBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
-        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         logger.startStep("课后信息提取");
         
@@ -513,13 +521,15 @@ export const appRouter = router({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
         apiUrl: z.string().optional(),
+        roadmap: z.string().optional(),
+        driveBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
-        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         logger.startStep("气泡图");
         
@@ -580,11 +590,12 @@ export const appRouter = router({
       .input(z.object({
         studentName: z.string(),
         dateStr: z.string(),
+        driveBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         console.log(`[${new Date().toLocaleTimeString()}] 最终验证: 检查所有文件...`);
         
-        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         const basePath = `${driveBasePath}/${input.studentName}`;
         const filePaths = [
           `${basePath}/学情反馈/${input.studentName}${input.dateStr}阅读课反馈.md`,
