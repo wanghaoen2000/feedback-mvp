@@ -9,7 +9,7 @@ import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus } from "./gdrive";
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
-import * as logger from "./logger";
+import { createLogSession, startStep, stepSuccess, stepFailed, endLogSession, logInfo, getLatestLogPath, getLogContent, listLogFiles, GenerationLog } from "./logger";
 import { runSystemCheck } from "./systemCheck";
 import * as googleAuth from "./googleAuth";
 import { 
@@ -222,8 +222,8 @@ export const appRouter = router({
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
-        // 开始日志会话
-        logger.startLogSession(
+        // 创建独立的日志会话（并发安全）
+        const log = createLogSession(
           input.studentName,
           { apiUrl, apiModel, maxTokens: 16000 },
           {
@@ -235,7 +235,7 @@ export const appRouter = router({
           input.lessonDate
         );
         
-        logger.startStep("学情反馈");
+        startStep(log, "学情反馈");
         
         try {
           // 组合年份和日期
@@ -265,7 +265,7 @@ export const appRouter = router({
           const fileName = `${input.studentName}${dateStr}阅读课反馈.md`;
           const folderPath = `${basePath}/学情反馈`;
           
-          logger.logInfo("学情反馈", `上传到Google Drive: ${folderPath}/${fileName}`);
+          logInfo(log, "学情反馈", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
           
           // 检查上传结果状态
@@ -273,7 +273,7 @@ export const appRouter = router({
             throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
           }
           
-          logger.stepSuccess("学情反馈", feedbackContent.length);
+          stepSuccess(log, "学情反馈", feedbackContent.length);
           
           return {
             success: true,
@@ -291,8 +291,8 @@ export const appRouter = router({
           };
         } catch (error: any) {
           const structuredError = parseError(error, "feedback");
-          logger.stepFailed("学情反馈", structuredError);
-          logger.endLogSession();
+          stepFailed(log, "学情反馈", structuredError);
+          endLogSession(log);
           
           throw new Error(JSON.stringify({
             code: structuredError.code,
@@ -323,7 +323,16 @@ export const appRouter = router({
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
-        logger.startStep("复习文档");
+        // 创建独立的日志会话（并发安全）
+        const log = createLogSession(
+          input.studentName,
+          { apiUrl, apiModel, maxTokens: 16000 },
+          { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
+          undefined,
+          input.dateStr
+        );
+        
+        startStep(log, "复习文档");
         
         try {
           const reviewDocx = await generateReviewContent(
@@ -337,7 +346,7 @@ export const appRouter = router({
           const fileName = `${input.studentName}${input.dateStr}复习文档.docx`;
           const folderPath = `${basePath}/复习文档`;
           
-          logger.logInfo("复习文档", `上传到Google Drive: ${folderPath}/${fileName}`);
+          logInfo(log, "复习文档", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
           
           // 检查上传结果状态
@@ -345,7 +354,8 @@ export const appRouter = router({
             throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
           }
           
-          logger.stepSuccess("复习文档", reviewDocx.length);
+          stepSuccess(log, "复习文档", reviewDocx.length);
+          endLogSession(log);
           
           return {
             success: true,
@@ -360,8 +370,8 @@ export const appRouter = router({
           };
         } catch (error: any) {
           const structuredError = parseError(error, "review");
-          logger.stepFailed("复习文档", structuredError);
-          logger.endLogSession(); // 确保日志会话结束
+          stepFailed(log, "复习文档", structuredError);
+          endLogSession(log);
           
           throw new Error(JSON.stringify({
             code: structuredError.code,
@@ -392,7 +402,16 @@ export const appRouter = router({
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
-        logger.startStep("测试本");
+        // 创建独立的日志会话（并发安全）
+        const log = createLogSession(
+          input.studentName,
+          { apiUrl, apiModel, maxTokens: 16000 },
+          { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
+          undefined,
+          input.dateStr
+        );
+        
+        startStep(log, "测试本");
         
         try {
           const testDocx = await generateTestContent(
@@ -406,7 +425,7 @@ export const appRouter = router({
           const fileName = `${input.studentName}${input.dateStr}测试文档.docx`;
           const folderPath = `${basePath}/复习文档`;
           
-          logger.logInfo("测试本", `上传到Google Drive: ${folderPath}/${fileName}`);
+          logInfo(log, "测试本", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
           
           // 检查上传结果状态
@@ -414,7 +433,8 @@ export const appRouter = router({
             throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
           }
           
-          logger.stepSuccess("测试本", testDocx.length);
+          stepSuccess(log, "测试本", testDocx.length);
+          endLogSession(log);
           
           return {
             success: true,
@@ -429,8 +449,8 @@ export const appRouter = router({
           };
         } catch (error: any) {
           const structuredError = parseError(error, "test");
-          logger.stepFailed("测试本", structuredError);
-          logger.endLogSession(); // 确保日志会话结束
+          stepFailed(log, "测试本", structuredError);
+          endLogSession(log);
           
           throw new Error(JSON.stringify({
             code: structuredError.code,
@@ -461,7 +481,16 @@ export const appRouter = router({
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
-        logger.startStep("课后信息提取");
+        // 创建独立的日志会话（并发安全）
+        const log = createLogSession(
+          input.studentName,
+          { apiUrl, apiModel, maxTokens: 16000 },
+          { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
+          undefined,
+          input.dateStr
+        );
+        
+        startStep(log, "课后信息提取");
         
         try {
           const extractionContent = await generateExtractionContent(
@@ -475,7 +504,7 @@ export const appRouter = router({
           const fileName = `${input.studentName}${input.dateStr}课后信息提取.md`;
           const folderPath = `${basePath}/课后信息`;
           
-          logger.logInfo("课后信息提取", `上传到Google Drive: ${folderPath}/${fileName}`);
+          logInfo(log, "课后信息提取", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
           
           // 检查上传结果状态
@@ -483,7 +512,8 @@ export const appRouter = router({
             throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
           }
           
-          logger.stepSuccess("课后信息提取", extractionContent.length);
+          stepSuccess(log, "课后信息提取", extractionContent.length);
+          endLogSession(log);
           
           return {
             success: true,
@@ -498,8 +528,8 @@ export const appRouter = router({
           };
         } catch (error: any) {
           const structuredError = parseError(error, "extraction");
-          logger.stepFailed("课后信息提取", structuredError);
-          logger.endLogSession(); // 确保日志会话结束
+          stepFailed(log, "课后信息提取", structuredError);
+          endLogSession(log);
           
           throw new Error(JSON.stringify({
             code: structuredError.code,
@@ -531,7 +561,16 @@ export const appRouter = router({
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
-        logger.startStep("气泡图");
+        // 创建独立的日志会话（并发安全）
+        const log = createLogSession(
+          input.studentName,
+          { apiUrl, apiModel, maxTokens: 16000 },
+          { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
+          input.lessonNumber,
+          input.dateStr
+        );
+        
+        startStep(log, "气泡图");
         
         try {
           const bubbleChartPng = await generateBubbleChart(
@@ -546,7 +585,7 @@ export const appRouter = router({
           const fileName = `${input.studentName}${input.dateStr}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
           
-          logger.logInfo("气泡图", `上传到Google Drive: ${folderPath}/${fileName}`);
+          logInfo(log, "气泡图", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadBinaryToGoogleDrive(bubbleChartPng, fileName, folderPath);
           
           // 检查上传结果状态
@@ -554,10 +593,8 @@ export const appRouter = router({
             throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
           }
           
-          logger.stepSuccess("气泡图", bubbleChartPng.length);
-          
-          // 最后一步完成，结束日志会话
-          logger.endLogSession();
+          stepSuccess(log, "气泡图", bubbleChartPng.length);
+          endLogSession(log);
           
           return {
             success: true,
@@ -572,8 +609,8 @@ export const appRouter = router({
           };
         } catch (error: any) {
           const structuredError = parseError(error, "bubbleChart");
-          logger.stepFailed("气泡图", structuredError);
-          logger.endLogSession();
+          stepFailed(log, "气泡图", structuredError);
+          endLogSession(log);
           
           throw new Error(JSON.stringify({
             code: structuredError.code,
@@ -621,11 +658,11 @@ export const appRouter = router({
     // 获取最新日志
     getLatestLog: publicProcedure
       .query(async () => {
-        const logPath = logger.getLatestLogPath();
+        const logPath = getLatestLogPath();
         if (!logPath) {
           return { success: false, message: "没有找到日志文件" };
         }
-        const content = logger.getLogContent(logPath);
+        const content = getLogContent(logPath);
         return {
           success: true,
           path: logPath,
@@ -636,12 +673,12 @@ export const appRouter = router({
     // 导出日志到Google Drive
     exportLog: publicProcedure
       .mutation(async () => {
-        const logPath = logger.getLatestLogPath();
+        const logPath = getLatestLogPath();
         if (!logPath) {
           return { success: false, message: "没有找到日志文件，请先运行一次生成" };
         }
         
-        const content = logger.getLogContent(logPath);
+        const content = getLogContent(logPath);
         if (!content) {
           return { success: false, message: "无法读取日志文件" };
         }
@@ -679,10 +716,10 @@ export const appRouter = router({
     // 列出所有日志文件
     listLogs: publicProcedure
       .query(async () => {
-        const logs = logger.listLogFiles();
+        const logs = listLogFiles();
         return {
           success: true,
-          logs: logs.map(l => ({
+          logs: logs.map((l: { name: string; path: string; mtime: Date }) => ({
             name: l.name,
             path: l.path,
             mtime: l.mtime.toISOString(),

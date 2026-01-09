@@ -1,6 +1,7 @@
 /**
  * 日志记录模块
  * 记录每次生成的完整日志，支持导出到Google Drive
+ * V40补充：改为每个请求独立的 log 对象，解决并发污染问题
  */
 
 import * as fs from 'fs';
@@ -61,11 +62,10 @@ export interface GenerationLog {
   
   // 最终结果
   finalResult: 'success' | 'partial' | 'failed';
+  
+  // 步骤计时（内部使用）
+  _stepStartTime?: number;
 }
-
-// 当前活跃的日志会话
-let currentLog: GenerationLog | null = null;
-let stepStartTime: number = 0;
 
 /**
  * 生成会话ID
@@ -93,9 +93,9 @@ function formatTimestamp(date: Date = new Date()): string {
 }
 
 /**
- * 开始新的日志会话
+ * 创建新的日志会话（每个请求独立）
  */
-export function startLogSession(
+export function createLogSession(
   studentName: string,
   config: {
     apiUrl: string;
@@ -109,10 +109,10 @@ export function startLogSession(
   },
   lessonNumber?: string,
   lessonDate?: string
-): string {
+): GenerationLog {
   const sessionId = generateSessionId();
   
-  currentLog = {
+  const log: GenerationLog = {
     sessionId,
     startTime: formatTimestamp(),
     studentName,
@@ -125,23 +125,22 @@ export function startLogSession(
     finalResult: 'failed'
   };
   
-  logInfo('session', `开始生成会话 ${sessionId}`);
-  logInfo('config', `API地址: ${config.apiUrl}`);
-  logInfo('config', `模型: ${config.apiModel}`);
-  logInfo('config', `max_tokens: ${config.maxTokens}`);
-  logInfo('input', `笔记长度: ${inputSummary.notesLength}字符`);
-  logInfo('input', `录音长度: ${inputSummary.transcriptLength}字符`);
-  logInfo('input', `上次反馈长度: ${inputSummary.lastFeedbackLength}字符`);
+  logInfo(log, 'session', `开始生成会话 ${sessionId}`);
+  logInfo(log, 'config', `学生: ${studentName}`);
+  logInfo(log, 'config', `API地址: ${config.apiUrl}`);
+  logInfo(log, 'config', `模型: ${config.apiModel}`);
+  logInfo(log, 'config', `max_tokens: ${config.maxTokens}`);
+  logInfo(log, 'input', `笔记长度: ${inputSummary.notesLength}字符`);
+  logInfo(log, 'input', `录音长度: ${inputSummary.transcriptLength}字符`);
+  logInfo(log, 'input', `上次反馈长度: ${inputSummary.lastFeedbackLength}字符`);
   
-  return sessionId;
+  return log;
 }
 
 /**
- * 记录日志条目
+ * 记录日志条目（需要传入 log 对象）
  */
-function addEntry(level: LogEntry['level'], step: string, message: string, data?: any) {
-  if (!currentLog) return;
-  
+function addEntry(log: GenerationLog, level: LogEntry['level'], step: string, message: string, data?: any) {
   const entry: LogEntry = {
     timestamp: formatTimestamp(),
     level,
@@ -150,10 +149,10 @@ function addEntry(level: LogEntry['level'], step: string, message: string, data?
     data
   };
   
-  currentLog.entries.push(entry);
+  log.entries.push(entry);
   
-  // 同时输出到控制台
-  const prefix = `[${entry.timestamp}] [${level}] [${step}]`;
+  // 同时输出到控制台，包含学生名以区分并发请求
+  const prefix = `[${entry.timestamp}] [${log.studentName}] [${level}] [${step}]`;
   console.log(`${prefix} ${message}`);
   if (data) {
     console.log(`${prefix} 数据:`, typeof data === 'string' ? data : JSON.stringify(data, null, 2));
@@ -163,73 +162,69 @@ function addEntry(level: LogEntry['level'], step: string, message: string, data?
 /**
  * 记录信息日志
  */
-export function logInfo(step: string, message: string, data?: any) {
-  addEntry('INFO', step, message, data);
+export function logInfo(log: GenerationLog, step: string, message: string, data?: any) {
+  addEntry(log, 'INFO', step, message, data);
 }
 
 /**
  * 记录警告日志
  */
-export function logWarn(step: string, message: string, data?: any) {
-  addEntry('WARN', step, message, data);
+export function logWarn(log: GenerationLog, step: string, message: string, data?: any) {
+  addEntry(log, 'WARN', step, message, data);
 }
 
 /**
  * 记录错误日志
  */
-export function logError(step: string, message: string, data?: any) {
-  addEntry('ERROR', step, message, data);
+export function logError(log: GenerationLog, step: string, message: string, data?: any) {
+  addEntry(log, 'ERROR', step, message, data);
 }
 
 /**
  * 记录调试日志
  */
-export function logDebug(step: string, message: string, data?: any) {
-  addEntry('DEBUG', step, message, data);
+export function logDebug(log: GenerationLog, step: string, message: string, data?: any) {
+  addEntry(log, 'DEBUG', step, message, data);
 }
 
 /**
  * 开始步骤计时
  */
-export function startStep(step: string) {
-  stepStartTime = Date.now();
-  logInfo(step, `开始生成${step}`);
+export function startStep(log: GenerationLog, step: string) {
+  log._stepStartTime = Date.now();
+  logInfo(log, step, `开始生成${step}`);
 }
 
 /**
  * 记录步骤成功
  */
-export function stepSuccess(step: string, outputLength?: number) {
-  if (!currentLog) return;
+export function stepSuccess(log: GenerationLog, step: string, outputLength?: number) {
+  const duration = Date.now() - (log._stepStartTime || Date.now());
   
-  const duration = Date.now() - stepStartTime;
-  
-  currentLog.stepResults.push({
+  log.stepResults.push({
     step,
     status: 'success',
     duration,
     outputLength
   });
   
-  logInfo(step, `生成完成，耗时${(duration / 1000).toFixed(1)}秒${outputLength ? `，输出${outputLength}字符` : ''}`);
+  logInfo(log, step, `生成完成，耗时${(duration / 1000).toFixed(1)}秒${outputLength ? `，输出${outputLength}字符` : ''}`);
 }
 
 /**
  * 记录步骤失败
  */
-export function stepFailed(step: string, error: StructuredError) {
-  if (!currentLog) return;
+export function stepFailed(log: GenerationLog, step: string, error: StructuredError) {
+  const duration = Date.now() - (log._stepStartTime || Date.now());
   
-  const duration = Date.now() - stepStartTime;
-  
-  currentLog.stepResults.push({
+  log.stepResults.push({
     step,
     status: 'failed',
     duration,
     error
   });
   
-  logError(step, `生成失败: ${error.message}`, {
+  logError(log, step, `生成失败: ${error.message}`, {
     code: error.code,
     suggestion: error.suggestion,
     originalError: error.originalError
@@ -239,53 +234,46 @@ export function stepFailed(step: string, error: StructuredError) {
 /**
  * 记录步骤跳过
  */
-export function stepSkipped(step: string, reason: string) {
-  if (!currentLog) return;
-  
-  currentLog.stepResults.push({
+export function stepSkipped(log: GenerationLog, step: string, reason: string) {
+  log.stepResults.push({
     step,
     status: 'skipped'
   });
   
-  logWarn(step, `跳过: ${reason}`);
+  logWarn(log, step, `跳过: ${reason}`);
 }
 
 /**
  * 记录流式输出进度
  */
-export function logStreamProgress(step: string, chunkCount: number, totalLength: number) {
+export function logStreamProgress(log: GenerationLog, step: string, chunkCount: number, totalLength: number) {
   if (chunkCount % 10 === 0) { // 每10个chunk记录一次
-    logDebug(step, `收到第${chunkCount}个chunk，累计${totalLength}字符`);
+    logDebug(log, step, `收到第${chunkCount}个chunk，累计${totalLength}字符`);
   }
 }
 
 /**
  * 结束日志会话
  */
-export function endLogSession(): GenerationLog | null {
-  if (!currentLog) return null;
-  
-  currentLog.endTime = formatTimestamp();
+export function endLogSession(log: GenerationLog): GenerationLog {
+  log.endTime = formatTimestamp();
   
   // 计算最终结果
-  const successCount = currentLog.stepResults.filter(r => r.status === 'success').length;
-  const totalCount = currentLog.stepResults.length;
+  const successCount = log.stepResults.filter(r => r.status === 'success').length;
+  const totalCount = log.stepResults.length;
   
   if (successCount === totalCount && totalCount > 0) {
-    currentLog.finalResult = 'success';
+    log.finalResult = 'success';
   } else if (successCount > 0) {
-    currentLog.finalResult = 'partial';
+    log.finalResult = 'partial';
   } else {
-    currentLog.finalResult = 'failed';
+    log.finalResult = 'failed';
   }
   
-  logInfo('session', `会话结束，结果: ${currentLog.finalResult} (${successCount}/${totalCount}步骤成功)`);
+  logInfo(log, 'session', `会话结束，结果: ${log.finalResult} (${successCount}/${totalCount}步骤成功)`);
   
   // 保存日志文件
-  saveLogToFile(currentLog);
-  
-  const log = currentLog;
-  currentLog = null;
+  saveLogToFile(log);
   
   return log;
 }
@@ -431,13 +419,6 @@ export function getLogContent(logPath: string): string | null {
 }
 
 /**
- * 获取当前日志会话
- */
-export function getCurrentLog(): GenerationLog | null {
-  return currentLog;
-}
-
-/**
  * 列出所有日志文件
  */
 export function listLogFiles(): { name: string; path: string; mtime: Date }[] {
@@ -455,3 +436,82 @@ export function listLogFiles(): { name: string; path: string; mtime: Date }[] {
     return [];
   }
 }
+
+// ========== 兼容旧版 API（逐步废弃）==========
+// 这些函数保留是为了兼容现有代码，新代码应使用带 log 参数的版本
+
+let _legacyLog: GenerationLog | null = null;
+
+/**
+ * @deprecated 使用 createLogSession 代替
+ */
+export function startLogSession(
+  studentName: string,
+  config: {
+    apiUrl: string;
+    apiModel: string;
+    maxTokens: number;
+  },
+  inputSummary: {
+    notesLength: number;
+    transcriptLength: number;
+    lastFeedbackLength: number;
+  },
+  lessonNumber?: string,
+  lessonDate?: string
+): string {
+  _legacyLog = createLogSession(studentName, config, inputSummary, lessonNumber, lessonDate);
+  return _legacyLog.sessionId;
+}
+
+/**
+ * @deprecated 使用 getCurrentLog() 获取 log 对象后调用带参数版本
+ */
+export function getCurrentLog(): GenerationLog | null {
+  return _legacyLog;
+}
+
+// 兼容旧版无参数调用的包装函数
+export const logger = {
+  startLogSession,
+  createLogSession,
+  logInfo: (step: string, message: string, data?: any) => {
+    if (_legacyLog) logInfo(_legacyLog, step, message, data);
+  },
+  logWarn: (step: string, message: string, data?: any) => {
+    if (_legacyLog) logWarn(_legacyLog, step, message, data);
+  },
+  logError: (step: string, message: string, data?: any) => {
+    if (_legacyLog) logError(_legacyLog, step, message, data);
+  },
+  logDebug: (step: string, message: string, data?: any) => {
+    if (_legacyLog) logDebug(_legacyLog, step, message, data);
+  },
+  startStep: (step: string) => {
+    if (_legacyLog) startStep(_legacyLog, step);
+  },
+  stepSuccess: (step: string, outputLength?: number) => {
+    if (_legacyLog) stepSuccess(_legacyLog, step, outputLength);
+  },
+  stepFailed: (step: string, error: StructuredError) => {
+    if (_legacyLog) stepFailed(_legacyLog, step, error);
+  },
+  stepSkipped: (step: string, reason: string) => {
+    if (_legacyLog) stepSkipped(_legacyLog, step, reason);
+  },
+  logStreamProgress: (step: string, chunkCount: number, totalLength: number) => {
+    if (_legacyLog) logStreamProgress(_legacyLog, step, chunkCount, totalLength);
+  },
+  endLogSession: (): GenerationLog | null => {
+    if (!_legacyLog) return null;
+    const log = endLogSession(_legacyLog);
+    _legacyLog = null;
+    return log;
+  },
+  getCurrentLog,
+  getLatestLogPath,
+  getLogContent,
+  listLogFiles,
+};
+
+export default logger;

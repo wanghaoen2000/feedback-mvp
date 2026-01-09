@@ -246,3 +246,9 @@
 - [x] 检查 feedbackGenerator.ts 中 studentName 的来源 - 没问题
 - [x] 排查问题根源 - 前端 React 状态变量在步骤间被修改
 - [x] 修复：将 studentName 也加入快照，所有步骤使用快照中的学生名
+
+## V40 补充：完善并发修复
+- [x] 修复 logger.ts 全局变量污染，改为每个请求独立的 log 对象
+- [x] 完善日志记录，确保每个步骤都有开始和完成记录
+- [x] 前端添加当前生成学生名提示
+- [x] 前端生成过程中锁定输入框（已有 disabled={isGenerating}）

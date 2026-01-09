@@ -107,6 +107,7 @@ export default function Home() {
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [isStopping, setIsStopping] = useState(false); // 是否正在停止
+  const [currentGeneratingStudent, setCurrentGeneratingStudent] = useState<string | null>(null); // 当前正在生成的学生名
   const [isExportingLog, setIsExportingLog] = useState(false); // 是否正在导出日志
   const [exportLogResult, setExportLogResult] = useState<{
     success: boolean;
@@ -222,6 +223,7 @@ export default function Home() {
     setIsComplete(false);
     setHasError(false);
     setIsStopping(false);
+    setCurrentGeneratingStudent(studentName.trim()); // 设置当前生成的学生名
     setSteps(initialSteps);
     setCurrentStep(1);
 
@@ -434,6 +436,7 @@ export default function Home() {
     } finally {
       setIsGenerating(false);
       setIsStopping(false);
+      setCurrentGeneratingStudent(null); // 清除当前生成的学生名
       abortControllerRef.current = null;
     }
   }, [
@@ -1177,7 +1180,7 @@ export default function Home() {
                   {isGenerating ? (
                     <>
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      正在生成文档 ({currentStep}/5)...
+                      正在为「{currentGeneratingStudent}」生成 ({currentStep}/5)...
                     </>
                   ) : (
                     <>
@@ -1233,7 +1236,7 @@ export default function Home() {
                         hasError ? 'text-red-800' :
                         'text-blue-800'
                       }`}>
-                        {isGenerating ? `正在生成第 ${currentStep} 个文档...` :
+                        {isGenerating ? `正在为「${currentGeneratingStudent}」生成第 ${currentStep} 个文档...` :
                          isComplete ? '✅ 全部完成！' :
                          '⚠️ 生成过程中出错'}
                       </span>
