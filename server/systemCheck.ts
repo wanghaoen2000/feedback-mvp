@@ -362,8 +362,13 @@ async function checkGDriveAuth(): Promise<CheckResult & { method?: 'oauth' | 'rc
   }
 }
 
+// Google Drive API 端点
+const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
+const DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
+
 /**
  * 7. Google Drive写入权限检测
+ * 使用 Google Drive REST API 而非 rclone，确保在正式部署环境也能正常工作
  */
 async function checkGDriveWrite(authPassed: boolean): Promise<CheckResult> {
   if (!authPassed) {
@@ -376,32 +381,76 @@ async function checkGDriveWrite(authPassed: boolean): Promise<CheckResult> {
   }
   
   try {
+    // 获取有效的 OAuth token
+    const token = await getValidToken();
+    if (!token) {
+      return {
+        name: 'Google Drive写入权限',
+        status: 'error',
+        message: '无法获取有效的访问令牌',
+        suggestion: '请重新连接Google Drive'
+      };
+    }
+    
     const testFileName = `_test_${Date.now()}.txt`;
-    const testFilePath = `/tmp/${testFileName}`;
+    const testContent = 'test write permission';
     
-    // 创建测试文件
-    fs.writeFileSync(testFilePath, 'test');
+    // 使用 Google Drive API 上传测试文件
+    const boundary = '-------314159265358979323846';
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
     
-    // 确保目录存在
-    await execAsync(
-      `rclone mkdir "${REMOTE_NAME}:Mac/Documents/XDF" --config ${RCLONE_CONFIG}`,
-      { timeout: 10000 }
-    );
+    const metadata = {
+      name: testFileName,
+      parents: ['root'], // 上传到根目录
+    };
     
-    // 上传测试文件
-    await execAsync(
-      `rclone copy "${testFilePath}" "${REMOTE_NAME}:Mac/Documents/XDF/" --config ${RCLONE_CONFIG}`,
-      { timeout: 15000 }
-    );
+    const multipartBody = Buffer.concat([
+      Buffer.from(delimiter + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata)),
+      Buffer.from(delimiter + 'Content-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\n'),
+      Buffer.from(Buffer.from(testContent).toString('base64')),
+      Buffer.from(closeDelimiter),
+    ]);
     
-    // 删除远程测试文件
-    await execAsync(
-      `rclone delete "${REMOTE_NAME}:Mac/Documents/XDF/${testFileName}" --config ${RCLONE_CONFIG}`,
-      { timeout: 10000 }
-    );
+    // 上传文件
+    const uploadRes = await fetch(`${DRIVE_UPLOAD_BASE}/files?uploadType=multipart&fields=id,name`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body: multipartBody,
+    });
     
-    // 清理本地测试文件
-    fs.unlinkSync(testFilePath);
+    if (!uploadRes.ok) {
+      const errorText = await uploadRes.text();
+      console.error('[checkGDriveWrite] Upload failed:', uploadRes.status, errorText);
+      return {
+        name: 'Google Drive写入权限',
+        status: 'error',
+        message: `上传失败: ${uploadRes.status}`,
+        suggestion: '请检查Google Drive权限设置'
+      };
+    }
+    
+    const uploadData = await uploadRes.json();
+    const fileId = uploadData.id;
+    console.log('[checkGDriveWrite] Test file uploaded:', fileId);
+    
+    // 删除测试文件
+    const deleteRes = await fetch(`${DRIVE_API_BASE}/files/${fileId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    
+    if (!deleteRes.ok && deleteRes.status !== 204) {
+      console.warn('[checkGDriveWrite] Failed to delete test file:', deleteRes.status);
+      // 删除失败不影响写入测试结果
+    } else {
+      console.log('[checkGDriveWrite] Test file deleted');
+    }
     
     return {
       name: 'Google Drive写入权限',
@@ -410,7 +459,6 @@ async function checkGDriveWrite(authPassed: boolean): Promise<CheckResult> {
     };
   } catch (e: any) {
     console.error('[checkGDriveWrite] Error:', e.message || e);
-    console.error('[checkGDriveWrite] Stderr:', e.stderr || 'N/A');
     return {
       name: 'Google Drive写入权限',
       status: 'error',
