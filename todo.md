@@ -259,3 +259,13 @@
 - [ ] P0: 修复 API 错误 - 待发布后验证
 - [x] P1: 排查日志污染问题 - 原因：前端导出时没传学生名，后端返回最新日志
 - [x] P1: 修复日志污染 - 添加 getLatestLogPathByStudent 函数，前端导出时传入学生名
+
+
+## V42: 气泡图前端生成（修复中文乱码）
+
+- [x] 后端：修改 generateBubbleChart 返回 SVG 字符串而非 PNG
+- [x] 后端：新增 uploadBubbleChart 接口接收前端上传的 PNG base64
+- [x] 前端：新增 svgToPngBase64 函数（Canvas 转换）
+- [x] 前端：修改步骤5流程：后端生成SVG → 前端转PNG → 上传
+- [ ] 测试：验证气泡图中文显示正常
+- [ ] 保存检查点并发布

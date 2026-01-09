@@ -72,6 +72,74 @@ const initialSteps: StepStatus[] = [
   { step: 5, name: "气泡图", status: 'pending' },
 ];
 
+/**
+ * 将SVG字符串转换为PNG的base64编码
+ * 使用Canvas在前端转换，解决服务器缺少中文字体的问题
+ */
+async function svgToPngBase64(svgString: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // 创建一个临时的Image对象
+    const img = new Image();
+    
+    // 将SVG转换为data URL
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    
+    img.onload = () => {
+      // 创建Canvas
+      const canvas = document.createElement('canvas');
+      
+      // 从 SVG 中提取 viewBox 或使用默认尺寸
+      const viewBoxMatch = svgString.match(/viewBox=["']([\d\s.]+)["']/);
+      let width = 900;
+      let height = 700;
+      
+      if (viewBoxMatch) {
+        const [, , w, h] = viewBoxMatch[1].split(/\s+/).map(Number);
+        if (w && h) {
+          width = w;
+          height = h;
+        }
+      }
+      
+      // 设置高分辨率（视网屏的话使用 2x）
+      const scale = 2;
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        reject(new Error('无法创建Canvas上下文'));
+        return;
+      }
+      
+      // 填充白色背景
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // 缩放并绘制SVG
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // 转换为base64
+      const pngDataUrl = canvas.toDataURL('image/png');
+      // 移除 "data:image/png;base64," 前缀
+      const base64 = pngDataUrl.split(',')[1];
+      
+      URL.revokeObjectURL(url);
+      resolve(base64);
+    };
+    
+    img.onerror = (e) => {
+      URL.revokeObjectURL(url);
+      reject(new Error('SVG加载失败'));
+    };
+    
+    img.src = url;
+  });
+}
+
 export default function Home() {
   // 基本信息
   const [studentName, setStudentName] = useState("");
@@ -148,6 +216,7 @@ export default function Home() {
   const generateTestMutation = trpc.feedback.generateTest.useMutation();
   const generateExtractionMutation = trpc.feedback.generateExtraction.useMutation();
   const generateBubbleChartMutation = trpc.feedback.generateBubbleChart.useMutation();
+  const uploadBubbleChartMutation = trpc.feedback.uploadBubbleChart.useMutation();
   const exportLogMutation = trpc.feedback.exportLog.useMutation();
   const systemCheckMutation = trpc.feedback.systemCheck.useMutation();
   
@@ -371,9 +440,11 @@ export default function Home() {
       updateStep(4, { 
         status: 'running', 
         message: '正在生成气泡图...',
-        detail: '生成问题-方案对应的可视化图',
+        detail: 'AI正在生成SVG图形',
         startTime: step5Start
       });
+      
+      // 步骤5a: 后端生成SVG
       const step5Result = await generateBubbleChartMutation.mutateAsync({
         studentName: studentSnapshot.studentName,
         dateStr: date,
@@ -381,13 +452,34 @@ export default function Home() {
         feedbackContent: content,
         ...configSnapshot,
       });
+      
+      checkAborted();
+      updateStep(4, { 
+        status: 'running', 
+        message: '正在转换并上传...',
+        detail: '前端转换SVG为PNG并上传',
+        startTime: step5Start
+      });
+      
+      // 步骤5b: 前端将SVG转换为PNG
+      const svgContent = step5Result.svgContent;
+      const pngBase64 = await svgToPngBase64(svgContent);
+      
+      // 步骤5c: 上传PNG到Google Drive
+      const uploadResult = await uploadBubbleChartMutation.mutateAsync({
+        studentName: studentSnapshot.studentName,
+        dateStr: date,
+        pngBase64,
+        driveBasePath: configSnapshot.driveBasePath,
+      });
+      
       const step5End = Date.now();
       updateStep(4, { 
         status: 'success', 
         message: `生成完成 (耗时${Math.round((step5End - step5Start) / 1000)}秒)`,
         detail: '气泡图已上传到Google Drive',
         endTime: step5End,
-        uploadResult: step5Result.uploadResult
+        uploadResult: uploadResult.uploadResult
       });
 
       setIsComplete(true);
@@ -535,6 +627,8 @@ export default function Home() {
           if (!feedbackContent || !dateStr) {
             throw new Error('请先生成学情反馈');
           }
+          // 步骤5a: 后端生成SVG
+          updateStep(4, { status: 'running', message: '正在生成SVG...' });
           result = await generateBubbleChartMutation.mutateAsync({
             studentName: studentName.trim(),
             dateStr,
@@ -542,7 +636,21 @@ export default function Home() {
             feedbackContent,
             ...configSnapshot,
           });
-          updateStep(4, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          
+          // 步骤5b: 前端转换SVG为PNG
+          updateStep(4, { status: 'running', message: '正在转换并上传...' });
+          const svgContent = result.svgContent;
+          const pngBase64 = await svgToPngBase64(svgContent);
+          
+          // 步骤5c: 上传PNG到Google Drive
+          const uploadResult = await uploadBubbleChartMutation.mutateAsync({
+            studentName: studentName.trim(),
+            dateStr,
+            pngBase64,
+            driveBasePath: configSnapshot.driveBasePath,
+          });
+          
+          updateStep(4, { status: 'success', message: '生成完成', uploadResult: uploadResult.uploadResult });
           break;
       }
 

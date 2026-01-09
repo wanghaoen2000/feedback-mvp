@@ -679,7 +679,8 @@ ${feedback}
 }
 
 /**
- * 步骤5: 生成气泡图（返回PNG Buffer）
+ * 步骤5: 生成气泡图（返回PNG Buffer）- 已废弃，改用 generateBubbleChartSVG
+ * @deprecated 使用 generateBubbleChartSVG 代替，前端生成PNG解决中文乱码问题
  */
 export async function generateBubbleChart(
   feedback: string,
@@ -697,6 +698,26 @@ export async function generateBubbleChart(
     config
   );
   return await svgToPng(bubbleChartSVG);
+}
+
+/**
+ * 步骤5: 生成气泡图SVG（返回SVG字符串，前端转换为PNG）
+ * 解决服务器缺少中文字体导致乱码的问题
+ */
+export async function generateBubbleChartSVG(
+  feedback: string,
+  studentName: string,
+  dateStr: string,
+  lessonNumber: string,
+  config?: APIConfig
+): Promise<string> {
+  return await generateBubbleChartSVGByAI(
+    feedback,
+    studentName,
+    dateStr,
+    lessonNumber,
+    config
+  );
 }
 
 /**

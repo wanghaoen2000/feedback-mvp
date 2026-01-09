@@ -29,6 +29,7 @@ import {
   generateTestContent, 
   generateExtractionContent, 
   generateBubbleChart,
+  generateBubbleChartSVG,
   FeedbackInput 
 } from "./feedbackGenerator";
 
@@ -552,7 +553,7 @@ export const appRouter = router({
         }
       }),
 
-    // 步骤5: 生成气泡图
+    // 步骤5: 生成气泡图SVG（返回SVG字符串，前端转换为PNG并上传）
     generateBubbleChart: publicProcedure
       .input(z.object({
         studentName: z.string(),
@@ -570,7 +571,6 @@ export const appRouter = router({
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
-        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
@@ -584,33 +584,71 @@ export const appRouter = router({
         startStep(log, "气泡图");
         
         try {
-          const bubbleChartPng = await generateBubbleChart(
+          // 生成SVG字符串，返回给前端
+          const svgContent = await generateBubbleChartSVG(
             input.feedbackContent,
             input.studentName,
             input.dateStr,
             input.lessonNumber || "",
             { apiModel, apiKey, apiUrl, roadmap }
           );
+          
+          stepSuccess(log, "气泡图", svgContent.length);
+          endLogSession(log);
+          
+          // 返回SVG字符串，前端负责转换为PNG并上传
+          return {
+            success: true,
+            step: 5,
+            stepName: "气泡图",
+            svgContent,
+          };
+        } catch (error: any) {
+          const structuredError = parseError(error, "bubbleChart");
+          stepFailed(log, "气泡图", structuredError);
+          endLogSession(log);
+          
+          throw new Error(JSON.stringify({
+            code: structuredError.code,
+            step: structuredError.step,
+            message: structuredError.message,
+            suggestion: structuredError.suggestion,
+            userMessage: formatErrorMessage(structuredError),
+          }));
+        }
+      }),
 
+    // 步骤5b: 上传气泡图PNG（前端转换后调用）
+    uploadBubbleChart: publicProcedure
+      .input(z.object({
+        studentName: z.string(),
+        dateStr: z.string(),
+        pngBase64: z.string(), // base64编码的PNG数据
+        driveBasePath: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        
+        try {
+          // 将base64转换为Buffer
+          const pngBuffer = Buffer.from(input.pngBase64, 'base64');
+          
           const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${input.dateStr}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
           
-          logInfo(log, "气泡图", `上传到Google Drive: ${folderPath}/${fileName}`);
-          const uploadResult = await uploadBinaryToGoogleDrive(bubbleChartPng, fileName, folderPath);
+          console.log(`[气泡图上传] 上传到Google Drive: ${folderPath}/${fileName}`);
+          const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
           
           // 检查上传结果状态
           if (uploadResult.status === 'error') {
             throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
           }
           
-          stepSuccess(log, "气泡图", bubbleChartPng.length);
-          endLogSession(log);
-          
           return {
             success: true,
             step: 5,
-            stepName: "气泡图",
+            stepName: "气泡图上传",
             uploadResult: {
               fileName,
               url: uploadResult.url || "",
@@ -619,9 +657,7 @@ export const appRouter = router({
             },
           };
         } catch (error: any) {
-          const structuredError = parseError(error, "bubbleChart");
-          stepFailed(log, "气泡图", structuredError);
-          endLogSession(log);
+          const structuredError = parseError(error, "bubbleChartUpload");
           
           throw new Error(JSON.stringify({
             code: structuredError.code,
