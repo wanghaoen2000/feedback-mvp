@@ -611,7 +611,8 @@ export default function Home() {
     setIsExportingLog(true);
     setExportLogResult(null);
     try {
-      const result = await exportLogMutation.mutateAsync();
+      // 传入当前学生名，确保导出的是正确学生的日志
+      const result = await exportLogMutation.mutateAsync({ studentName: studentName.trim() || undefined });
       setExportLogResult({
         success: result.success,
         message: result.message,

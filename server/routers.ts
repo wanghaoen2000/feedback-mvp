@@ -9,7 +9,18 @@ import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus } from "./gdrive";
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
-import { createLogSession, startStep, stepSuccess, stepFailed, endLogSession, logInfo, getLatestLogPath, getLogContent, listLogFiles, GenerationLog } from "./logger";
+import { 
+  createLogSession, 
+  startStep, 
+  stepSuccess, 
+  stepFailed, 
+  endLogSession, 
+  logInfo, 
+  getLatestLogPath, 
+  getLatestLogPathByStudent,
+  getLogContent, 
+  listLogFiles 
+} from './logger';
 import { runSystemCheck } from "./systemCheck";
 import * as googleAuth from "./googleAuth";
 import { 
@@ -672,8 +683,14 @@ export const appRouter = router({
 
     // 导出日志到Google Drive
     exportLog: publicProcedure
-      .mutation(async () => {
-        const logPath = getLatestLogPath();
+      .input(z.object({
+        studentName: z.string().optional(),
+      }).optional())
+      .mutation(async ({ input }) => {
+        // 如果提供了学生名，根据学生名查找日志；否则获取最新的日志
+        const logPath = input?.studentName 
+          ? getLatestLogPathByStudent(input.studentName) 
+          : getLatestLogPath();
         if (!logPath) {
           return { success: false, message: "没有找到日志文件，请先运行一次生成" };
         }
