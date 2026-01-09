@@ -2,6 +2,7 @@ import { invokeWhatAI, invokeWhatAIStream, MODELS, APIConfig } from "./whatai";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
 import sharp from "sharp";
 
+
 // 录音转文字压缩配置
 const TRANSCRIPT_COMPRESS_CONFIG = {
   maxLength: 4000,        // 超过此长度就需要压缩
@@ -19,6 +20,19 @@ export interface FeedbackInput {
   transcript: string;
   isFirstLesson: boolean;
   specialRequirements: string;
+}
+
+// 小班课输入接口
+export interface ClassFeedbackInput {
+  classNumber: string;         // 班号
+  lessonNumber: string;        // 课次
+  lessonDate: string;          // 本次课日期
+  nextLessonDate: string;      // 下次课日期
+  attendanceStudents: string[]; // 出勤学生名单
+  lastFeedback: string;        // 上次反馈
+  currentNotes: string;        // 本次课笔记
+  transcript: string;          // 录音转文字
+  specialRequirements: string; // 特殊要求
 }
 
 export interface StepStatus {
@@ -792,4 +806,351 @@ export async function generateFeedbackDocuments(
     bubbleChart,
     steps,
   };
+}
+
+
+// ========== 小班课提示词 ==========
+const CLASS_FEEDBACK_SYSTEM_PROMPT = `你是新东方托福阅读教师的反馈助手。请为小班课生成学情反馈。
+
+【重要格式要求】
+这份反馈是给家长看的，要能直接复制到微信群，所以：
+1. 不要使用任何markdown标记（不要用#、**、*、\`\`\`等）
+2. 不要用表格格式
+3. 不要用自动编号（手打1. 2. 3.）
+4. 不要用首行缩进
+5. 可以用中括号【】来标记章节
+6. 可以用空行分隔段落
+7. 直接输出纯文本
+
+【小班课反馈结构】
+每个学生的反馈需要包含：
+1. 学生姓名和课程信息
+2. 课堂表现（根据录音转文字中该学生的发言和互动）
+3. 知识点掌握情况
+4. 生词学习情况
+5. 作业布置
+6. 下次课预告
+
+【注意事项】
+1. 为每个学生单独生成反馈，内容要个性化
+2. 根据录音转文字判断每个学生的课堂参与度
+3. 如果某学生在录音中没有明显发言，可以写"课堂表现稳定"
+4. 生词和长难句是全班共同学习的，但可以根据学生表现调整描述`;
+
+const CLASS_REVIEW_SYSTEM_PROMPT = `你是一个复习文档生成助手。为小班课生成复习文档。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+
+【复习文档结构】
+班级：xxx班
+日期：xxx
+出勤学生：xxx
+
+【本次课内容回顾】
+1. 文章/题目：xxx
+2. 核心知识点：xxx
+
+【生词讲解】
+（按照学情反馈中的生词逐一讲解）
+
+【长难句分析】
+（按照学情反馈中的长难句逐一分析）
+
+【错题解析】
+（按照学情反馈中的错题逐一解析）`;
+
+const CLASS_TEST_SYSTEM_PROMPT = `你是一个测试本生成助手。为小班课生成测试本。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+
+【测试本结构】
+班级：xxx班
+日期：xxx
+
+===== 测试部分 =====
+
+一、生词测试
+A. 英译中（10题）
+B. 中译英（10题）
+
+二、长难句翻译
+
+三、错题重做
+
+===== 答案部分 =====`;
+
+const CLASS_EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。为小班课提取课后信息。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 输出纯文本格式
+
+【课后信息提取结构】
+班级：xxx班
+本次课日期：xxx
+下次课日期：xxx
+出勤学生：xxx
+
+【作业布置】
+1. 生词复习：复习本次课xxx个生词
+2. 长难句练习：翻译xxx个长难句
+3. 错题重做：重做本次课xxx道错题
+
+【各学生情况】
+（简要记录每个学生的课堂表现和需要关注的点）`;
+
+// ========== 小班课生成函数 ==========
+
+/**
+ * 生成小班课学情反馈（为每个学生生成独立反馈）
+ */
+export async function generateClassFeedbackContent(
+  input: ClassFeedbackInput,
+  roadmap: string,
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+): Promise<{ studentName: string; feedback: string }[]> {
+  const results: { studentName: string; feedback: string }[] = [];
+  
+  for (const studentName of input.attendanceStudents) {
+    if (!studentName.trim()) continue;
+    
+    const userPrompt = `请为以下小班课学生生成学情反馈：
+
+学生姓名：${studentName}
+班号：${input.classNumber}
+课次：${input.lessonNumber || '未指定'}
+本次课日期：${input.lessonDate || '未指定'}
+下次课日期：${input.nextLessonDate || '未指定'}
+全班出勤学生：${input.attendanceStudents.filter(s => s.trim()).join('、')}
+
+${input.lastFeedback ? `【上次课反馈】\n${input.lastFeedback}\n` : ''}
+
+【本次课笔记】
+${input.currentNotes}
+
+【录音转文字】
+${input.transcript}
+
+${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\n` : ''}
+
+${roadmap ? `【路书参考】\n${roadmap}\n` : ''}
+
+请为 ${studentName} 生成个性化的学情反馈。注意从录音转文字中找出该学生的发言和表现。`;
+
+    console.log(`[小班课反馈] 开始为 ${studentName} 生成反馈...`);
+    const config: APIConfig = {
+      apiModel: apiConfig.apiModel,
+      apiKey: apiConfig.apiKey,
+      apiUrl: apiConfig.apiUrl,
+    };
+    const content = await invokeWhatAIStream(
+      [
+        { role: "system", content: CLASS_FEEDBACK_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt }
+      ],
+      { max_tokens: 8000 },
+      config,
+      () => process.stdout.write('.')
+    );
+    console.log(`\n[小班课反馈] ${studentName} 反馈生成完成`);
+    
+    results.push({
+      studentName: studentName.trim(),
+      feedback: cleanMarkdownAndHtml(content),
+    });
+  }
+  
+  return results;
+}
+
+/**
+ * 生成小班课复习文档（全班共用一份）
+ */
+export async function generateClassReviewContent(
+  input: ClassFeedbackInput,
+  combinedFeedback: string,
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+): Promise<Buffer> {
+  const userPrompt = `请根据以下小班课信息生成复习文档：
+
+班号：${input.classNumber}
+课次：${input.lessonNumber || '未指定'}
+本次课日期：${input.lessonDate || '未指定'}
+出勤学生：${input.attendanceStudents.filter(s => s.trim()).join('、')}
+
+【学情反馈汇总】
+${combinedFeedback}
+
+【本次课笔记】
+${input.currentNotes}
+
+请生成一份全班共用的复习文档。`;
+
+  console.log(`[小班课复习文档] 开始生成...`);
+  const config: APIConfig = {
+    apiModel: apiConfig.apiModel,
+    apiKey: apiConfig.apiKey,
+    apiUrl: apiConfig.apiUrl,
+  };
+  const reviewContent = await invokeWhatAIStream(
+    [
+      { role: "system", content: CLASS_REVIEW_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt }
+    ],
+    { max_tokens: 8000 },
+    config,
+    () => process.stdout.write('.')
+  );
+  console.log(`\n[小班课复习文档] 生成完成`);
+  
+  // 转换为 docx
+  const doc = new Document({
+    sections: [{
+      properties: {},
+      children: reviewContent.split('\n').map((line: string) => {
+        if (line.startsWith('【') && line.endsWith('】')) {
+          return new Paragraph({
+            children: [new TextRun({ text: line, bold: true, size: 28 })],
+            spacing: { before: 400, after: 200 },
+          });
+        }
+        return new Paragraph({
+          children: [new TextRun({ text: line, size: 24 })],
+          spacing: { after: 100 },
+        });
+      }),
+    }],
+  });
+  
+  return await Packer.toBuffer(doc);
+}
+
+/**
+ * 生成小班课测试本（全班共用一份）
+ */
+export async function generateClassTestContent(
+  input: ClassFeedbackInput,
+  combinedFeedback: string,
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+): Promise<Buffer> {
+  const userPrompt = `请根据以下小班课信息生成测试本：
+
+班号：${input.classNumber}
+课次：${input.lessonNumber || '未指定'}
+本次课日期：${input.lessonDate || '未指定'}
+
+【学情反馈汇总】
+${combinedFeedback}
+
+【本次课笔记】
+${input.currentNotes}
+
+请生成一份全班共用的测试本，包含测试题和答案。`;
+
+  console.log(`[小班课测试本] 开始生成...`);
+  const config: APIConfig = {
+    apiModel: apiConfig.apiModel,
+    apiKey: apiConfig.apiKey,
+    apiUrl: apiConfig.apiUrl,
+  };
+  const testContent = await invokeWhatAIStream(
+    [
+      { role: "system", content: CLASS_TEST_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt }
+    ],
+    { max_tokens: 8000 },
+    config,
+    () => process.stdout.write('.')
+  );
+  console.log(`\n[小班课测试本] 生成完成`);
+  
+  // 转换为 docx
+  const doc = new Document({
+    sections: [{
+      properties: {},
+      children: testContent.split('\n').map((line: string) => {
+        if (line.includes('=====')) {
+          return new Paragraph({
+            children: [new TextRun({ text: line, bold: true, size: 28 })],
+            spacing: { before: 400, after: 200 },
+            alignment: AlignmentType.CENTER,
+          });
+        }
+        if (line.match(/^[一二三四五六七八九十]、/)) {
+          return new Paragraph({
+            children: [new TextRun({ text: line, bold: true, size: 26 })],
+            spacing: { before: 300, after: 150 },
+          });
+        }
+        return new Paragraph({
+          children: [new TextRun({ text: line, size: 24 })],
+          spacing: { after: 100 },
+        });
+      }),
+    }],
+  });
+  
+  return await Packer.toBuffer(doc);
+}
+
+/**
+ * 生成小班课课后信息提取（全班共用一份）
+ */
+export async function generateClassExtractionContent(
+  input: ClassFeedbackInput,
+  combinedFeedback: string,
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+): Promise<string> {
+  const userPrompt = `请根据以下小班课信息提取课后信息：
+
+班号：${input.classNumber}
+课次：${input.lessonNumber || '未指定'}
+本次课日期：${input.lessonDate || '未指定'}
+下次课日期：${input.nextLessonDate || '未指定'}
+出勤学生：${input.attendanceStudents.filter(s => s.trim()).join('、')}
+
+【学情反馈汇总】
+${combinedFeedback}
+
+请生成课后信息提取文档。`;
+
+  console.log(`[小班课课后信息] 开始生成...`);
+  const config: APIConfig = {
+    apiModel: apiConfig.apiModel,
+    apiKey: apiConfig.apiKey,
+    apiUrl: apiConfig.apiUrl,
+  };
+  const extractionContent = await invokeWhatAIStream(
+    [
+      { role: "system", content: CLASS_EXTRACTION_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt }
+    ],
+    { max_tokens: 4000 },
+    config,
+    () => process.stdout.write('.')
+  );
+  console.log(`\n[小班课课后信息] 生成完成`);
+  
+  return cleanMarkdownAndHtml(extractionContent);
+}
+
+/**
+ * 为小班课学生生成气泡图SVG
+ */
+export async function generateClassBubbleChartSVG(
+  studentFeedback: string,
+  studentName: string,
+  classNumber: string,
+  dateStr: string,
+  lessonNumber: string,
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+): Promise<string> {
+  // 复用现有的气泡图生成逻辑
+  return await generateBubbleChartSVG(studentFeedback, studentName, dateStr, lessonNumber);
 }

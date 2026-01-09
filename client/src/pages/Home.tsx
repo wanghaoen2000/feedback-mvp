@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { trpc } from "@/lib/trpc";
 import { 
@@ -25,7 +26,8 @@ import {
   Download,
   Search,
   MinusCircle,
-  Cloud
+  Cloud,
+  Users
 } from "lucide-react";
 
 // 步骤状态类型
@@ -71,6 +73,55 @@ const initialSteps: StepStatus[] = [
   { step: 4, name: "课后信息提取", status: 'pending' },
   { step: 5, name: "气泡图", status: 'pending' },
 ];
+
+/**
+ * 根据日期字符串计算星期
+ * @param dateStr 日期字符串，如 "1月15日" 或 "1.15"
+ * @param year 年份，如 "2026"
+ * @returns 星期字符串，如 "周四"，如果无法解析则返回 null
+ */
+function getWeekday(dateStr: string, year: string): string | null {
+  if (!dateStr || !year) return null;
+  
+  // 尝试解析日期格式："1月15日", "1.15", "01-15"
+  let month: number | null = null;
+  let day: number | null = null;
+  
+  // 匹配 "X月X日" 格式
+  const chineseMatch = dateStr.match(/(\d{1,2})月(\d{1,2})日?/);
+  if (chineseMatch) {
+    month = parseInt(chineseMatch[1]);
+    day = parseInt(chineseMatch[2]);
+  }
+  
+  // 匹配 "X.X" 或 "X-X" 格式
+  if (!month || !day) {
+    const dotMatch = dateStr.match(/(\d{1,2})[.\-](\d{1,2})/);
+    if (dotMatch) {
+      month = parseInt(dotMatch[1]);
+      day = parseInt(dotMatch[2]);
+    }
+  }
+  
+  if (!month || !day || month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+  
+  try {
+    const yearNum = parseInt(year);
+    const date = new Date(yearNum, month - 1, day);
+    
+    // 验证日期是否有效（防止日期溢出，如 2月30日）
+    if (date.getMonth() !== month - 1 || date.getDate() !== day) {
+      return null;
+    }
+    
+    const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    return weekdays[date.getDay()];
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 将SVG字符串转换为PNG的base64编码
@@ -141,11 +192,19 @@ async function svgToPngBase64(svgString: string): Promise<string> {
 }
 
 export default function Home() {
-  // 基本信息
+  // 课程类型：'oneToOne' 或 'class'
+  const [courseType, setCourseType] = useState<'oneToOne' | 'class'>('oneToOne');
+  
+  // 基本信息（一对一）
   const [studentName, setStudentName] = useState("");
   const [lessonNumber, setLessonNumber] = useState("");
   const [lessonDate, setLessonDate] = useState(""); // 本次课日期，如"1月5日"
   const [currentYear, setCurrentYear] = useState("2026"); // 年份
+  
+  // 小班课特有字段
+  const [classNumber, setClassNumber] = useState(""); // 班号
+  const [attendanceCount, setAttendanceCount] = useState(2); // 出勤学生数
+  const [attendanceStudents, setAttendanceStudents] = useState<string[]>(['', '']); // 出勤学生名单
   
   // 三段文本
   const [lastFeedback, setLastFeedback] = useState("");
@@ -161,7 +220,8 @@ export default function Home() {
   const [apiModel, setApiModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiUrl, setApiUrl] = useState("");
-  const [roadmap, setRoadmap] = useState(""); // V9路书内容
+  const [roadmap, setRoadmap] = useState(""); // V9路书内容（一对一）
+  const [roadmapClass, setRoadmapClass] = useState(""); // 小班课路书内容
   const [driveBasePath, setDriveBasePath] = useState(""); // Google Drive存储根路径
   const [configLoaded, setConfigLoaded] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -234,6 +294,7 @@ export default function Home() {
       setApiUrl(configQuery.data.apiUrl);
       setCurrentYear(configQuery.data.currentYear || "2026");
       setRoadmap(configQuery.data.roadmap || "");
+      setRoadmapClass(configQuery.data.roadmapClass || "");
       setDriveBasePath(configQuery.data.driveBasePath || "Mac/Documents/XDF/学生档案");
       setConfigLoaded(true);
     }
@@ -249,6 +310,7 @@ export default function Home() {
         apiUrl: apiUrl.trim() || undefined,
         currentYear: currentYear.trim() || undefined,
         roadmap: roadmap || undefined,
+        roadmapClass: roadmapClass || undefined,
         driveBasePath: driveBasePath.trim() || undefined,
       });
       // 刷新配置
@@ -540,10 +602,22 @@ export default function Home() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!studentName.trim() || !currentNotes.trim() || !transcript.trim()) {
-      return;
+    
+    if (courseType === 'oneToOne') {
+      // 一对一模式
+      if (!studentName.trim() || !currentNotes.trim() || !transcript.trim()) {
+        return;
+      }
+      await runGeneration();
+    } else {
+      // 小班课模式
+      const validStudents = attendanceStudents.filter((s: string) => s.trim());
+      if (!classNumber.trim() || validStudents.length === 0 || !currentNotes.trim() || !transcript.trim()) {
+        return;
+      }
+      // TODO: 小班课生成流程待实现
+      alert('小班课功能开发中，敬请期待...');
     }
-    await runGeneration();
   };
 
   // 单步重试函数
@@ -849,67 +923,212 @@ export default function Home() {
               <div className="bg-gray-50 p-4 rounded-lg space-y-4">
                 <h3 className="font-semibold text-gray-700 mb-3">基本信息</h3>
                 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="studentName">学生姓名 *</Label>
-                    <Input
-                      id="studentName"
-                      placeholder="例如：张三"
-                      value={studentName}
-                      onChange={(e) => setStudentName(e.target.value)}
+                {/* 课程类型切换 */}
+                <div className="flex items-center gap-4 pb-3 border-b">
+                  <Label>课程类型：</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={courseType === 'oneToOne' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setCourseType('oneToOne')}
                       disabled={isGenerating}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="lessonNumber">课次</Label>
-                    <Input
-                      id="lessonNumber"
-                      placeholder="例如：第10次课"
-                      value={lessonNumber}
-                      onChange={(e) => setLessonNumber(e.target.value)}
+                    >
+                      一对一
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={courseType === 'class' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setCourseType('class')}
                       disabled={isGenerating}
-                    />
+                    >
+                      <Users className="w-4 h-4 mr-1" />
+                      小班课
+                    </Button>
                   </div>
                 </div>
+                
+                {courseType === 'oneToOne' ? (
+                  /* 一对一模式 */
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="studentName">学生姓名 *</Label>
+                        <Input
+                          id="studentName"
+                          placeholder="例如：张三"
+                          value={studentName}
+                          onChange={(e) => setStudentName(e.target.value)}
+                          disabled={isGenerating}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="lessonNumber">课次</Label>
+                        <Input
+                          id="lessonNumber"
+                          placeholder="例如：第10次课"
+                          value={lessonNumber}
+                          onChange={(e) => setLessonNumber(e.target.value)}
+                          disabled={isGenerating}
+                        />
+                      </div>
+                    </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="currentYear">年份</Label>
-                    <Input
-                      id="currentYear"
-                      placeholder="例如：2026"
-                      value={currentYear}
-                      onChange={(e) => setCurrentYear(e.target.value)}
-                      disabled={isGenerating}
-                    />
-                    <p className="text-xs text-gray-500">默认2026，修改后在高级设置中保存可持久化</p>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="lessonDate">本次课日期</Label>
-                    <Input
-                      id="lessonDate"
-                      placeholder="例如：1月5日"
-                      value={lessonDate}
-                      onChange={(e) => setLessonDate(e.target.value)}
-                      disabled={isGenerating}
-                    />
-                    <p className="text-xs text-gray-500">可留空，AI会从笔记中自动提取</p>
-                  </div>
-                </div>
+                    <div className="grid grid-cols-2 gap-4 mt-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="currentYear">年份</Label>
+                        <Input
+                          id="currentYear"
+                          placeholder="例如：2026"
+                          value={currentYear}
+                          onChange={(e) => setCurrentYear(e.target.value)}
+                          disabled={isGenerating}
+                        />
+                        <p className="text-xs text-gray-500">默认2026，修改后在高级设置中保存可持久化</p>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="lessonDate">本次课日期</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="lessonDate"
+                            placeholder="例如：1月15日"
+                            value={lessonDate}
+                            onChange={(e) => setLessonDate(e.target.value)}
+                            disabled={isGenerating}
+                          />
+                          {lessonDate && getWeekday(lessonDate, currentYear) && (
+                            <span className="text-sm text-blue-600 whitespace-nowrap">
+                              ({getWeekday(lessonDate, currentYear)})
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">可留空，AI会从笔记中自动提取</p>
+                      </div>
+                    </div>
 
-                <div className="flex items-center space-x-3 pt-2">
-                  <Switch
-                    id="isFirstLesson"
-                    checked={isFirstLesson}
-                    onCheckedChange={setIsFirstLesson}
-                    disabled={isGenerating}
-                  />
-                  <Label htmlFor="isFirstLesson" className="cursor-pointer">
-                    新生首次课（勾选后"上次反馈"将替换为新生模板）
-                  </Label>
-                </div>
+                    <div className="flex items-center space-x-3 pt-2">
+                      <Switch
+                        id="isFirstLesson"
+                        checked={isFirstLesson}
+                        onCheckedChange={setIsFirstLesson}
+                        disabled={isGenerating}
+                      />
+                      <Label htmlFor="isFirstLesson" className="cursor-pointer">
+                        新生首次课（勾选后“上次反馈”将替换为新生模板）
+                      </Label>
+                    </div>
+                  </>
+                ) : (
+                  /* 小班课模式 */
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="classNumber">班号 *</Label>
+                        <Input
+                          id="classNumber"
+                          placeholder="例如：26098班"
+                          value={classNumber}
+                          onChange={(e) => setClassNumber(e.target.value)}
+                          disabled={isGenerating}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="lessonNumber">课次</Label>
+                        <Input
+                          id="lessonNumber"
+                          placeholder="例如：第10次课"
+                          value={lessonNumber}
+                          onChange={(e) => setLessonNumber(e.target.value)}
+                          disabled={isGenerating}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 mt-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="currentYear">年份</Label>
+                        <Input
+                          id="currentYear"
+                          placeholder="例如：2026"
+                          value={currentYear}
+                          onChange={(e) => setCurrentYear(e.target.value)}
+                          disabled={isGenerating}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="lessonDate">本次课日期</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="lessonDate"
+                            placeholder="例如：1月15日"
+                            value={lessonDate}
+                            onChange={(e) => setLessonDate(e.target.value)}
+                            disabled={isGenerating}
+                          />
+                          {lessonDate && getWeekday(lessonDate, currentYear) && (
+                            <span className="text-sm text-blue-600 whitespace-nowrap">
+                              ({getWeekday(lessonDate, currentYear)})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 出勤学生 */}
+                    <div className="space-y-3 pt-2 border-t mt-4">
+                      <div className="flex items-center gap-4">
+                        <Label>出勤学生数：</Label>
+                        <Select
+                          value={String(attendanceCount)}
+                          onValueChange={(v) => {
+                            const count = parseInt(v);
+                            setAttendanceCount(count);
+                            // 调整学生名单数组长度
+                            setAttendanceStudents(prev => {
+                              const newList = [...prev];
+                              while (newList.length < count) newList.push('');
+                              return newList.slice(0, count);
+                            });
+                          }}
+                          disabled={isGenerating}
+                        >
+                          <SelectTrigger className="w-24">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[2,3,4,5,6,7,8].map(n => (
+                              <SelectItem key={n} value={String(n)}>{n}人</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label>出勤学生姓名：</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {attendanceStudents.map((name, idx) => (
+                            <Input
+                              key={idx}
+                              placeholder={`学生${idx + 1}`}
+                              value={name}
+                              onChange={(e) => {
+                                const newList = [...attendanceStudents];
+                                newList[idx] = e.target.value;
+                                setAttendanceStudents(newList);
+                              }}
+                              disabled={isGenerating}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* 三段文本输入区 */}
@@ -917,21 +1136,21 @@ export default function Home() {
                 {/* 上次反馈 / 新生模板 */}
                 <div className="space-y-2">
                   <Label htmlFor="lastFeedback">
-                    {isFirstLesson ? "新生首次课模板（可选）" : "上次课反馈"}
+                    {courseType === 'oneToOne' && isFirstLesson ? "新生首次课模板（可选）" : "上次课反馈"}
                   </Label>
                   <Textarea
                     id="lastFeedback"
-                    placeholder={isFirstLesson 
+                    placeholder={courseType === 'oneToOne' && isFirstLesson 
                       ? "如有新生模板可粘贴在此，没有可留空" 
                       : "粘贴上次课的反馈内容..."
                     }
                     value={lastFeedback}
                     onChange={(e) => setLastFeedback(e.target.value)}
-                    className="min-h-[150px] font-mono text-sm"
+                    className="h-[120px] font-mono text-sm resize-none overflow-y-auto"
                     disabled={isGenerating}
                   />
                   <p className="text-xs text-gray-500">
-                    {isFirstLesson 
+                    {courseType === 'oneToOne' && isFirstLesson 
                       ? "新生首次课可以不填此项" 
                       : "用于对比上次课内容，避免重复"
                     }
@@ -946,11 +1165,11 @@ export default function Home() {
                     placeholder="粘贴本次课的笔记内容...（请在笔记开头包含日期信息，AI会自动识别）"
                     value={currentNotes}
                     onChange={(e) => setCurrentNotes(e.target.value)}
-                    className="min-h-[200px] font-mono text-sm"
+                    className="h-[120px] font-mono text-sm resize-none overflow-y-auto"
                     disabled={isGenerating}
                   />
                   <p className="text-xs text-gray-500">
-                    包含课堂讲解的知识点、生词、长难句、错题等。请确保笔记中包含日期信息（上次课、本次课、下次课日期）
+                    包含课堂讲解的知识点、生词、长难句、错题等
                   </p>
                 </div>
 
@@ -962,7 +1181,7 @@ export default function Home() {
                     placeholder="粘贴课堂录音的转文字内容..."
                     value={transcript}
                     onChange={(e) => setTranscript(e.target.value)}
-                    className="min-h-[200px] font-mono text-sm"
+                    className="h-[120px] font-mono text-sm resize-none overflow-y-auto"
                     disabled={isGenerating}
                   />
                   <p className="text-xs text-gray-500">
@@ -979,7 +1198,7 @@ export default function Home() {
                   placeholder="如有特殊要求可在此说明，例如：本次需要特别强调某个知识点、调整存储路径等..."
                   value={specialRequirements}
                   onChange={(e) => setSpecialRequirements(e.target.value)}
-                  className="min-h-[80px]"
+                  className="h-[120px] resize-none overflow-y-auto"
                   disabled={isGenerating}
                 />
               </div>
@@ -1063,32 +1282,55 @@ export default function Home() {
                     </div>
 
                     {/* 路书管理 */}
-                    <div className="border-t pt-4 mt-4">
+                    <div className="border-t pt-4 mt-4 space-y-4">
+                      {/* 一对一路书 */}
                       <div className="space-y-2">
-                        <Label htmlFor="roadmap">V9路书内容（可选）</Label>
+                        <Label htmlFor="roadmap">V9路书内容（一对一）（可选）</Label>
                         <Textarea
                           id="roadmap"
                           placeholder="粘贴更新后的V9路书内容...留空则使用系统内置的路书"
                           value={roadmap}
                           onChange={(e) => setRoadmap(e.target.value)}
-                          className="min-h-[150px] font-mono text-xs"
+                          className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
                           disabled={isGenerating}
                         />
                         <p className="text-xs text-gray-500">
-                          如果路书有更新，可以在此粘贴新版本。保存后系统将使用新路书生成文档。
-                          留空则使用系统内置的默认路书。
+                          用于一对一课程的路书。留空则使用系统内置的默认路书。
                         </p>
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setRoadmap("")}
-                            disabled={isGenerating || !roadmap}
-                          >
-                            清空路书
-                          </Button>
-                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRoadmap("")}
+                          disabled={isGenerating || !roadmap}
+                        >
+                          清空路书
+                        </Button>
+                      </div>
+                      
+                      {/* 小班课路书 */}
+                      <div className="space-y-2">
+                        <Label htmlFor="roadmapClass">小班课路书内容（可选）</Label>
+                        <Textarea
+                          id="roadmapClass"
+                          placeholder="粘贴小班课路书内容...留空则使用系统内置的路书"
+                          value={roadmapClass}
+                          onChange={(e) => setRoadmapClass(e.target.value)}
+                          className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
+                          disabled={isGenerating}
+                        />
+                        <p className="text-xs text-gray-500">
+                          用于小班课的路书。留空则使用系统内置的默认路书。
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRoadmapClass("")}
+                          disabled={isGenerating || !roadmapClass}
+                        >
+                          清空路书
+                        </Button>
                       </div>
                     </div>
                     

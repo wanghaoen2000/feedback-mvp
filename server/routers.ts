@@ -30,7 +30,13 @@ import {
   generateExtractionContent, 
   generateBubbleChart,
   generateBubbleChartSVG,
-  FeedbackInput 
+  FeedbackInput,
+  ClassFeedbackInput,
+  generateClassFeedbackContent,
+  generateClassReviewContent,
+  generateClassTestContent,
+  generateClassExtractionContent,
+  generateClassBubbleChartSVG,
 } from "./feedbackGenerator";
 
 // 默认配置值
@@ -75,7 +81,7 @@ async function setConfig(key: string, value: string, description?: string): Prom
   }
 }
 
-// 共享的输入schema
+// 共享的输入schema（一对一）
 const feedbackInputSchema = z.object({
   studentName: z.string().min(1, "请输入学生姓名"),
   lessonNumber: z.string().optional(),
@@ -91,6 +97,25 @@ const feedbackInputSchema = z.object({
   apiKey: z.string().optional(),
   apiUrl: z.string().optional(),
   roadmap: z.string().optional(),
+  driveBasePath: z.string().optional(),
+});
+
+// 小班课输入schema
+const classFeedbackInputSchema = z.object({
+  classNumber: z.string().min(1, "请输入班号"),
+  lessonNumber: z.string().optional(),
+  lessonDate: z.string().optional(), // 本次课日期，如"1月15日"
+  currentYear: z.string().optional(), // 年份，如"2026"
+  attendanceStudents: z.array(z.string()).min(2, "至少需要2名学生"),
+  lastFeedback: z.string().optional(),
+  currentNotes: z.string().min(1, "请输入本次课笔记"),
+  transcript: z.string().min(1, "请输入录音转文字"),
+  specialRequirements: z.string().optional(),
+  // 配置参数
+  apiModel: z.string().optional(),
+  apiKey: z.string().optional(),
+  apiUrl: z.string().optional(),
+  roadmapClass: z.string().optional(), // 小班课路书
   driveBasePath: z.string().optional(),
 });
 
@@ -116,6 +141,7 @@ export const appRouter = router({
       const apiUrl = await getConfig("apiUrl");
       const currentYear = await getConfig("currentYear");
       const roadmap = await getConfig("roadmap");
+      const roadmapClass = await getConfig("roadmapClass");
       const driveBasePath = await getConfig("driveBasePath");
       
       return {
@@ -124,6 +150,7 @@ export const appRouter = router({
         apiUrl: apiUrl || DEFAULT_CONFIG.apiUrl,
         currentYear: currentYear || DEFAULT_CONFIG.currentYear,
         roadmap: roadmap || "",
+        roadmapClass: roadmapClass || "",
         driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
         // 返回是否使用默认值
         isDefault: {
@@ -144,6 +171,7 @@ export const appRouter = router({
         apiUrl: z.string().optional(),
         currentYear: z.string().optional(),
         roadmap: z.string().optional(),
+        roadmapClass: z.string().optional(),
         driveBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
@@ -170,8 +198,13 @@ export const appRouter = router({
         }
         
         if (input.roadmap !== undefined) {
-          await setConfig("roadmap", input.roadmap, "V9路书内容");
+          await setConfig("roadmap", input.roadmap, "V9路书内容（一对一）");
           updates.push("roadmap");
+        }
+        
+        if (input.roadmapClass !== undefined) {
+          await setConfig("roadmapClass", input.roadmapClass, "小班课路书内容");
+          updates.push("roadmapClass");
         }
         
         if (input.driveBasePath !== undefined && input.driveBasePath.trim()) {
@@ -820,6 +853,271 @@ export const appRouter = router({
     googleAuthDisconnect: publicProcedure
       .mutation(async () => {
         return await googleAuth.disconnect();
+      }),
+      
+    // ========== 小班课生成接口 ==========
+    
+    // 小班课步骤1: 为每个学生生成学情反馈
+    generateClassFeedback: publicProcedure
+      .input(classFeedbackInputSchema)
+      .mutation(async ({ input }) => {
+        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
+        
+        console.log(`[小班课] 开始为 ${input.classNumber} 班生成学情反馈...`);
+        
+        const classInput: ClassFeedbackInput = {
+          classNumber: input.classNumber,
+          lessonNumber: input.lessonNumber || '',
+          lessonDate: input.lessonDate || '',
+          nextLessonDate: '', // 小班课从笔记中提取
+          attendanceStudents: input.attendanceStudents.filter(s => s.trim()),
+          lastFeedback: input.lastFeedback || '',
+          currentNotes: input.currentNotes,
+          transcript: input.transcript,
+          specialRequirements: input.specialRequirements || '',
+        };
+        
+        const feedbacks = await generateClassFeedbackContent(
+          classInput,
+          roadmapClass,
+          { apiModel, apiKey, apiUrl }
+        );
+        
+        return {
+          success: true,
+          feedbacks, // [{ studentName, feedback }]
+        };
+      }),
+    
+    // 小班课步骤2: 生成复习文档
+    generateClassReview: publicProcedure
+      .input(z.object({
+        classNumber: z.string(),
+        lessonNumber: z.string().optional(),
+        lessonDate: z.string().optional(),
+        attendanceStudents: z.array(z.string()),
+        currentNotes: z.string(),
+        combinedFeedback: z.string(),
+        apiModel: z.string().optional(),
+        apiKey: z.string().optional(),
+        apiUrl: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        
+        const classInput: ClassFeedbackInput = {
+          classNumber: input.classNumber,
+          lessonNumber: input.lessonNumber || '',
+          lessonDate: input.lessonDate || '',
+          nextLessonDate: '',
+          attendanceStudents: input.attendanceStudents,
+          lastFeedback: '',
+          currentNotes: input.currentNotes,
+          transcript: '',
+          specialRequirements: '',
+        };
+        
+        const reviewBuffer = await generateClassReviewContent(
+          classInput,
+          input.combinedFeedback,
+          { apiModel, apiKey, apiUrl }
+        );
+        
+        return {
+          success: true,
+          content: reviewBuffer.toString('base64'),
+        };
+      }),
+    
+    // 小班课步骤3: 生成测试本
+    generateClassTest: publicProcedure
+      .input(z.object({
+        classNumber: z.string(),
+        lessonNumber: z.string().optional(),
+        lessonDate: z.string().optional(),
+        attendanceStudents: z.array(z.string()),
+        currentNotes: z.string(),
+        combinedFeedback: z.string(),
+        apiModel: z.string().optional(),
+        apiKey: z.string().optional(),
+        apiUrl: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        
+        const classInput: ClassFeedbackInput = {
+          classNumber: input.classNumber,
+          lessonNumber: input.lessonNumber || '',
+          lessonDate: input.lessonDate || '',
+          nextLessonDate: '',
+          attendanceStudents: input.attendanceStudents,
+          lastFeedback: '',
+          currentNotes: input.currentNotes,
+          transcript: '',
+          specialRequirements: '',
+        };
+        
+        const testBuffer = await generateClassTestContent(
+          classInput,
+          input.combinedFeedback,
+          { apiModel, apiKey, apiUrl }
+        );
+        
+        return {
+          success: true,
+          content: testBuffer.toString('base64'),
+        };
+      }),
+    
+    // 小班课步骤4: 生成课后信息提取
+    generateClassExtraction: publicProcedure
+      .input(z.object({
+        classNumber: z.string(),
+        lessonNumber: z.string().optional(),
+        lessonDate: z.string().optional(),
+        attendanceStudents: z.array(z.string()),
+        combinedFeedback: z.string(),
+        apiModel: z.string().optional(),
+        apiKey: z.string().optional(),
+        apiUrl: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        
+        const classInput: ClassFeedbackInput = {
+          classNumber: input.classNumber,
+          lessonNumber: input.lessonNumber || '',
+          lessonDate: input.lessonDate || '',
+          nextLessonDate: '',
+          attendanceStudents: input.attendanceStudents,
+          lastFeedback: '',
+          currentNotes: '',
+          transcript: '',
+          specialRequirements: '',
+        };
+        
+        const extraction = await generateClassExtractionContent(
+          classInput,
+          input.combinedFeedback,
+          { apiModel, apiKey, apiUrl }
+        );
+        
+        return {
+          success: true,
+          content: extraction,
+        };
+      }),
+    
+    // 小班课步骤5: 为单个学生生成气泡图SVG
+    generateClassBubbleChart: publicProcedure
+      .input(z.object({
+        studentName: z.string(),
+        studentFeedback: z.string(),
+        classNumber: z.string(),
+        dateStr: z.string(),
+        lessonNumber: z.string().optional(),
+        apiModel: z.string().optional(),
+        apiKey: z.string().optional(),
+        apiUrl: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        
+        const svgContent = await generateClassBubbleChartSVG(
+          input.studentFeedback,
+          input.studentName,
+          input.classNumber,
+          input.dateStr,
+          input.lessonNumber || '',
+          { apiModel, apiKey, apiUrl }
+        );
+        
+        return {
+          success: true,
+          svg: svgContent,
+        };
+      }),
+    
+    // 小班课上传文件到 Google Drive
+    uploadClassFile: publicProcedure
+      .input(z.object({
+        classNumber: z.string(),
+        dateStr: z.string(),
+        fileType: z.enum(['feedback', 'review', 'test', 'extraction', 'bubbleChart']),
+        studentName: z.string().optional(), // 反馈和气泡图需要
+        content: z.string(), // base64 或文本
+        driveBasePath: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const basePath = `${driveBasePath}/小班课/${input.classNumber}`;
+        
+        let fileName: string;
+        let filePath: string;
+        let contentBuffer: Buffer | string;
+        
+        switch (input.fileType) {
+          case 'feedback':
+            fileName = `${input.studentName}${input.dateStr}阅读课反馈.md`;
+            filePath = `${basePath}/学情反馈/${fileName}`;
+            contentBuffer = input.content;
+            break;
+          case 'review':
+            fileName = `${input.classNumber}${input.dateStr}复习文档.docx`;
+            filePath = `${basePath}/复习文档/${fileName}`;
+            contentBuffer = Buffer.from(input.content, 'base64');
+            break;
+          case 'test':
+            fileName = `${input.classNumber}${input.dateStr}测试文档.docx`;
+            filePath = `${basePath}/复习文档/${fileName}`;
+            contentBuffer = Buffer.from(input.content, 'base64');
+            break;
+          case 'extraction':
+            fileName = `${input.classNumber}${input.dateStr}课后信息提取.md`;
+            filePath = `${basePath}/课后信息/${fileName}`;
+            contentBuffer = input.content;
+            break;
+          case 'bubbleChart':
+            fileName = `${input.studentName}${input.dateStr}气泡图.png`;
+            filePath = `${basePath}/气泡图/${fileName}`;
+            contentBuffer = Buffer.from(input.content, 'base64');
+            break;
+          default:
+            throw new Error(`未知文件类型: ${input.fileType}`);
+        }
+        
+        // 解析文件路径，分离文件名和文件夹路径
+        const lastSlash = filePath.lastIndexOf('/');
+        const folderPath = filePath.substring(0, lastSlash);
+        
+        let result;
+        if (typeof contentBuffer === 'string') {
+          result = await uploadToGoogleDrive(contentBuffer, fileName, folderPath);
+        } else {
+          result = await uploadBinaryToGoogleDrive(contentBuffer, fileName, folderPath);
+        }
+        
+        if (result.status === 'error') {
+          throw new Error(`文件上传失败: ${result.error || '上传到Google Drive失败'}`);
+        }
+        
+        return {
+          success: true,
+          fileName,
+          url: result.url || '',
+          path: filePath,
+        };
       }),
   }),
 
