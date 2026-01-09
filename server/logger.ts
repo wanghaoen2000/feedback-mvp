@@ -407,12 +407,13 @@ export function getLatestLogPath(): string | null {
 }
 
 /**
- * 根据学生名获取最新的日志文件路径
+ * 根据学生名或班号获取最新的日志文件路径
+ * 支持一对一（学生名）和小班课（班号）
  */
-export function getLatestLogPathByStudent(studentName: string): string | null {
+export function getLatestLogPathByStudent(identifier: string): string | null {
   try {
     const files = fs.readdirSync(LOG_DIR)
-      .filter(f => f.endsWith('.log') && f.startsWith(studentName + '_'))
+      .filter(f => f.endsWith('.log') && f.startsWith(identifier + '_'))
       .map(f => ({
         name: f,
         path: path.join(LOG_DIR, f),
@@ -420,9 +421,11 @@ export function getLatestLogPathByStudent(studentName: string): string | null {
       }))
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
     
+    console.log(`[Logger] 查找日志: identifier=${identifier}, 找到${files.length}个文件`);
+    
     return files.length > 0 ? files[0].path : null;
   } catch (error) {
-    console.error('[Logger] 根据学生名获取日志文件失败:', error);
+    console.error('[Logger] 根据标识符获取日志文件失败:', error);
     return null;
   }
 }

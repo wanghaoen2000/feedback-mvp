@@ -665,52 +665,43 @@ export default function Home() {
       }
     };
 
-    let allFeedbacks: {studentName: string; feedback: string}[] = [];
     let combinedFeedback = '';
     let extractedDate = '';
 
     try {
-      // 步骤1: 为每个学生生成学情反馈
+      // 步骤1: 生成1份完整学情反馈
       checkAborted();
       const step1Start = Date.now();
-      updateStep(0, { status: 'running', message: `正在为 ${validStudents.length} 个学生生成学情反馈...` });
+      updateStep(0, { status: 'running', message: `正在为 ${classSnapshot.classNumber} 班生成学情反馈...` });
       
       const feedbackResult = await generateClassFeedbackMutation.mutateAsync({
         ...classSnapshot,
         ...configSnapshot,
       });
       
-      if (!feedbackResult.success || !feedbackResult.feedbacks) {
+      if (!feedbackResult.success || !feedbackResult.feedback) {
         throw new Error('学情反馈生成失败');
       }
       
-      allFeedbacks = feedbackResult.feedbacks;
-      setClassFeedbacks(allFeedbacks);
+      // 1份完整的学情反馈
+      combinedFeedback = feedbackResult.feedback;
       
-      // 合并所有学情反馈
-      combinedFeedback = allFeedbacks.map(f => `## ${f.studentName}
-
-${f.feedback}`).join('\n\n---\n\n');
-      
-      // 从第一个反馈中提取日期
-      const dateMatch = allFeedbacks[0]?.feedback.match(/(\d{1,2}月\d{1,2}日?)/);
+      // 从反馈中提取日期
+      const dateMatch = combinedFeedback.match(/(\d{1,2}月\d{1,2}日?)/);
       extractedDate = dateMatch ? dateMatch[1] : classSnapshot.lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
       setDateStr(extractedDate);
       
-      // 上传每个学生的学情反馈
-      for (const fb of allFeedbacks) {
-        await uploadClassFileMutation.mutateAsync({
-          classNumber: classSnapshot.classNumber,
-          dateStr: extractedDate,
-          fileType: 'feedback',
-          studentName: fb.studentName,
-          content: fb.feedback,
-          driveBasePath: configSnapshot.driveBasePath,
-        });
-      }
+      // 上传1份完整的学情反馈
+      await uploadClassFileMutation.mutateAsync({
+        classNumber: classSnapshot.classNumber,
+        dateStr: extractedDate,
+        fileType: 'feedback',
+        content: combinedFeedback,
+        driveBasePath: configSnapshot.driveBasePath,
+      });
       
       const step1Time = Math.round((Date.now() - step1Start) / 1000);
-      updateStep(0, { status: 'success', message: `已生成 ${allFeedbacks.length} 份学情反馈 (${step1Time}秒)` });
+      updateStep(0, { status: 'success', message: `学情反馈生成完成 (${step1Time}秒)` });
       setCurrentStep(2);
 
       // 步骤2: 生成复习文档
@@ -813,14 +804,16 @@ ${f.feedback}`).join('\n\n---\n\n');
       const step5Start = Date.now();
       updateStep(4, { status: 'running', message: `正在为 ${validStudents.length} 个学生生成气泡图...` });
       
-      // 初始化气泡图进度
-      const initialProgress = allFeedbacks.map(f => ({ studentName: f.studentName, status: 'pending' as const }));
+      // 初始化气泡图进度（使用出勤学生列表）
+      const initialProgress = validStudents.map(name => ({ studentName: name, status: 'pending' as const }));
       setBubbleChartProgress(initialProgress);
       
+      let bubbleSuccessCount = 0;
+      
       // 串行生成每个学生的气泡图
-      for (let i = 0; i < allFeedbacks.length; i++) {
+      for (let i = 0; i < validStudents.length; i++) {
         checkAborted();
-        const fb = allFeedbacks[i];
+        const studentName = validStudents[i];
         
         // 更新进度：当前学生正在生成
         setBubbleChartProgress(prev => prev.map((p, idx) => 
@@ -828,10 +821,10 @@ ${f.feedback}`).join('\n\n---\n\n');
         ));
         
         try {
-          // 生成 SVG
+          // 生成 SVG（传入完整的学情反馈，让AI从中提取该学生的生词）
           const svgResult = await generateClassBubbleChartMutation.mutateAsync({
-            studentName: fb.studentName,
-            studentFeedback: fb.feedback,
+            studentName: studentName,
+            studentFeedback: combinedFeedback, // 传入完整的学情反馈
             classNumber: classSnapshot.classNumber,
             dateStr: extractedDate,
             lessonNumber: classSnapshot.lessonNumber,
@@ -839,7 +832,7 @@ ${f.feedback}`).join('\n\n---\n\n');
           });
           
           if (!svgResult.success || !svgResult.svg) {
-            throw new Error(`${fb.studentName} 气泡图生成失败`);
+            throw new Error(`${studentName} 气泡图生成失败`);
           }
           
           // 前端转换 SVG 为 PNG
@@ -850,10 +843,12 @@ ${f.feedback}`).join('\n\n---\n\n');
             classNumber: classSnapshot.classNumber,
             dateStr: extractedDate,
             fileType: 'bubbleChart',
-            studentName: fb.studentName,
+            studentName: studentName,
             content: pngBase64,
             driveBasePath: configSnapshot.driveBasePath,
           });
+          
+          bubbleSuccessCount++;
           
           // 更新进度：当前学生完成
           setBubbleChartProgress(prev => prev.map((p, idx) => 
@@ -864,14 +859,13 @@ ${f.feedback}`).join('\n\n---\n\n');
           setBubbleChartProgress(prev => prev.map((p, idx) => 
             idx === i ? { ...p, status: 'error' } : p
           ));
-          console.error(`${fb.studentName} 气泡图生成失败:`, error);
+          console.error(`${studentName} 气泡图生成失败:`, error);
           // 继续生成其他学生的气泡图
         }
       }
       
       const step5Time = Math.round((Date.now() - step5Start) / 1000);
-      const successCount = bubbleChartProgress.filter(p => p.status === 'success').length || allFeedbacks.length;
-      updateStep(4, { status: 'success', message: `已生成 ${successCount}/${allFeedbacks.length} 个气泡图 (${step5Time}秒)` });
+      updateStep(4, { status: 'success', message: `已生成 ${bubbleSuccessCount}/${validStudents.length} 个气泡图 (${step5Time}秒)` });
 
       // 完成
       setIsComplete(true);
@@ -2045,7 +2039,7 @@ ${f.feedback}`).join('\n\n---\n\n');
                       <code className="bg-gray-100 px-2 py-1 rounded text-xs mt-1 inline-block">
                         {courseType === 'oneToOne' 
                           ? `${driveBasePath || 'Mac/Documents/XDF/学生档案'}/${studentName}/`
-                          : `${driveBasePath || 'Mac/Documents/XDF/学生档案'}/小班课/${classNumber}/`
+                          : `${driveBasePath || 'Mac/Documents/XDF/学生档案'}/${classNumber}班/`
                         }
                       </code>
                     </p>

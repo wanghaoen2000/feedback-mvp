@@ -857,7 +857,7 @@ export const appRouter = router({
       
     // ========== 小班课生成接口 ==========
     
-    // 小班课步骤1: 为每个学生生成学情反馈
+    // 小班课步骤1: 生成1份完整学情反馈
     generateClassFeedback: publicProcedure
       .input(classFeedbackInputSchema)
       .mutation(async ({ input }) => {
@@ -866,7 +866,23 @@ export const appRouter = router({
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
         const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
         
+        // 创建小班课日志会话（用班号作为标识符）
+        const log = createLogSession(
+          `${input.classNumber}班`,
+          { apiUrl, apiModel, maxTokens: 16000 },
+          {
+            notesLength: input.currentNotes.length,
+            transcriptLength: input.transcript.length,
+            lastFeedbackLength: (input.lastFeedback || "").length,
+          },
+          input.lessonNumber,
+          input.lessonDate
+        );
+        
+        startStep(log, "小班课学情反馈");
+        
         console.log(`[小班课] 开始为 ${input.classNumber} 班生成学情反馈...`);
+        console.log(`[小班课] 路书长度: ${roadmapClass?.length || 0} 字符`);
         
         const classInput: ClassFeedbackInput = {
           classNumber: input.classNumber,
@@ -880,16 +896,26 @@ export const appRouter = router({
           specialRequirements: input.specialRequirements || '',
         };
         
-        const feedbacks = await generateClassFeedbackContent(
-          classInput,
-          roadmapClass,
-          { apiModel, apiKey, apiUrl }
-        );
-        
-        return {
-          success: true,
-          feedbacks, // [{ studentName, feedback }]
-        };
+        try {
+          // 生成1份完整的学情反馈（包含全班共用部分+每个学生的单独部分）
+          const feedback = await generateClassFeedbackContent(
+            classInput,
+            roadmapClass,
+            { apiModel, apiKey, apiUrl }
+          );
+          
+          stepSuccess(log, "小班课学情反馈", feedback.length);
+          endLogSession(log);
+          
+          return {
+            success: true,
+            feedback, // 字符串，1份完整的学情反馈
+          };
+        } catch (error: any) {
+          stepFailed(log, "小班课学情反馈", parseError(error));
+          endLogSession(log);
+          throw error;
+        }
       }),
     
     // 小班课步骤2: 生成复习文档
@@ -1061,7 +1087,8 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
-        const basePath = `${driveBasePath}/小班课/${input.classNumber}`;
+        // 路径格式：{basePath}/{classNumber}班/
+        const basePath = `${driveBasePath}/${input.classNumber}班`;
         
         let fileName: string;
         let filePath: string;
@@ -1069,22 +1096,23 @@ export const appRouter = router({
         
         switch (input.fileType) {
           case 'feedback':
-            fileName = `${input.studentName}${input.dateStr}阅读课反馈.md`;
+            // 1份完整的学情反馈，文件名用班号
+            fileName = `${input.classNumber}班${input.dateStr}阅读课反馈.md`;
             filePath = `${basePath}/学情反馈/${fileName}`;
             contentBuffer = input.content;
             break;
           case 'review':
-            fileName = `${input.classNumber}${input.dateStr}复习文档.docx`;
+            fileName = `${input.classNumber}班${input.dateStr}复习文档.docx`;
             filePath = `${basePath}/复习文档/${fileName}`;
             contentBuffer = Buffer.from(input.content, 'base64');
             break;
           case 'test':
-            fileName = `${input.classNumber}${input.dateStr}测试文档.docx`;
+            fileName = `${input.classNumber}班${input.dateStr}测试文档.docx`;
             filePath = `${basePath}/复习文档/${fileName}`;
             contentBuffer = Buffer.from(input.content, 'base64');
             break;
           case 'extraction':
-            fileName = `${input.classNumber}${input.dateStr}课后信息提取.md`;
+            fileName = `${input.classNumber}班${input.dateStr}课后信息提取.md`;
             filePath = `${basePath}/课后信息/${fileName}`;
             contentBuffer = input.content;
             break;

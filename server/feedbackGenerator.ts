@@ -810,7 +810,8 @@ export async function generateFeedbackDocuments(
 
 
 // ========== 小班课提示词 ==========
-const CLASS_FEEDBACK_SYSTEM_PROMPT = `你是新东方托福阅读教师的反馈助手。请为小班课生成学情反馈。
+// 注意：小班课学情反馈不使用固定的 system prompt，而是透明转发用户配置的路书
+const CLASS_FEEDBACK_SYSTEM_PROMPT = `你是一个学情反馈生成助手。请根据用户提供的路书和课堂信息生成学情反馈。
 
 【重要格式要求】
 这份反馈是给家长看的，要能直接复制到微信群，所以：
@@ -821,21 +822,7 @@ const CLASS_FEEDBACK_SYSTEM_PROMPT = `你是新东方托福阅读教师的反馈
 5. 可以用中括号【】来标记章节
 6. 可以用空行分隔段落
 7. 直接输出纯文本
-
-【小班课反馈结构】
-每个学生的反馈需要包含：
-1. 学生姓名和课程信息
-2. 课堂表现（根据录音转文字中该学生的发言和互动）
-3. 知识点掌握情况
-4. 生词学习情况
-5. 作业布置
-6. 下次课预告
-
-【注意事项】
-1. 为每个学生单独生成反馈，内容要个性化
-2. 根据录音转文字判断每个学生的课堂参与度
-3. 如果某学生在录音中没有明显发言，可以写"课堂表现稳定"
-4. 生词和长难句是全班共同学习的，但可以根据学生表现调整描述`;
+8. 最后以【OK】结尾`;
 
 const CLASS_REVIEW_SYSTEM_PROMPT = `你是一个复习文档生成助手。为小班课生成复习文档。
 
@@ -908,29 +895,25 @@ const CLASS_EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。�
 // ========== 小班课生成函数 ==========
 
 /**
- * 生成小班课学情反馈（为每个学生生成独立反馈）
+ * 生成小班课学情反馈（生成1份完整文件，包含全班共用部分+每个学生的单独部分）
+ * 路书透明转发给AI，不做任何转述
  */
 export async function generateClassFeedbackContent(
   input: ClassFeedbackInput,
   roadmap: string,
   apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
-): Promise<{ studentName: string; feedback: string }[]> {
-  const results: { studentName: string; feedback: string }[] = [];
+): Promise<string> {
+  // 构建 user prompt，包含所有学生名单和课堂信息
+  const studentList = input.attendanceStudents.filter(s => s.trim()).join('、');
   
-  for (const studentName of input.attendanceStudents) {
-    if (!studentName.trim()) continue;
-    
-    const userPrompt = `请为以下小班课学生生成学情反馈：
+  const userPrompt = `请为以下小班课生成完整的学情反馈：
 
-学生姓名：${studentName}
 班号：${input.classNumber}
 课次：${input.lessonNumber || '未指定'}
 本次课日期：${input.lessonDate || '未指定'}
-下次课日期：${input.nextLessonDate || '未指定'}
-全班出勤学生：${input.attendanceStudents.filter(s => s.trim()).join('、')}
+出勤学生：${studentList}
 
 ${input.lastFeedback ? `【上次课反馈】\n${input.lastFeedback}\n` : ''}
-
 【本次课笔记】
 ${input.currentNotes}
 
@@ -938,35 +921,31 @@ ${input.currentNotes}
 ${input.transcript}
 
 ${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\n` : ''}
+${roadmap ? `【路书】\n${roadmap}` : ''}`;
 
-${roadmap ? `【路书参考】\n${roadmap}\n` : ''}
-
-请为 ${studentName} 生成个性化的学情反馈。注意从录音转文字中找出该学生的发言和表现。`;
-
-    console.log(`[小班课反馈] 开始为 ${studentName} 生成反馈...`);
-    const config: APIConfig = {
-      apiModel: apiConfig.apiModel,
-      apiKey: apiConfig.apiKey,
-      apiUrl: apiConfig.apiUrl,
-    };
-    const content = await invokeWhatAIStream(
-      [
-        { role: "system", content: CLASS_FEEDBACK_SYSTEM_PROMPT },
-        { role: "user", content: userPrompt }
-      ],
-      { max_tokens: 8000 },
-      config,
-      () => process.stdout.write('.')
-    );
-    console.log(`\n[小班课反馈] ${studentName} 反馈生成完成`);
-    
-    results.push({
-      studentName: studentName.trim(),
-      feedback: cleanMarkdownAndHtml(content),
-    });
-  }
+  console.log(`[小班课反馈] 开始为 ${input.classNumber} 班生成完整学情反馈...`);
+  console.log(`[小班课反馈] 出勤学生: ${studentList}`);
+  console.log(`[小班课反馈] 路书长度: ${roadmap?.length || 0} 字符`);
   
-  return results;
+  const config: APIConfig = {
+    apiModel: apiConfig.apiModel,
+    apiKey: apiConfig.apiKey,
+    apiUrl: apiConfig.apiUrl,
+  };
+  
+  const content = await invokeWhatAIStream(
+    [
+      { role: "system", content: CLASS_FEEDBACK_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt }
+    ],
+    { max_tokens: 16000 },
+    config,
+    () => process.stdout.write('.')
+  );
+  
+  console.log(`\n[小班课反馈] 学情反馈生成完成，长度: ${content.length} 字符`);
+  
+  return cleanMarkdownAndHtml(content);
 }
 
 /**
@@ -1142,15 +1121,77 @@ ${combinedFeedback}
 
 /**
  * 为小班课学生生成气泡图SVG
+ * 传入完整的学情反馈，让AI从中提取该学生的生词
  */
 export async function generateClassBubbleChartSVG(
-  studentFeedback: string,
+  combinedFeedback: string,
   studentName: string,
   classNumber: string,
   dateStr: string,
   lessonNumber: string,
   apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
 ): Promise<string> {
-  // 复用现有的气泡图生成逻辑
-  return await generateBubbleChartSVG(studentFeedback, studentName, dateStr, lessonNumber);
+  const config: APIConfig = {
+    apiModel: apiConfig.apiModel,
+    apiKey: apiConfig.apiKey,
+    apiUrl: apiConfig.apiUrl,
+  };
+  
+  // 为小班课学生生成气泡图，传入完整的学情反馈
+  // AI会从中提取全班共用的生词部分
+  const userPrompt = `请为小班课学生生成气泡图SVG代码。
+
+学生信息：
+- 姓名：${studentName}
+- 班号：${classNumber}
+- 日期：${dateStr}
+- 课次：${lessonNumber || '未指定'}
+
+学情反馈内容（请从中提取【生词】部分）：
+${combinedFeedback}
+
+请直接输出SVG代码，不要包含任何解释或markdown标记。SVG代码以<svg开头，以</svg>结尾。
+
+【重要边界限制】
+本次只需要生成气泡图SVG代码，不要生成学情反馈、复习文档、测试本或其他任何内容。
+输出</svg>后立即停止，不要继续输出任何内容。`;
+
+  const systemPrompt = `你是一个气泡图生成助手。请根据学情反馈中的【生词】部分生成气泡图SVG代码。
+
+气泡图要求：
+1. 尺寸：900x700像素
+2. 背景：淡灰色(#F8F9FA)
+3. 标题：显示学生姓名和日期
+4. 每个生词用一个圆形气泡表示
+5. 气泡大小随机变化(40-80px)
+6. 颜色使用渗变色系（蓝、绿、紫、橙等）
+7. 气泡内显示英文单词，气泡下方显示中文释义
+8. 布局分散不重叠`;
+
+  try {
+    console.log(`[小班课气泡图] 开始为 ${studentName} 生成SVG...`);
+    const content = await invokeWhatAIStream([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ], { max_tokens: 8000 }, config, (c) => process.stdout.write('.'));
+    console.log(`\n[小班课气泡图] ${studentName} SVG生成完成`);
+    
+    // 提取SVG代码
+    const svgMatch = content.match(/<svg[\s\S]*?<\/svg>/);
+    if (svgMatch) {
+      return svgMatch[0];
+    }
+    
+    if (content.trim().startsWith('<svg')) {
+      return content.trim();
+    }
+    
+    throw new Error('未找到有效的SVG代码');
+  } catch (error) {
+    console.error(`[小班课气泡图] ${studentName} 生成失败:`, error);
+    return `<svg viewBox="0 0 900 700" xmlns="http://www.w3.org/2000/svg">
+      <rect width="900" height="700" fill="#F8F9FA"/>
+      <text x="450" y="350" text-anchor="middle" font-size="24" fill="#666">${studentName} 气泡图生成失败，请重试</text>
+    </svg>`;
+  }
 }

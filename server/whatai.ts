@@ -212,6 +212,15 @@ export async function invokeWhatAIStream(
   console.log(`[WhatAI流式] 调用模型: ${model}`);
   console.log(`[WhatAI流式] API地址: ${baseUrl}`);
   console.log(`[WhatAI流式] 消息数量: ${messages.length}`);
+  // 详细日志：打印 messages 内容长度
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    console.log(`[WhatAI流式] messages[${i}].role: ${msg.role}, content长度: ${msg.content?.length || 0}`);
+  }
+  if (messages.length === 0 || messages.some(m => !m.content)) {
+    console.error(`[WhatAI流式] 警告: messages 为空或包含空 content!`);
+    console.error(`[WhatAI流式] messages:`, JSON.stringify(messages, null, 2));
+  }
 
   let lastError: Error | null = null;
   
