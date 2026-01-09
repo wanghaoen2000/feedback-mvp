@@ -28,6 +28,7 @@ const DEFAULT_CONFIG = {
   apiUrl: "https://www.DMXapi.com/v1",
   currentYear: "2026",
   roadmap: "",
+  driveBasePath: "Mac/Documents/XDF/学生档案",
 };
 
 // 获取配置值（优先从数据库，否则用默认值）
@@ -101,6 +102,7 @@ export const appRouter = router({
       const apiUrl = await getConfig("apiUrl");
       const currentYear = await getConfig("currentYear");
       const roadmap = await getConfig("roadmap");
+      const driveBasePath = await getConfig("driveBasePath");
       
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
@@ -108,12 +110,14 @@ export const appRouter = router({
         apiUrl: apiUrl || DEFAULT_CONFIG.apiUrl,
         currentYear: currentYear || DEFAULT_CONFIG.currentYear,
         roadmap: roadmap || "",
+        driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
         // 返回是否使用默认值
         isDefault: {
           apiModel: !apiModel,
           apiKey: !apiKey,
           apiUrl: !apiUrl,
           currentYear: !currentYear,
+          driveBasePath: !driveBasePath,
         }
       };
     }),
@@ -126,6 +130,7 @@ export const appRouter = router({
         apiUrl: z.string().optional(),
         currentYear: z.string().optional(),
         roadmap: z.string().optional(),
+        driveBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -155,6 +160,19 @@ export const appRouter = router({
           updates.push("roadmap");
         }
         
+        if (input.driveBasePath !== undefined && input.driveBasePath.trim()) {
+          // 验证路径格式：不能以/开头或结尾
+          let path = input.driveBasePath.trim();
+          if (path.startsWith('/')) {
+            path = path.slice(1);
+          }
+          if (path.endsWith('/')) {
+            path = path.slice(0, -1);
+          }
+          await setConfig("driveBasePath", path, "Google Drive存储根路径");
+          updates.push("driveBasePath");
+        }
+        
         return {
           success: true,
           updated: updates,
@@ -167,7 +185,7 @@ export const appRouter = router({
     // 重置为默认值
     reset: publicProcedure
       .input(z.object({
-        keys: z.array(z.enum(["apiModel", "apiKey", "apiUrl", "currentYear", "roadmap"])),
+        keys: z.array(z.enum(["apiModel", "apiKey", "apiUrl", "currentYear", "roadmap", "driveBasePath"])),
       }))
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -200,6 +218,7 @@ export const appRouter = router({
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
         const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
         const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
+        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         // 开始日志会话
         logger.startLogSession(
@@ -240,7 +259,7 @@ export const appRouter = router({
           }
 
           // 上传到Google Drive
-          const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+          const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${dateStr}阅读课反馈.md`;
           const folderPath = `${basePath}/学情反馈`;
           
@@ -298,6 +317,7 @@ export const appRouter = router({
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
         const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
+        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         logger.startStep("复习文档");
         
@@ -309,7 +329,7 @@ export const appRouter = router({
             { apiModel, apiKey, apiUrl, roadmap }
           );
 
-          const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+          const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${input.dateStr}复习文档.docx`;
           const folderPath = `${basePath}/复习文档`;
           
@@ -364,6 +384,7 @@ export const appRouter = router({
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
         const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
+        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         logger.startStep("测试本");
         
@@ -375,7 +396,7 @@ export const appRouter = router({
             { apiModel, apiKey, apiUrl, roadmap }
           );
 
-          const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+          const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${input.dateStr}测试文档.docx`;
           const folderPath = `${basePath}/复习文档`;
           
@@ -430,6 +451,7 @@ export const appRouter = router({
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
         const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
+        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         logger.startStep("课后信息提取");
         
@@ -441,7 +463,7 @@ export const appRouter = router({
             { apiModel, apiKey, apiUrl, roadmap }
           );
 
-          const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+          const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${input.dateStr}课后信息提取.md`;
           const folderPath = `${basePath}/课后信息`;
           
@@ -497,6 +519,7 @@ export const appRouter = router({
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
         const roadmap = await getConfig("roadmap") || DEFAULT_CONFIG.roadmap;
+        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         
         logger.startStep("气泡图");
         
@@ -509,7 +532,7 @@ export const appRouter = router({
             { apiModel, apiKey, apiUrl, roadmap }
           );
 
-          const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+          const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${input.dateStr}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
           
@@ -561,7 +584,8 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         console.log(`[${new Date().toLocaleTimeString()}] 最终验证: 检查所有文件...`);
         
-        const basePath = `Mac/Documents/XDF/学生档案/${input.studentName}`;
+        const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const basePath = `${driveBasePath}/${input.studentName}`;
         const filePaths = [
           `${basePath}/学情反馈/${input.studentName}${input.dateStr}阅读课反馈.md`,
           `${basePath}/复习文档/${input.studentName}${input.dateStr}复习文档.docx`,

@@ -94,6 +94,7 @@ export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [apiUrl, setApiUrl] = useState("");
   const [roadmap, setRoadmap] = useState(""); // V9路书内容
+  const [driveBasePath, setDriveBasePath] = useState(""); // Google Drive存储根路径
   const [configLoaded, setConfigLoaded] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
 
@@ -163,6 +164,7 @@ export default function Home() {
       setApiUrl(configQuery.data.apiUrl);
       setCurrentYear(configQuery.data.currentYear || "2026");
       setRoadmap(configQuery.data.roadmap || "");
+      setDriveBasePath(configQuery.data.driveBasePath || "Mac/Documents/XDF/学生档案");
       setConfigLoaded(true);
     }
   }, [configQuery.data, configLoaded]);
@@ -177,6 +179,7 @@ export default function Home() {
         apiUrl: apiUrl.trim() || undefined,
         currentYear: currentYear.trim() || undefined,
         roadmap: roadmap || undefined,
+        driveBasePath: driveBasePath.trim() || undefined,
       });
       // 刷新配置
       await configQuery.refetch();
@@ -917,6 +920,24 @@ export default function Home() {
                       <p className="text-xs text-gray-500">
                         留空则使用默认地址
                       </p>
+                    </div>
+
+                    {/* Google Drive 存储路径 */}
+                    <div className="border-t pt-4 mt-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="driveBasePath">Google Drive 存储路径</Label>
+                        <Input
+                          id="driveBasePath"
+                          placeholder="例如：Mac/Documents/XDF/学生档案"
+                          value={driveBasePath}
+                          onChange={(e) => setDriveBasePath(e.target.value)}
+                          disabled={isGenerating}
+                        />
+                        <p className="text-xs text-gray-500">
+                          设置文档存储的根路径。学生文件夹将自动创建在此路径下。
+                          例如：设置为 "Mac/Documents/XDF/学生档案" 后，张三的文档会存储到 "Mac/Documents/XDF/学生档案/张三/" 下。
+                        </p>
+                      </div>
                     </div>
 
                     {/* 路书管理 */}

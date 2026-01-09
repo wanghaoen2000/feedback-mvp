@@ -225,3 +225,10 @@
 - [x] 注册 /api/google/callback Express 路由处理 Google OAuth 回调
 - [x] 排查 Google Drive 写入权限失败问题 - 已修复，8/8 检测项全部通过
 - [x] 使用 Google Drive REST API 替代 rclone，解决正式环境无 rclone 的问题
+
+## V38: 自定义 Google Drive 存储路径
+- [x] 数据库：在 system_config 表添加 driveBasePath 配置项
+- [x] 后端：添加 config.getDriveBasePath 和 config.setDriveBasePath 接口
+- [x] 后端：修改上传逻辑从数据库读取 driveBasePath
+- [x] 前端：高级设置添加路径配置输入框和保存按钮
+- [x] 验证：路径格式验证（不能为空、不能以/开头或结尾）
