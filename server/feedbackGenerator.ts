@@ -1121,7 +1121,7 @@ ${combinedFeedback}
 
 /**
  * 为小班课学生生成气泡图SVG
- * 传入完整的学情反馈，让AI从中提取该学生的生词
+ * 使用路书透明转发，和一对一保持一致
  */
 export async function generateClassBubbleChartSVG(
   combinedFeedback: string,
@@ -1129,16 +1129,17 @@ export async function generateClassBubbleChartSVG(
   classNumber: string,
   dateStr: string,
   lessonNumber: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string; roadmapClass?: string }
 ): Promise<string> {
   const config: APIConfig = {
     apiModel: apiConfig.apiModel,
     apiKey: apiConfig.apiKey,
     apiUrl: apiConfig.apiUrl,
+    roadmap: apiConfig.roadmapClass, // 使用小班课路书
   };
   
-  // 为小班课学生生成气泡图，传入完整的学情反馈
-  // AI会从中提取全班共用的生词部分
+  // 和一对一一样，直接调用 generateBubbleChartSVGByAI
+  // 路书透明转发给AI，让AI按路书要求生成“问题-方案”格式的气泡图
   const userPrompt = `请为小班课学生生成气泡图SVG代码。
 
 学生信息：
@@ -1147,7 +1148,7 @@ export async function generateClassBubbleChartSVG(
 - 日期：${dateStr}
 - 课次：${lessonNumber || '未指定'}
 
-学情反馈内容（请从中提取【生词】部分）：
+学情反馈内容（请从中提取该学生的【随堂测试】【作业批改】【表现及建议】部分）：
 ${combinedFeedback}
 
 请直接输出SVG代码，不要包含任何解释或markdown标记。SVG代码以<svg开头，以</svg>结尾。
@@ -1156,17 +1157,10 @@ ${combinedFeedback}
 本次只需要生成气泡图SVG代码，不要生成学情反馈、复习文档、测试本或其他任何内容。
 输出</svg>后立即停止，不要继续输出任何内容。`;
 
-  const systemPrompt = `你是一个气泡图生成助手。请根据学情反馈中的【生词】部分生成气泡图SVG代码。
-
-气泡图要求：
-1. 尺寸：900x700像素
-2. 背景：淡灰色(#F8F9FA)
-3. 标题：显示学生姓名和日期
-4. 每个生词用一个圆形气泡表示
-5. 气泡大小随机变化(40-80px)
-6. 颜色使用渗变色系（蓝、绿、紫、橙等）
-7. 气泡内显示英文单词，气泡下方显示中文释义
-8. 布局分散不重叠`;
+  // 如果有自定义路书，直接使用路书原文；否则使用默认提示词
+  const systemPrompt = config.roadmap && config.roadmap.trim()
+    ? config.roadmap
+    : `你是一个气泡图生成助手。请根据学情反馈生成气泡图SVG代码。`;
 
   try {
     console.log(`[小班课气泡图] 开始为 ${studentName} 生成SVG...`);

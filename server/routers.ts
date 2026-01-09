@@ -1054,11 +1054,13 @@ export const appRouter = router({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
         apiUrl: z.string().optional(),
+        roadmapClass: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
         
         const svgContent = await generateClassBubbleChartSVG(
           input.studentFeedback,
@@ -1066,7 +1068,7 @@ export const appRouter = router({
           input.classNumber,
           input.dateStr,
           input.lessonNumber || '',
-          { apiModel, apiKey, apiUrl }
+          { apiModel, apiKey, apiUrl, roadmapClass }
         );
         
         return {
