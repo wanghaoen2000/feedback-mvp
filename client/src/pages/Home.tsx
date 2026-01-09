@@ -1028,6 +1028,30 @@ export default function Home() {
                     授权有效期至：{new Date(gdriveStatusQuery.data.expiresAt).toLocaleString('zh-CN')}
                   </div>
                 )}
+                {/* 显示回调地址，方便用户复制添加到 Google Cloud Console */}
+                {gdriveAuthUrlQuery.data?.redirectUri && (
+                  <div className="border-t p-3">
+                    <div className="text-sm text-gray-600 mb-2">
+                      <span className="font-medium">回调地址</span>（需添加到 Google Cloud Console 的 Authorized redirect URIs）：
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 bg-gray-100 px-3 py-2 rounded text-sm font-mono text-gray-800 break-all">
+                        {gdriveAuthUrlQuery.data.redirectUri}
+                      </code>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          navigator.clipboard.writeText(gdriveAuthUrlQuery.data?.redirectUri || '');
+                          alert('已复制到剪贴板！');
+                        }}
+                      >
+                        复制
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 系统自检 */}

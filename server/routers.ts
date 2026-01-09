@@ -682,7 +682,10 @@ export const appRouter = router({
       }),
     googleAuthUrl: publicProcedure
       .query(async () => {
-        return { url: googleAuth.getAuthUrl() };
+        return { 
+          url: googleAuth.getAuthUrl(),
+          redirectUri: googleAuth.getRedirectUri()
+        };
       }),
     googleAuthCallback: publicProcedure
       .input(z.object({ code: z.string() }))

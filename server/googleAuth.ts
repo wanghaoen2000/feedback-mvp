@@ -12,13 +12,14 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
 
-// 根据环境自动选择回调URL
-function getRedirectUri(): string {
-  // 检查是否在Manus平台上
-  const viteAppId = process.env.VITE_APP_ID || "";
-  if (viteAppId) {
-    // Manus平台：使用manus.space域名
-    return `https://${viteAppId}.manus.space/api/google/callback`;
+// 固定的部署域名（不使用动态的VITE_APP_ID，因为沙盒环境的ID会变化）
+const PRODUCTION_DOMAIN = "feedmvp-i28qgefq.manus.space";
+
+// 根据环境选择回调URL
+export function getRedirectUri(): string {
+  // 生产环境：使用固定的部署域名
+  if (process.env.NODE_ENV === "production" || process.env.VITE_APP_ID) {
+    return `https://${PRODUCTION_DOMAIN}/api/google/callback`;
   }
   // 本地开发
   return "http://localhost:3000/api/google/callback";
@@ -29,6 +30,8 @@ function getRedirectUri(): string {
  */
 export function getAuthUrl(): string {
   const redirectUri = getRedirectUri();
+  console.log("[Google OAuth] redirect_uri:", redirectUri);
+  console.log("[Google OAuth] VITE_APP_ID:", process.env.VITE_APP_ID);
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,

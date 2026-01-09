@@ -220,3 +220,5 @@
 - [x] 后端：修改gdrive.ts支持OAuth上传
 - [x] 前端：高级设置添加Google Drive连接状态区域
 - [x] 系统自检：添加OAuth状态检查
+- [x] 修复 redirect_uri 使用固定部署域名而非动态 VITE_APP_ID
+- [x] 前端显示当前回调地址，方便用户复制添加到 Google Cloud Console
