@@ -3,6 +3,7 @@ import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
+import * as googleAuth from "../googleAuth";
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
@@ -10,6 +11,41 @@ function getQueryParam(req: Request, key: string): string | undefined {
 }
 
 export function registerOAuthRoutes(app: Express) {
+  // Google Drive OAuth 回调路由
+  app.get("/api/google/callback", async (req: Request, res: Response) => {
+    const code = getQueryParam(req, "code");
+    const error = getQueryParam(req, "error");
+    
+    console.log("[Google OAuth Callback] Received request", { code: code ? "present" : "missing", error });
+    
+    if (error) {
+      console.error("[Google OAuth Callback] Error from Google:", error);
+      res.redirect("/?google_auth_error=" + encodeURIComponent(error));
+      return;
+    }
+    
+    if (!code) {
+      console.error("[Google OAuth Callback] No code provided");
+      res.redirect("/?google_auth_error=no_code");
+      return;
+    }
+    
+    try {
+      const result = await googleAuth.handleCallback(code);
+      console.log("[Google OAuth Callback] handleCallback result:", result);
+      
+      if (result.success) {
+        res.redirect("/?google_auth_success=true");
+      } else {
+        res.redirect("/?google_auth_error=" + encodeURIComponent(result.error || "unknown"));
+      }
+    } catch (err) {
+      console.error("[Google OAuth Callback] Exception:", err);
+      res.redirect("/?google_auth_error=" + encodeURIComponent(err instanceof Error ? err.message : "unknown"));
+    }
+  });
+
+  // Manus OAuth 回调路由
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
