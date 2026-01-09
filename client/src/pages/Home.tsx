@@ -1194,7 +1194,10 @@ ${f.feedback}`).join('\n\n---\n\n');
     }
   }, []);
 
-  const isFormValid = studentName.trim() && currentNotes.trim() && transcript.trim();
+  // 表单验证：根据课程类型检查不同的必填字段
+  const isFormValid = courseType === 'oneToOne'
+    ? (studentName.trim() && currentNotes.trim() && transcript.trim())
+    : (classNumber.trim() && attendanceStudents.some((s: string) => s.trim()) && currentNotes.trim() && transcript.trim());
 
   // 计算成功数量
   const successCount = steps.filter(s => s.status === 'success').length;
