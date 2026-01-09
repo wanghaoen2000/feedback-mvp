@@ -65,8 +65,17 @@ function StatusIcon({ status }: { status: string }) {
   }
 }
 
-// 初始步骤状态
+// 初始步骤状态（一对一）
 const initialSteps: StepStatus[] = [
+  { step: 1, name: "学情反馈", status: 'pending' },
+  { step: 2, name: "复习文档", status: 'pending' },
+  { step: 3, name: "测试本", status: 'pending' },
+  { step: 4, name: "课后信息提取", status: 'pending' },
+  { step: 5, name: "气泡图", status: 'pending' },
+];
+
+// 初始步骤状态（小班课）
+const initialClassSteps: StepStatus[] = [
   { step: 1, name: "学情反馈", status: 'pending' },
   { step: 2, name: "复习文档", status: 'pending' },
   { step: 3, name: "测试本", status: 'pending' },
@@ -236,6 +245,10 @@ export default function Home() {
   const [hasError, setHasError] = useState(false);
   const [isStopping, setIsStopping] = useState(false); // 是否正在停止
   const [currentGeneratingStudent, setCurrentGeneratingStudent] = useState<string | null>(null); // 当前正在生成的学生名
+  
+  // 小班课生成状态
+  const [classFeedbacks, setClassFeedbacks] = useState<{studentName: string; feedback: string}[]>([]); // 各学生的学情反馈
+  const [bubbleChartProgress, setBubbleChartProgress] = useState<{studentName: string; status: 'pending' | 'running' | 'success' | 'error'}[]>([]); // 气泡图生成进度
   const [isExportingLog, setIsExportingLog] = useState(false); // 是否正在导出日志
   const [exportLogResult, setExportLogResult] = useState<{
     success: boolean;
@@ -279,6 +292,14 @@ export default function Home() {
   const uploadBubbleChartMutation = trpc.feedback.uploadBubbleChart.useMutation();
   const exportLogMutation = trpc.feedback.exportLog.useMutation();
   const systemCheckMutation = trpc.feedback.systemCheck.useMutation();
+  
+  // 小班课 mutations
+  const generateClassFeedbackMutation = trpc.feedback.generateClassFeedback.useMutation();
+  const generateClassReviewMutation = trpc.feedback.generateClassReview.useMutation();
+  const generateClassTestMutation = trpc.feedback.generateClassTest.useMutation();
+  const generateClassExtractionMutation = trpc.feedback.generateClassExtraction.useMutation();
+  const generateClassBubbleChartMutation = trpc.feedback.generateClassBubbleChart.useMutation();
+  const uploadClassFileMutation = trpc.feedback.uploadClassFile.useMutation();
   
   // Google Drive OAuth
   const gdriveStatusQuery = trpc.feedback.googleAuthStatus.useQuery();
@@ -600,6 +621,289 @@ export default function Home() {
     generateExtractionMutation, generateBubbleChartMutation, updateStep, currentStep
   ]);
 
+  // 小班课生成流程
+  const runClassGeneration = useCallback(async () => {
+    // 创建新的 AbortController
+    abortControllerRef.current = new AbortController();
+    
+    setIsGenerating(true);
+    setIsComplete(false);
+    setHasError(false);
+    setIsStopping(false);
+    setCurrentGeneratingStudent(`${classNumber.trim()}班`);
+    setSteps(initialClassSteps);
+    setCurrentStep(1);
+    setClassFeedbacks([]);
+    setBubbleChartProgress([]);
+
+    // 创建小班课信息快照
+    const validStudents = attendanceStudents.filter((s: string) => s.trim());
+    const classSnapshot = {
+      classNumber: classNumber.trim(),
+      lessonNumber: lessonNumber.trim(),
+      lessonDate: lessonDate.trim(),
+      attendanceStudents: validStudents,
+      lastFeedback: lastFeedback.trim(),
+      currentNotes: currentNotes.trim(),
+      transcript: transcript.trim(),
+      specialRequirements: specialRequirements.trim(),
+    };
+
+    // 配置快照
+    const configSnapshot = {
+      apiModel: apiModel.trim() || undefined,
+      apiKey: apiKey.trim() || undefined,
+      apiUrl: apiUrl.trim() || undefined,
+      roadmapClass: roadmapClass || undefined,
+      driveBasePath: driveBasePath.trim() || undefined,
+    };
+
+    // 检查是否已停止
+    const checkAborted = () => {
+      if (abortControllerRef.current?.signal.aborted) {
+        throw new Error('用户已取消生成');
+      }
+    };
+
+    let allFeedbacks: {studentName: string; feedback: string}[] = [];
+    let combinedFeedback = '';
+    let extractedDate = '';
+
+    try {
+      // 步骤1: 为每个学生生成学情反馈
+      checkAborted();
+      const step1Start = Date.now();
+      updateStep(0, { status: 'running', message: `正在为 ${validStudents.length} 个学生生成学情反馈...` });
+      
+      const feedbackResult = await generateClassFeedbackMutation.mutateAsync({
+        ...classSnapshot,
+        ...configSnapshot,
+      });
+      
+      if (!feedbackResult.success || !feedbackResult.feedbacks) {
+        throw new Error('学情反馈生成失败');
+      }
+      
+      allFeedbacks = feedbackResult.feedbacks;
+      setClassFeedbacks(allFeedbacks);
+      
+      // 合并所有学情反馈
+      combinedFeedback = allFeedbacks.map(f => `## ${f.studentName}
+
+${f.feedback}`).join('\n\n---\n\n');
+      
+      // 从第一个反馈中提取日期
+      const dateMatch = allFeedbacks[0]?.feedback.match(/(\d{1,2}月\d{1,2}日?)/);
+      extractedDate = dateMatch ? dateMatch[1] : classSnapshot.lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+      setDateStr(extractedDate);
+      
+      // 上传每个学生的学情反馈
+      for (const fb of allFeedbacks) {
+        await uploadClassFileMutation.mutateAsync({
+          classNumber: classSnapshot.classNumber,
+          dateStr: extractedDate,
+          fileType: 'feedback',
+          studentName: fb.studentName,
+          content: fb.feedback,
+          driveBasePath: configSnapshot.driveBasePath,
+        });
+      }
+      
+      const step1Time = Math.round((Date.now() - step1Start) / 1000);
+      updateStep(0, { status: 'success', message: `已生成 ${allFeedbacks.length} 份学情反馈 (${step1Time}秒)` });
+      setCurrentStep(2);
+
+      // 步骤2: 生成复习文档
+      checkAborted();
+      const step2Start = Date.now();
+      updateStep(1, { status: 'running', message: '正在生成复习文档...' });
+      
+      const reviewResult = await generateClassReviewMutation.mutateAsync({
+        classNumber: classSnapshot.classNumber,
+        lessonNumber: classSnapshot.lessonNumber,
+        lessonDate: extractedDate,
+        attendanceStudents: classSnapshot.attendanceStudents,
+        currentNotes: classSnapshot.currentNotes,
+        combinedFeedback,
+        ...configSnapshot,
+      });
+      
+      if (!reviewResult.success) {
+        throw new Error('复习文档生成失败');
+      }
+      
+      // 上传复习文档
+      await uploadClassFileMutation.mutateAsync({
+        classNumber: classSnapshot.classNumber,
+        dateStr: extractedDate,
+        fileType: 'review',
+        content: reviewResult.content,
+        driveBasePath: configSnapshot.driveBasePath,
+      });
+      
+      const step2Time = Math.round((Date.now() - step2Start) / 1000);
+      updateStep(1, { status: 'success', message: `生成完成 (${step2Time}秒)` });
+      setCurrentStep(3);
+
+      // 步骤3: 生成测试本
+      checkAborted();
+      const step3Start = Date.now();
+      updateStep(2, { status: 'running', message: '正在生成测试本...' });
+      
+      const testResult = await generateClassTestMutation.mutateAsync({
+        classNumber: classSnapshot.classNumber,
+        lessonNumber: classSnapshot.lessonNumber,
+        lessonDate: extractedDate,
+        attendanceStudents: classSnapshot.attendanceStudents,
+        currentNotes: classSnapshot.currentNotes,
+        combinedFeedback,
+        ...configSnapshot,
+      });
+      
+      if (!testResult.success) {
+        throw new Error('测试本生成失败');
+      }
+      
+      // 上传测试本
+      await uploadClassFileMutation.mutateAsync({
+        classNumber: classSnapshot.classNumber,
+        dateStr: extractedDate,
+        fileType: 'test',
+        content: testResult.content,
+        driveBasePath: configSnapshot.driveBasePath,
+      });
+      
+      const step3Time = Math.round((Date.now() - step3Start) / 1000);
+      updateStep(2, { status: 'success', message: `生成完成 (${step3Time}秒)` });
+      setCurrentStep(4);
+
+      // 步骤4: 生成课后信息提取
+      checkAborted();
+      const step4Start = Date.now();
+      updateStep(3, { status: 'running', message: '正在生成课后信息提取...' });
+      
+      const extractionResult = await generateClassExtractionMutation.mutateAsync({
+        classNumber: classSnapshot.classNumber,
+        lessonNumber: classSnapshot.lessonNumber,
+        lessonDate: extractedDate,
+        attendanceStudents: classSnapshot.attendanceStudents,
+        combinedFeedback,
+        ...configSnapshot,
+      });
+      
+      if (!extractionResult.success) {
+        throw new Error('课后信息提取生成失败');
+      }
+      
+      // 上传课后信息提取
+      await uploadClassFileMutation.mutateAsync({
+        classNumber: classSnapshot.classNumber,
+        dateStr: extractedDate,
+        fileType: 'extraction',
+        content: extractionResult.content,
+        driveBasePath: configSnapshot.driveBasePath,
+      });
+      
+      const step4Time = Math.round((Date.now() - step4Start) / 1000);
+      updateStep(3, { status: 'success', message: `生成完成 (${step4Time}秒)` });
+      setCurrentStep(5);
+
+      // 步骤5: 为每个学生生成气泡图
+      checkAborted();
+      const step5Start = Date.now();
+      updateStep(4, { status: 'running', message: `正在为 ${validStudents.length} 个学生生成气泡图...` });
+      
+      // 初始化气泡图进度
+      const initialProgress = allFeedbacks.map(f => ({ studentName: f.studentName, status: 'pending' as const }));
+      setBubbleChartProgress(initialProgress);
+      
+      // 串行生成每个学生的气泡图
+      for (let i = 0; i < allFeedbacks.length; i++) {
+        checkAborted();
+        const fb = allFeedbacks[i];
+        
+        // 更新进度：当前学生正在生成
+        setBubbleChartProgress(prev => prev.map((p, idx) => 
+          idx === i ? { ...p, status: 'running' } : p
+        ));
+        
+        try {
+          // 生成 SVG
+          const svgResult = await generateClassBubbleChartMutation.mutateAsync({
+            studentName: fb.studentName,
+            studentFeedback: fb.feedback,
+            classNumber: classSnapshot.classNumber,
+            dateStr: extractedDate,
+            lessonNumber: classSnapshot.lessonNumber,
+            ...configSnapshot,
+          });
+          
+          if (!svgResult.success || !svgResult.svg) {
+            throw new Error(`${fb.studentName} 气泡图生成失败`);
+          }
+          
+          // 前端转换 SVG 为 PNG
+          const pngBase64 = await svgToPngBase64(svgResult.svg);
+          
+          // 上传气泡图
+          await uploadClassFileMutation.mutateAsync({
+            classNumber: classSnapshot.classNumber,
+            dateStr: extractedDate,
+            fileType: 'bubbleChart',
+            studentName: fb.studentName,
+            content: pngBase64,
+            driveBasePath: configSnapshot.driveBasePath,
+          });
+          
+          // 更新进度：当前学生完成
+          setBubbleChartProgress(prev => prev.map((p, idx) => 
+            idx === i ? { ...p, status: 'success' } : p
+          ));
+        } catch (error) {
+          // 更新进度：当前学生失败
+          setBubbleChartProgress(prev => prev.map((p, idx) => 
+            idx === i ? { ...p, status: 'error' } : p
+          ));
+          console.error(`${fb.studentName} 气泡图生成失败:`, error);
+          // 继续生成其他学生的气泡图
+        }
+      }
+      
+      const step5Time = Math.round((Date.now() - step5Start) / 1000);
+      const successCount = bubbleChartProgress.filter(p => p.status === 'success').length || allFeedbacks.length;
+      updateStep(4, { status: 'success', message: `已生成 ${successCount}/${allFeedbacks.length} 个气泡图 (${step5Time}秒)` });
+
+      // 完成
+      setIsComplete(true);
+      
+    } catch (error: any) {
+      setHasError(true);
+      
+      const rawMessage = error.message || '未知错误';
+      let displayError = rawMessage;
+      
+      // 标记当前步骤为失败
+      const failedStepIndex = currentStep - 1;
+      if (failedStepIndex >= 0 && failedStepIndex < 5) {
+        updateStep(failedStepIndex, { 
+          status: 'error', 
+          error: displayError
+        });
+      }
+    } finally {
+      setIsGenerating(false);
+      setIsStopping(false);
+      setCurrentGeneratingStudent(null);
+      abortControllerRef.current = null;
+    }
+  }, [
+    classNumber, lessonNumber, lessonDate, attendanceStudents, lastFeedback, 
+    currentNotes, transcript, specialRequirements, apiModel, apiKey, apiUrl,
+    roadmapClass, driveBasePath, generateClassFeedbackMutation, generateClassReviewMutation,
+    generateClassTestMutation, generateClassExtractionMutation, generateClassBubbleChartMutation,
+    uploadClassFileMutation, updateStep, currentStep
+  ]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -615,8 +919,7 @@ export default function Home() {
       if (!classNumber.trim() || validStudents.length === 0 || !currentNotes.trim() || !transcript.trim()) {
         return;
       }
-      // TODO: 小班课生成流程待实现
-      alert('小班课功能开发中，敬请期待...');
+      await runClassGeneration();
     }
   };
 
@@ -1653,6 +1956,22 @@ export default function Home() {
                                 {step.detail && (
                                   <p className="text-xs text-blue-500 mt-0.5">{step.detail}</p>
                                 )}
+                                {/* 小班课气泡图进度 */}
+                                {courseType === 'class' && index === 4 && bubbleChartProgress.length > 0 && (
+                                  <div className="mt-2 ml-4 space-y-1">
+                                    {bubbleChartProgress.map((p, pIdx) => (
+                                      <div key={pIdx} className="flex items-center gap-2 text-xs">
+                                        {p.status === 'pending' && <Circle className="w-3 h-3 text-gray-300" />}
+                                        {p.status === 'running' && <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />}
+                                        {p.status === 'success' && <CheckCircle2 className="w-3 h-3 text-green-500" />}
+                                        {p.status === 'error' && <XCircle className="w-3 h-3 text-red-500" />}
+                                        <span className={p.status === 'running' ? 'text-blue-600' : p.status === 'success' ? 'text-green-600' : p.status === 'error' ? 'text-red-600' : 'text-gray-500'}>
+                                          {p.studentName}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             )}
                             {/* 成功状态 */}
@@ -1714,7 +2033,10 @@ export default function Home() {
                       所有文件已保存到 Google Drive：
                       <br />
                       <code className="bg-gray-100 px-2 py-1 rounded text-xs mt-1 inline-block">
-                        Mac/Documents/XDF/学生档案/{studentName}/
+                        {courseType === 'oneToOne' 
+                          ? `${driveBasePath || 'Mac/Documents/XDF/学生档案'}/${studentName}/`
+                          : `${driveBasePath || 'Mac/Documents/XDF/学生档案'}/小班课/${classNumber}/`
+                        }
                       </code>
                     </p>
                   </div>
