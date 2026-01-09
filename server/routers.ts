@@ -11,6 +11,7 @@ import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadS
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
 import * as logger from "./logger";
 import { runSystemCheck } from "./systemCheck";
+import * as googleAuth from "./googleAuth";
 import { 
   generateFeedbackContent, 
   generateReviewContent, 
@@ -673,6 +674,24 @@ export const appRouter = router({
             error: error.message,
           };
         }
+      }),
+    // Google Drive OAuth授权
+    googleAuthStatus: publicProcedure
+      .query(async () => {
+        return await googleAuth.getStatus();
+      }),
+    googleAuthUrl: publicProcedure
+      .query(async () => {
+        return { url: googleAuth.getAuthUrl() };
+      }),
+    googleAuthCallback: publicProcedure
+      .input(z.object({ code: z.string() }))
+      .mutation(async ({ input }) => {
+        return await googleAuth.handleCallback(input.code);
+      }),
+    googleAuthDisconnect: publicProcedure
+      .mutation(async () => {
+        return await googleAuth.disconnect();
       }),
   }),
 

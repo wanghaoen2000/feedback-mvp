@@ -3,7 +3,8 @@ import { promisify } from "util";
 import * as fs from "fs";
 import * as path from "path";
 import { getDb } from "./db";
-import { systemConfig } from "../drizzle/schema";
+import { systemConfig, googleTokens } from "../drizzle/schema";
+import { isAuthorized as isOAuthAuthorized, getValidToken } from "./googleAuth";
 
 const execAsync = promisify(exec);
 
@@ -296,9 +297,28 @@ async function checkAPIBalance(apiUrl: string, apiKey: string, apiModel: string)
 }
 
 /**
- * 6. Google Drive授权检测
+ * 6. Google Drive授权检测（优先检查OAuth，其次检查rclone）
  */
-async function checkGDriveAuth(): Promise<CheckResult> {
+async function checkGDriveAuth(): Promise<CheckResult & { method?: 'oauth' | 'rclone' }> {
+  // 先检查OAuth授权
+  try {
+    const oauthAuthorized = await isOAuthAuthorized();
+    if (oauthAuthorized) {
+      const token = await getValidToken();
+      if (token) {
+        return {
+          name: 'Google Drive授权',
+          status: 'success',
+          message: 'OAuth授权有效',
+          method: 'oauth'
+        };
+      }
+    }
+  } catch (e) {
+    // OAuth检查失败，继续检查rclone
+  }
+  
+  // 再检查rclone授权
   try {
     const { stdout, stderr } = await execAsync(
       `rclone lsd "${REMOTE_NAME}:Mac/Documents/XDF" --config ${RCLONE_CONFIG}`,
@@ -308,7 +328,8 @@ async function checkGDriveAuth(): Promise<CheckResult> {
     return {
       name: 'Google Drive授权',
       status: 'success',
-      message: '授权有效'
+      message: 'rclone授权有效',
+      method: 'rclone'
     };
   } catch (e: any) {
     const errorMsg = e.message || e.stderr || '';
@@ -318,7 +339,7 @@ async function checkGDriveAuth(): Promise<CheckResult> {
         name: 'Google Drive授权',
         status: 'error',
         message: '授权已过期',
-        suggestion: '请在Manus平台设置中重新连接Google Drive'
+        suggestion: '请点击上方“连接 Google Drive”按钮重新授权'
       };
     }
     
@@ -327,15 +348,16 @@ async function checkGDriveAuth(): Promise<CheckResult> {
       return {
         name: 'Google Drive授权',
         status: 'success',
-        message: '授权有效'
+        message: 'rclone授权有效',
+        method: 'rclone'
       };
     }
     
     return {
       name: 'Google Drive授权',
       status: 'error',
-      message: '连接失败',
-      suggestion: '请检查Google Drive连接状态'
+      message: '未连接',
+      suggestion: '请点击上方“连接 Google Drive”按钮进行授权'
     };
   }
 }

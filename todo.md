@@ -210,3 +210,13 @@
   - [x] 添加“系统自检”按钮
   - [x] 逐项显示检测结果
   - [x] 显示总结和修复建议
+
+
+## V34 Google Drive OAuth授权功能
+
+- [x] 数据库：添加google_tokens表
+- [x] 后端：创建googleAuth.ts OAuth模块
+- [x] 后端：添加tRPC路由（getStatus/getAuthUrl/handleCallback/disconnect）
+- [x] 后端：修改gdrive.ts支持OAuth上传
+- [x] 前端：高级设置添加Google Drive连接状态区域
+- [x] 系统自检：添加OAuth状态检查

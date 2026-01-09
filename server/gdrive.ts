@@ -3,11 +3,16 @@ import { promisify } from "util";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { getValidToken, isAuthorized } from "./googleAuth";
 
 const execAsync = promisify(exec);
 
 const RCLONE_CONFIG = "/home/ubuntu/.gdrive-rclone.ini";
 const REMOTE_NAME = "manus_google_drive";
+
+// Google Drive API端点
+const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
+const DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
 
 export interface UploadStatus {
   fileName: string;
@@ -37,6 +42,102 @@ export async function verifyFileExists(filePath: string): Promise<{ exists: bool
   } catch {
     return { exists: false };
   }
+}
+
+/**
+ * 使用OAuth创建或获取文件夹ID
+ */
+async function getOrCreateFolderWithOAuth(folderPath: string, token: string): Promise<string> {
+  const parts = folderPath.split('/').filter(p => p);
+  let parentId = 'root';
+  
+  for (const folderName of parts) {
+    // 查找文件夹是否存在
+    const searchUrl = `${DRIVE_API_BASE}/files?q=name='${encodeURIComponent(folderName)}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false&fields=files(id,name)`;
+    const searchRes = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    
+    if (!searchRes.ok) {
+      throw new Error(`查找文件夹失败: ${searchRes.status}`);
+    }
+    
+    const searchData = await searchRes.json();
+    
+    if (searchData.files && searchData.files.length > 0) {
+      parentId = searchData.files[0].id;
+    } else {
+      // 创建文件夹
+      const createRes = await fetch(`${DRIVE_API_BASE}/files`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: folderName,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [parentId],
+        }),
+      });
+      
+      if (!createRes.ok) {
+        throw new Error(`创建文件夹失败: ${createRes.status}`);
+      }
+      
+      const createData = await createRes.json();
+      parentId = createData.id;
+    }
+  }
+  
+  return parentId;
+}
+
+/**
+ * 使用OAuth上传文件到Google Drive
+ */
+async function uploadFileWithOAuth(
+  content: string | Buffer,
+  fileName: string,
+  folderId: string,
+  token: string
+): Promise<{ id: string; webViewLink: string }> {
+  const boundary = '-------314159265358979323846';
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+  
+  const metadata = {
+    name: fileName,
+    parents: [folderId],
+  };
+  
+  const contentBuffer = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf-8');
+  const mimeType = fileName.endsWith('.png') ? 'image/png' 
+    : fileName.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    : 'text/plain';
+  
+  const multipartBody = Buffer.concat([
+    Buffer.from(delimiter + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata)),
+    Buffer.from(delimiter + `Content-Type: ${mimeType}\r\nContent-Transfer-Encoding: base64\r\n\r\n`),
+    Buffer.from(contentBuffer.toString('base64')),
+    Buffer.from(closeDelimiter),
+  ]);
+  
+  const uploadRes = await fetch(`${DRIVE_UPLOAD_BASE}/files?uploadType=multipart&fields=id,webViewLink`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body: multipartBody,
+  });
+  
+  if (!uploadRes.ok) {
+    const errorText = await uploadRes.text();
+    throw new Error(`上传失败: ${uploadRes.status} - ${errorText}`);
+  }
+  
+  return await uploadRes.json();
 }
 
 /**
@@ -72,6 +173,7 @@ async function uploadWithRetry<T>(
 
 /**
  * 上传文件到Google Drive（带状态回调和重试机制）
+ * 优先使用OAuth，如果没有OAuth token则fallback到rclone
  */
 export async function uploadToGoogleDrive(
   content: string,
@@ -90,6 +192,35 @@ export async function uploadToGoogleDrive(
     if (onStatus) onStatus({ ...status });
   };
 
+  // 尝试使用OAuth上传
+  try {
+    const token = await getValidToken();
+    if (token) {
+      console.log(`[GDrive] 使用OAuth上传: ${fileName}`);
+      updateStatus({ status: 'uploading', message: '正在使用OAuth创建文件夹...' });
+      
+      const folderId = await getOrCreateFolderWithOAuth(folderPath, token);
+      
+      updateStatus({ message: '正在上传文件...' });
+      const result = await uploadFileWithOAuth(content, fileName, folderId, token);
+      
+      const fullPath = `${folderPath}/${fileName}`;
+      updateStatus({
+        status: 'success',
+        message: '上传成功',
+        url: result.webViewLink,
+        path: fullPath,
+        verified: true,
+      });
+      
+      return status;
+    }
+  } catch (oauthError) {
+    console.log(`[GDrive] OAuth上传失败，尝试rclone: ${oauthError}`);
+  }
+
+  // Fallback到rclone
+  console.log(`[GDrive] 使用rclone上传: ${fileName}`);
   const tempDir = os.tmpdir();
   const tempFilePath = path.join(tempDir, fileName);
   
@@ -161,6 +292,7 @@ export async function uploadToGoogleDrive(
 
 /**
  * 上传二进制文件到Google Drive（带状态回调和重试机制）
+ * 优先使用OAuth，如果没有OAuth token则fallback到rclone
  */
 export async function uploadBinaryToGoogleDrive(
   content: Buffer,
@@ -179,6 +311,35 @@ export async function uploadBinaryToGoogleDrive(
     if (onStatus) onStatus({ ...status });
   };
 
+  // 尝试使用OAuth上传
+  try {
+    const token = await getValidToken();
+    if (token) {
+      console.log(`[GDrive] 使用OAuth上传二进制文件: ${fileName}`);
+      updateStatus({ status: 'uploading', message: '正在使用OAuth创建文件夹...' });
+      
+      const folderId = await getOrCreateFolderWithOAuth(folderPath, token);
+      
+      updateStatus({ message: '正在上传文件...' });
+      const result = await uploadFileWithOAuth(content, fileName, folderId, token);
+      
+      const fullPath = `${folderPath}/${fileName}`;
+      updateStatus({
+        status: 'success',
+        message: '上传成功',
+        url: result.webViewLink,
+        path: fullPath,
+        verified: true,
+      });
+      
+      return status;
+    }
+  } catch (oauthError) {
+    console.log(`[GDrive] OAuth上传二进制文件失败，尝试rclone: ${oauthError}`);
+  }
+
+  // Fallback到rclone
+  console.log(`[GDrive] 使用rclone上传二进制文件: ${fileName}`);
   const tempDir = os.tmpdir();
   const tempFilePath = path.join(tempDir, fileName);
   
