@@ -229,6 +229,17 @@ export default function Home() {
     let date = "";
     let stopped = false;
 
+    // 创建学生信息快照（并发安全，防止生成过程中输入框被修改）
+    const studentSnapshot = {
+      studentName: studentName.trim(),
+      lessonNumber: lessonNumber.trim(),
+      lastFeedback: lastFeedback.trim(),
+      currentNotes: currentNotes.trim(),
+      transcript: transcript.trim(),
+      isFirstLesson,
+      specialRequirements: specialRequirements.trim(),
+    };
+
     // 构建配置快照（并发安全，所有步骤使用相同的配置）
     const configSnapshot = {
       apiModel: apiModel.trim() || undefined,
@@ -259,13 +270,7 @@ export default function Home() {
         startTime: step1Start
       });
       const step1Result = await generateFeedbackMutation.mutateAsync({
-        studentName: studentName.trim(),
-        lessonNumber: lessonNumber.trim(),
-        lastFeedback: lastFeedback.trim(),
-        currentNotes: currentNotes.trim(),
-        transcript: transcript.trim(),
-        isFirstLesson,
-        specialRequirements: specialRequirements.trim(),
+        ...studentSnapshot,
         ...configSnapshot,
       });
       
@@ -293,7 +298,7 @@ export default function Home() {
         startTime: step2Start
       });
       const step2Result = await generateReviewMutation.mutateAsync({
-        studentName: studentName.trim(),
+        studentName: studentSnapshot.studentName,
         dateStr: date,
         feedbackContent: content,
         ...configSnapshot,
@@ -318,7 +323,7 @@ export default function Home() {
         startTime: step3Start
       });
       const step3Result = await generateTestMutation.mutateAsync({
-        studentName: studentName.trim(),
+        studentName: studentSnapshot.studentName,
         dateStr: date,
         feedbackContent: content,
         ...configSnapshot,
@@ -343,7 +348,7 @@ export default function Home() {
         startTime: step4Start
       });
       const step4Result = await generateExtractionMutation.mutateAsync({
-        studentName: studentName.trim(),
+        studentName: studentSnapshot.studentName,
         dateStr: date,
         feedbackContent: content,
         ...configSnapshot,
@@ -368,9 +373,9 @@ export default function Home() {
         startTime: step5Start
       });
       const step5Result = await generateBubbleChartMutation.mutateAsync({
-        studentName: studentName.trim(),
+        studentName: studentSnapshot.studentName,
         dateStr: date,
-        lessonNumber: lessonNumber.trim(),
+        lessonNumber: studentSnapshot.lessonNumber,
         feedbackContent: content,
         ...configSnapshot,
       });
