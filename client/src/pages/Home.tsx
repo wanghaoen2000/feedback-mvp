@@ -1082,13 +1082,17 @@ ${f.feedback}`).join('\n\n---\n\n');
   ]);
 
   const handleReset = () => {
-    setSteps(initialSteps);
+    // 根据课程类型重置不同的步骤
+    setSteps(courseType === 'oneToOne' ? initialSteps : initialClassSteps);
     setCurrentStep(0);
     setFeedbackContent("");
     setDateStr("");
     setIsComplete(false);
     setHasError(false);
     setExportLogResult(null);
+    // 重置小班课相关状态
+    setClassFeedbacks([]);
+    setBubbleChartProgress([]);
   };
 
   // 导出日志到Google Drive
@@ -1096,8 +1100,11 @@ ${f.feedback}`).join('\n\n---\n\n');
     setIsExportingLog(true);
     setExportLogResult(null);
     try {
-      // 传入当前学生名，确保导出的是正确学生的日志
-      const result = await exportLogMutation.mutateAsync({ studentName: studentName.trim() || undefined });
+      // 根据课程类型传入不同的标识
+      const identifier = courseType === 'oneToOne' 
+        ? studentName.trim() 
+        : `${classNumber.trim()}班`;
+      const result = await exportLogMutation.mutateAsync({ studentName: identifier || undefined });
       setExportLogResult({
         success: result.success,
         message: result.message,
