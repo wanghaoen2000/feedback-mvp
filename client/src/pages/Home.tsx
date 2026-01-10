@@ -677,22 +677,82 @@ export default function Home() {
     let extractedDate = '';
 
     try {
-      // 步骤1: 生成1份完整学情反馈
+      // 步骤1: 生成1份完整学情反馈（使用 SSE 流式端点防止超时）
       checkAborted();
       const step1Start = Date.now();
       updateStep(0, { status: 'running', message: `正在为 ${classSnapshot.classNumber} 班生成学情反馈...` });
       
-      const feedbackResult = await generateClassFeedbackMutation.mutateAsync({
-        ...classSnapshot,
-        ...configSnapshot,
+      // 使用 SSE 流式端点替代 tRPC mutation
+      const sseResponse = await fetch('/api/class-feedback-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...classSnapshot,
+          ...configSnapshot,
+        }),
       });
       
-      if (!feedbackResult.success || !feedbackResult.feedback) {
-        throw new Error('学情反馈生成失败');
+      if (!sseResponse.ok) {
+        throw new Error(`学情反馈生成失败: HTTP ${sseResponse.status}`);
+      }
+      
+      // 读取 SSE 流式响应
+      const reader = sseResponse.body?.getReader();
+      if (!reader) {
+        throw new Error('无法读取响应流');
+      }
+      
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let feedbackContent = '';
+      let sseError: string | null = null;
+      
+      while (true) {
+        checkAborted();
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            const eventType = line.slice(7).trim();
+            continue;
+          }
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.chars) {
+                // 进度更新
+                updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
+              }
+              if (data.feedback) {
+                // 完成
+                feedbackContent = data.feedback;
+              }
+              if (data.message && !data.feedback && !data.chars) {
+                // 错误
+                sseError = data.message;
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+      
+      if (sseError) {
+        throw new Error(sseError);
+      }
+      
+      if (!feedbackContent) {
+        throw new Error('学情反馈生成失败: 未收到内容');
       }
       
       // 1份完整的学情反馈
-      combinedFeedback = feedbackResult.feedback;
+      combinedFeedback = feedbackContent;
       
       // 优先使用用户输入的日期，否则从反馈中提取（和一对一保持一致）
       extractedDate = classSnapshot.lessonDate || '';
