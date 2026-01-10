@@ -57,6 +57,54 @@ const NO_INTERACTION_INSTRUCTION = `
 
 // cleanMarkdownAndHtml 已从 feedbackGenerator.ts 导入
 
+/**
+ * 给日期字符串添加星期信息
+ * 输入: "2026年1月11日" 或 "1月11日"
+ * 输出: "2026年1月11日（周日）" 或 "1月11日（周日）"
+ */
+function addWeekdayToDate(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  
+  // 如果已经包含星期信息，直接返回
+  if (dateStr.includes('周') || dateStr.includes('星期')) {
+    return dateStr;
+  }
+  
+  try {
+    // 解析日期：支持 "2026年1月11日" 或 "1月11日" 格式
+    const match = dateStr.match(/(\d{4})年?(\d{1,2})月(\d{1,2})日?/);
+    if (!match) {
+      // 尝试解析不带年份的格式
+      const shortMatch = dateStr.match(/(\d{1,2})月(\d{1,2})日?/);
+      if (!shortMatch) return dateStr;
+      
+      // 使用当前年份（或默认2026）
+      const year = new Date().getFullYear();
+      const month = parseInt(shortMatch[1], 10) - 1;
+      const day = parseInt(shortMatch[2], 10);
+      const date = new Date(year, month, day);
+      
+      const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+      const weekday = weekdays[date.getDay()];
+      
+      return `${dateStr}（周${weekday}）`;
+    }
+    
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    const date = new Date(year, month, day);
+    
+    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+    const weekday = weekdays[date.getDay()];
+    
+    return `${dateStr}（周${weekday}）`;
+  } catch (e) {
+    console.error('[addWeekdayToDate] 解析日期失败:', dateStr, e);
+    return dateStr;
+  }
+}
+
 // 输入验证 schema
 const classFeedbackInputSchema = z.object({
   classNumber: z.string().min(1),
@@ -113,8 +161,8 @@ export function registerClassStreamRoutes(app: Express): void {
       const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
       
-      // 组合年份和日期
-      const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
+      // 组合年份和日期，并添加星期信息
+      const lessonDate = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : "";
       
       // 构建输入
       const classInput: ClassFeedbackInput = {
@@ -280,8 +328,8 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
       const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || "");
       
-      // 组合年份和日期
-      const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
+      // 组合年份和日期，并添加星期信息
+      const lessonDate = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : "";
       
       // 构建 prompt
       const userPrompt = `## 学生信息
@@ -649,11 +697,14 @@ ${input.feedbackContent}
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
       const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
       
+      // 给日期添加星期信息
+      const lessonDateWithWeekday = input.lessonDate ? addWeekdayToDate(input.lessonDate) : '未指定';
+      
       const userPrompt = `请根据以下小班课信息生成复习文档：
 
 班号：${input.classNumber}
 课次：${input.lessonNumber || '未指定'}
-本次课日期：${input.lessonDate || '未指定'}
+本次课日期：${lessonDateWithWeekday}
 出勤学生：${input.attendanceStudents.filter(s => s.trim()).join('、')}
 
 【学情反馈汇总】
