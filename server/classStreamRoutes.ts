@@ -5,11 +5,11 @@
 import { Express, Request, Response } from "express";
 import { z } from "zod";
 import { invokeWhatAIStream, APIConfig } from "./whatai";
-import { ClassFeedbackInput } from "./feedbackGenerator";
+import { ClassFeedbackInput, textToDocx, cleanMarkdownAndHtml } from "./feedbackGenerator";
 import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
-import { uploadToGoogleDrive } from "./gdrive";
+import { uploadToGoogleDrive, uploadBinaryToGoogleDrive } from "./gdrive";
 
 // 默认配置值（和 routers.ts 保持一致）
 const DEFAULT_CONFIG = {
@@ -55,20 +55,7 @@ const NO_INTERACTION_INSTRUCTION = `
 
 【重要】不要与用户互动，不要等待确认，不要询问任何问题，直接生成完整内容。`;
 
-// 清理 markdown 和 HTML
-function cleanMarkdownAndHtml(text: string): string {
-  return text
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/_([^_]+)_/g, '$1')
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/<[^>]+>/g, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
+// cleanMarkdownAndHtml 已从 feedbackGenerator.ts 导入
 
 // 输入验证 schema
 const classFeedbackInputSchema = z.object({
@@ -413,4 +400,178 @@ ${input.transcript}
   });
   
   console.log("[SSE] 一对一学情反馈流式端点已注册: POST /api/feedback-stream");
+  
+  // ========== V45d: 一对一复习文档 SSE 端点 ==========
+  
+  // 复习文档输入验证 schema
+  const reviewInputSchema = z.object({
+    studentName: z.string().min(1),
+    dateStr: z.string().min(1),
+    feedbackContent: z.string().min(1),
+    apiModel: z.string().optional(),
+    apiKey: z.string().optional(),
+    apiUrl: z.string().optional(),
+    roadmap: z.string().optional(),
+    driveBasePath: z.string().optional(),
+  });
+  
+  // 复习文档 system prompt
+  const REVIEW_SYSTEM_PROMPT = `你是一个复习文档生成助手。根据学情反馈生成复习文档。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+4. 生词顺序和数量必须与学情反馈中的【生词】部分完全一致！
+
+【复习文档结构】
+
+第一部分：生词复习
+（按照学情反馈中【生词】的顺序，逐个展开）
+
+1. 单词 /音标/ 词性. 中文释义
+词根词缀：xxx（如有）
+例句：xxx
+同义词：xxx
+反义词：xxx
+
+第二部分：长难句复习
+（按照学情反馈中【长难句】的内容）
+
+1. 原句
+结构分析：xxx
+翻译：xxx
+语法要点：xxx
+
+第三部分：错题复习
+（按照学情反馈中【错题】的内容）
+
+1. 题目
+错误选项及原因：xxx
+正确答案及解析：xxx
+同类题型注意点：xxx`;
+  
+  // SSE 端点：一对一复习文档流式生成
+  app.post("/api/review-stream", async (req: Request, res: Response) => {
+    console.log("[SSE] 收到一对一复习文档流式请求");
+    
+    // 设置 SSE 响应头
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    
+    const sendEvent = (event: string, data: any) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+    
+    try {
+      const parseResult = reviewInputSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        sendEvent("error", { message: "输入验证失败", details: parseResult.error.issues });
+        res.end();
+        return;
+      }
+      
+      const input = parseResult.data;
+      
+      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+      const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || "");
+      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      
+      const userPrompt = `学生姓名：${input.studentName}
+
+学情反馈内容：
+${input.feedbackContent}
+
+请严格按照复习文档格式规范生成复习文档。
+特别注意：
+1. 不要使用markdown标记，输出纯文本
+2. 生词顺序、数量必须和反馈里的【生词】部分完全一致！
+
+【重要边界限制】
+本次只需要生成复习文档，不要生成学情反馈、测试本、课后信息提取或其他任何内容。
+复习文档完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+      
+      const systemPrompt = roadmap && roadmap.trim() ? roadmap : REVIEW_SYSTEM_PROMPT;
+      
+      console.log(`[SSE] 开始为 ${input.studentName} 生成复习文档...`);
+      
+      sendEvent("start", { 
+        message: `开始为 ${input.studentName} 生成复习文档`,
+        studentName: input.studentName
+      });
+      
+      const config: APIConfig = { apiModel, apiKey, apiUrl };
+      
+      let charCount = 0;
+      let lastProgressTime = Date.now();
+      
+      const reviewContent = await invokeWhatAIStream(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        { max_tokens: 32000 },
+        config,
+        (chunk: string) => {
+          charCount += chunk.length;
+          const now = Date.now();
+          if (now - lastProgressTime >= 1000) {
+            sendEvent("progress", { chars: charCount });
+            lastProgressTime = now;
+          }
+        }
+      );
+      
+      const cleanedContent = cleanMarkdownAndHtml(reviewContent);
+      
+      console.log(`[SSE] 复习文档生成完成，长度: ${cleanedContent.length} 字符`);
+      
+      // 转换为 Word 文档
+      sendEvent("progress", { chars: charCount, message: "正在转换为Word文档..." });
+      const docxBuffer = await textToDocx(cleanedContent, `${input.studentName}${input.dateStr}复习文档`);
+      
+      // 上传到 Google Drive
+      const basePath = `${driveBasePath}/${input.studentName}`;
+      const fileName = `${input.studentName}${input.dateStr}复习文档.docx`;
+      const folderPath = `${basePath}/复习文档`;
+      
+      console.log(`[SSE] 上传到 Google Drive: ${folderPath}/${fileName}`);
+      sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
+      
+      const uploadResult = await uploadBinaryToGoogleDrive(docxBuffer, fileName, folderPath);
+      
+      if (uploadResult.status === 'error') {
+        throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
+      }
+      
+      console.log(`[SSE] 上传成功: ${uploadResult.url}`);
+      
+      sendEvent("complete", { 
+        success: true,
+        chars: cleanedContent.length,
+        uploadResult: {
+          fileName: fileName,
+          url: uploadResult.url || '',
+          path: uploadResult.path || '',
+          folderUrl: uploadResult.folderUrl || '',
+        }
+      });
+      
+    } catch (error: any) {
+      console.error("[SSE] 复习文档生成失败:", error);
+      sendEvent("error", { 
+        message: error.message || "生成失败",
+        stack: process.env.NODE_ENV === "development" ? error.stack : undefined
+      });
+    } finally {
+      res.end();
+    }
+  });
+  
+  console.log("[SSE] 一对一复习文档流式端点已注册: POST /api/review-stream");
 }

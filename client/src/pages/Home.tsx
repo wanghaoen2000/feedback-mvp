@@ -530,7 +530,7 @@ export default function Home() {
       });
       setCurrentStep(2);
 
-      // 步骤2: 生成复习文档
+      // 步骤2: 生成复习文档（使用 SSE 流式端点防止超时）
       checkAborted();
       const step2Start = Date.now();
       updateStep(1, { 
@@ -539,19 +539,82 @@ export default function Home() {
         detail: '提取生词和错题，生成Word文档',
         startTime: step2Start
       });
-      const step2Result = await generateReviewMutation.mutateAsync({
-        studentName: studentSnapshot.studentName,
-        dateStr: date,
-        feedbackContent: content,
-        ...configSnapshot,
+      
+      // 使用 SSE 流式端点
+      const reviewSseResponse = await fetch('/api/review-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentName: studentSnapshot.studentName,
+          dateStr: date,
+          feedbackContent: content,
+          ...configSnapshot,
+        }),
       });
+      
+      if (!reviewSseResponse.ok) {
+        throw new Error(`复习文档生成失败: HTTP ${reviewSseResponse.status}`);
+      }
+      
+      const reviewReader = reviewSseResponse.body?.getReader();
+      if (!reviewReader) {
+        throw new Error('无法读取响应流');
+      }
+      
+      const reviewDecoder = new TextDecoder();
+      let reviewBuffer = '';
+      let reviewSseError: string | null = null;
+      let reviewCurrentEventType = '';
+      let reviewUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+      
+      while (true) {
+        checkAborted();
+        const { done, value } = await reviewReader.read();
+        if (done) break;
+        
+        reviewBuffer += reviewDecoder.decode(value, { stream: true });
+        const reviewLines = reviewBuffer.split('\n');
+        reviewBuffer = reviewLines.pop() || '';
+        
+        for (const line of reviewLines) {
+          if (line.startsWith('event: ')) {
+            reviewCurrentEventType = line.slice(7).trim();
+            continue;
+          }
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (reviewCurrentEventType === 'progress' && data.chars) {
+                const progressMsg = data.message || `正在生成复习文档... 已生成 ${data.chars} 字符`;
+                updateStep(1, { status: 'running', message: progressMsg });
+              } else if (reviewCurrentEventType === 'complete' && data.uploadResult) {
+                reviewUploadResult = data.uploadResult;
+              } else if (reviewCurrentEventType === 'error' && data.message) {
+                reviewSseError = data.message;
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+      
+      if (reviewSseError) {
+        throw new Error(reviewSseError);
+      }
+      
+      if (!reviewUploadResult) {
+        throw new Error('复习文档生成失败：未收到上传结果');
+      }
+      
       const step2End = Date.now();
       updateStep(1, { 
         status: 'success', 
         message: `生成完成 (耗时${Math.round((step2End - step2Start) / 1000)}秒)`,
         detail: '复习文档已上传到Google Drive',
         endTime: step2End,
-        uploadResult: step2Result.uploadResult
+        uploadResult: reviewUploadResult
       });
       setCurrentStep(3);
 

@@ -328,7 +328,7 @@ async function compressTranscript(transcript: string, config?: APIConfig): Promi
 /**
  * 清理markdown和HTML标记
  */
-function cleanMarkdownAndHtml(text: string): string {
+export function cleanMarkdownAndHtml(text: string): string {
   return text
     // 移除markdown标题
     .replace(/^#{1,6}\s+/gm, '')
@@ -350,7 +350,7 @@ function cleanMarkdownAndHtml(text: string): string {
 /**
  * 文本转Word文档
  */
-async function textToDocx(text: string, title: string): Promise<Buffer> {
+export async function textToDocx(text: string, title: string): Promise<Buffer> {
   const cleanedText = cleanMarkdownAndHtml(text);
   const lines = cleanedText.split('\n');
   
