@@ -1674,6 +1674,31 @@ export default function Home() {
                       </div>
                     </div>
                     
+                    {/* 小班课首次课范例 */}
+                    <div className="space-y-2">
+                      <Label htmlFor="classFirstLessonTemplate">小班课首次课范例（可选）</Label>
+                      <Textarea
+                        id="classFirstLessonTemplate"
+                        placeholder="粘贴小班课首次课范例内容...勾选首次课时会自动填入上次反馈"
+                        value={classFirstLessonTemplate}
+                        onChange={(e) => setClassFirstLessonTemplate(e.target.value)}
+                        className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
+                        disabled={isGenerating}
+                      />
+                      <p className="text-xs text-gray-500">
+                        小班课首次课时使用的范例内容。勾选"首次课"后会自动填入"上次反馈"输入框。
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setClassFirstLessonTemplate("")}
+                        disabled={isGenerating || !classFirstLessonTemplate}
+                      >
+                        清空范例
+                      </Button>
+                    </div>
+                    
                     <Button 
                       type="button" 
                       variant="outline" 
