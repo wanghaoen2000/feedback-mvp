@@ -965,43 +965,87 @@ export default function Home() {
       });
       setCurrentStep(2);
 
-      // 步骤2: 生成复习文档
+      // 步骤2: 生成复习文档（使用 SSE 流式端点防止超时）
       checkAborted();
       const step2Start = Date.now();
       updateStep(1, { status: 'running', message: '正在生成复习文档...' });
       
-      const reviewResult = await generateClassReviewMutation.mutateAsync({
-        classNumber: classSnapshot.classNumber,
-        lessonNumber: classSnapshot.lessonNumber,
-        lessonDate: extractedDate,
-        attendanceStudents: classSnapshot.attendanceStudents,
-        currentNotes: classSnapshot.currentNotes,
-        combinedFeedback,
-        ...configSnapshot,
+      // 使用 SSE 流式端点
+      const classReviewSseResponse = await fetch('/api/class-review-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          classNumber: classSnapshot.classNumber,
+          lessonNumber: classSnapshot.lessonNumber,
+          lessonDate: extractedDate,
+          attendanceStudents: classSnapshot.attendanceStudents,
+          currentNotes: classSnapshot.currentNotes,
+          combinedFeedback,
+          ...configSnapshot,
+        }),
       });
       
-      if (!reviewResult.success) {
-        throw new Error('复习文档生成失败');
+      if (!classReviewSseResponse.ok) {
+        throw new Error(`复习文档生成失败: HTTP ${classReviewSseResponse.status}`);
       }
       
-      // 上传复习文档（保存返回值）
-      const reviewUploadResult = await uploadClassFileMutation.mutateAsync({
-        classNumber: classSnapshot.classNumber,
-        dateStr: extractedDate,
-        fileType: 'review',
-        content: reviewResult.content,
-        driveBasePath: configSnapshot.driveBasePath,
-      });
+      const classReviewReader = classReviewSseResponse.body?.getReader();
+      if (!classReviewReader) {
+        throw new Error('无法读取响应流');
+      }
+      
+      const classReviewDecoder = new TextDecoder();
+      let classReviewBuffer = '';
+      let classReviewSseError: string | null = null;
+      let classReviewCurrentEventType = '';
+      let classReviewUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+      
+      while (true) {
+        checkAborted();
+        const { done, value } = await classReviewReader.read();
+        if (done) break;
+        
+        classReviewBuffer += classReviewDecoder.decode(value, { stream: true });
+        const classReviewLines = classReviewBuffer.split('\n');
+        classReviewBuffer = classReviewLines.pop() || '';
+        
+        for (const line of classReviewLines) {
+          if (line.startsWith('event: ')) {
+            classReviewCurrentEventType = line.slice(7).trim();
+            continue;
+          }
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (classReviewCurrentEventType === 'progress' && data.chars) {
+                const progressMsg = data.message || `正在生成复习文档... 已生成 ${data.chars} 字符`;
+                updateStep(1, { status: 'running', message: progressMsg });
+              } else if (classReviewCurrentEventType === 'complete' && data.uploadResult) {
+                classReviewUploadResult = data.uploadResult;
+              } else if (classReviewCurrentEventType === 'error' && data.message) {
+                classReviewSseError = data.message;
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+      
+      if (classReviewSseError) {
+        throw new Error(classReviewSseError);
+      }
+      
+      if (!classReviewUploadResult) {
+        throw new Error('复习文档生成失败：未收到上传结果');
+      }
       
       const step2Time = Math.round((Date.now() - step2Start) / 1000);
       updateStep(1, { 
         status: 'success', 
         message: `生成完成 (${step2Time}秒)`,
-        uploadResult: {
-          fileName: reviewUploadResult.fileName,
-          url: reviewUploadResult.url,
-          path: reviewUploadResult.path,
-        }
+        uploadResult: classReviewUploadResult
       });
       setCurrentStep(3);
 

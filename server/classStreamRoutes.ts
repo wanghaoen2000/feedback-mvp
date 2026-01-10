@@ -574,4 +574,174 @@ ${input.feedbackContent}
   });
   
   console.log("[SSE] 一对一复习文档流式端点已注册: POST /api/review-stream");
+  
+  // ========== V45e: 小班课复习文档 SSE 端点 ==========
+  
+  // 小班课复习文档输入验证 schema
+  const classReviewInputSchema = z.object({
+    classNumber: z.string().min(1),
+    lessonNumber: z.string().optional(),
+    lessonDate: z.string().optional(),
+    attendanceStudents: z.array(z.string()),
+    currentNotes: z.string(),
+    combinedFeedback: z.string().min(1),
+    apiModel: z.string().optional(),
+    apiKey: z.string().optional(),
+    apiUrl: z.string().optional(),
+    roadmapClass: z.string().optional(),
+    driveBasePath: z.string().optional(),
+  });
+  
+  // 小班课复习文档 system prompt
+  const CLASS_REVIEW_SYSTEM_PROMPT = `你是一个复习文档生成助手。为小班课生成复习文档。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+
+【复习文档结构】
+班级：xxx班
+日期：xxx
+出勤学生：xxx
+
+【本次课内容回顾】
+1. 文章/题目：xxx
+2. 核心知识点：xxx
+
+【生词讲解】
+（按照学情反馈中的生词逐一讲解）
+
+【长难句分析】
+（按照学情反馈中的长难句逐一分析）
+
+【错题解析】
+（按照学情反馈中的错题逐一解析）`;
+  
+  // SSE 端点：小班课复习文档流式生成
+  app.post("/api/class-review-stream", async (req: Request, res: Response) => {
+    console.log("[SSE] 收到小班课复习文档流式请求");
+    
+    // 设置 SSE 响应头
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    
+    const sendEvent = (event: string, data: any) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+    
+    try {
+      const parseResult = classReviewInputSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        sendEvent("error", { message: "输入验证失败", details: parseResult.error.issues });
+        res.end();
+        return;
+      }
+      
+      const input = parseResult.data;
+      
+      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
+      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      
+      const userPrompt = `请根据以下小班课信息生成复习文档：
+
+班号：${input.classNumber}
+课次：${input.lessonNumber || '未指定'}
+本次课日期：${input.lessonDate || '未指定'}
+出勤学生：${input.attendanceStudents.filter(s => s.trim()).join('、')}
+
+【学情反馈汇总】
+${input.combinedFeedback}
+
+【本次课笔记】
+${input.currentNotes}
+
+【重要边界限制】
+本次只需要生成复习文档，不要生成学情反馈、测试本、课后信息提取或其他任何内容。
+复习文档完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+      
+      const systemPrompt = roadmapClass && roadmapClass.trim() ? roadmapClass : CLASS_REVIEW_SYSTEM_PROMPT;
+      
+      console.log(`[SSE] 开始为 ${input.classNumber} 班生成复习文档...`);
+      
+      sendEvent("start", { 
+        message: `开始为 ${input.classNumber} 班生成复习文档`,
+        classNumber: input.classNumber
+      });
+      
+      const config: APIConfig = { apiModel, apiKey, apiUrl };
+      
+      let charCount = 0;
+      let lastProgressTime = Date.now();
+      
+      const reviewContent = await invokeWhatAIStream(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        { max_tokens: 32000 },
+        config,
+        (chunk: string) => {
+          charCount += chunk.length;
+          const now = Date.now();
+          if (now - lastProgressTime >= 1000) {
+            sendEvent("progress", { chars: charCount });
+            lastProgressTime = now;
+          }
+        }
+      );
+      
+      const cleanedContent = cleanMarkdownAndHtml(reviewContent);
+      
+      console.log(`[SSE] 小班课复习文档生成完成，长度: ${cleanedContent.length} 字符`);
+      
+      // 转换为 Word 文档
+      sendEvent("progress", { chars: charCount, message: "正在转换为Word文档..." });
+      const docxBuffer = await textToDocx(cleanedContent, `${input.classNumber}班${input.lessonDate || ''}复习文档`);
+      
+      // 上传到 Google Drive
+      const basePath = `${driveBasePath}/小班课/${input.classNumber}班`;
+      const fileName = `${input.classNumber}班${input.lessonDate || ''}复习文档.docx`;
+      const folderPath = `${basePath}/复习文档`;
+      
+      console.log(`[SSE] 上传到 Google Drive: ${folderPath}/${fileName}`);
+      sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
+      
+      const uploadResult = await uploadBinaryToGoogleDrive(docxBuffer, fileName, folderPath);
+      
+      if (uploadResult.status === 'error') {
+        throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
+      }
+      
+      console.log(`[SSE] 上传成功: ${uploadResult.url}`);
+      
+      sendEvent("complete", { 
+        success: true,
+        chars: cleanedContent.length,
+        uploadResult: {
+          fileName: fileName,
+          url: uploadResult.url || '',
+          path: uploadResult.path || '',
+          folderUrl: uploadResult.folderUrl || '',
+        }
+      });
+      
+    } catch (error: any) {
+      console.error("[SSE] 小班课复习文档生成失败:", error);
+      sendEvent("error", { 
+        message: error.message || "生成失败",
+        stack: process.env.NODE_ENV === "development" ? error.stack : undefined
+      });
+    } finally {
+      res.end();
+    }
+  });
+  
+  console.log("[SSE] 小班课复习文档流式端点已注册: POST /api/class-review-stream");
 }
