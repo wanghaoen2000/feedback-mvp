@@ -286,7 +286,7 @@ export const appRouter = router({
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
           input.studentName,
-          { apiUrl, apiModel, maxTokens: 16000 },
+          { apiUrl, apiModel, maxTokens: 32000 },
           {
             notesLength: input.currentNotes.length,
             transcriptLength: input.transcript.length,
@@ -387,7 +387,7 @@ export const appRouter = router({
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
           input.studentName,
-          { apiUrl, apiModel, maxTokens: 16000 },
+          { apiUrl, apiModel, maxTokens: 32000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           undefined,
           input.dateStr
@@ -466,7 +466,7 @@ export const appRouter = router({
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
           input.studentName,
-          { apiUrl, apiModel, maxTokens: 16000 },
+          { apiUrl, apiModel, maxTokens: 32000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           undefined,
           input.dateStr
@@ -545,7 +545,7 @@ export const appRouter = router({
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
           input.studentName,
-          { apiUrl, apiModel, maxTokens: 16000 },
+          { apiUrl, apiModel, maxTokens: 32000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           undefined,
           input.dateStr
@@ -624,7 +624,7 @@ export const appRouter = router({
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
           input.studentName,
-          { apiUrl, apiModel, maxTokens: 16000 },
+          { apiUrl, apiModel, maxTokens: 32000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           input.lessonNumber,
           input.dateStr
@@ -886,7 +886,7 @@ export const appRouter = router({
         // 创建小班课日志会话（用班号作为标识符）
         const log = createLogSession(
           `${input.classNumber}班`,
-          { apiUrl, apiModel, maxTokens: 16000 },
+          { apiUrl, apiModel, maxTokens: 32000 },
           {
             notesLength: input.currentNotes.length,
             transcriptLength: input.transcript.length,

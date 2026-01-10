@@ -187,7 +187,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: 16000 },
+        { max_tokens: 32000 },
         config,
         (chunk: string) => {
           charCount += chunk.length;
@@ -345,7 +345,7 @@ ${input.transcript}
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: 16000 },
+        { max_tokens: 32000 },
         config,
         (chunk: string) => {
           charCount += chunk.length;

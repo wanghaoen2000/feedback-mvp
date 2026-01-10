@@ -315,7 +315,7 @@ async function compressTranscript(transcript: string, config?: APIConfig): Promi
 
 直接输出压缩后的内容，不要添加任何解释。` },
       { role: "user", content: transcript },
-    ], { max_tokens: 16000 }, config, (c) => process.stdout.write('.'));
+    ], { max_tokens: 32000 }, config, (c) => process.stdout.write('.'));
     
     console.log(`\n[录音压缩] 压缩完成: ${transcript.length} -> ${compressed.length}字符 (压缩率${Math.round(compressed.length / transcript.length * 100)}%)`);
     return compressed;
@@ -564,7 +564,7 @@ ${input.transcript}
       { role: "system", content: systemPrompt },
       { role: "user", content: prompt },
     ],
-    { max_tokens: 16000 },
+    { max_tokens: 32000 },
     config,
     (chunk) => {
       // 每收到一块内容就打印进度（防止超时）
@@ -608,7 +608,7 @@ ${feedback}
       { role: "system", content: systemPrompt },
       { role: "user", content: prompt },
     ],
-    { max_tokens: 16000 },
+    { max_tokens: 32000 },
     config,
     (chunk) => {
       process.stdout.write('.');
@@ -650,7 +650,7 @@ ${feedback}
       { role: "system", content: systemPrompt },
       { role: "user", content: prompt },
     ],
-    { max_tokens: 16000 },
+    { max_tokens: 32000 },
     config,
     (chunk) => {
       process.stdout.write('.');
@@ -691,7 +691,7 @@ ${feedback}
       { role: "system", content: systemPrompt },
       { role: "user", content: prompt },
     ],
-    { max_tokens: 16000 },
+    { max_tokens: 32000 },
     config,
     (chunk) => {
       process.stdout.write('.');
@@ -959,7 +959,7 @@ ${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    { max_tokens: 16000 },
+    { max_tokens: 32000 },
     config,
     () => process.stdout.write('.')
   );
