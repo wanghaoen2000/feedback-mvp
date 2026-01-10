@@ -214,6 +214,7 @@ export default function Home() {
   const [classNumber, setClassNumber] = useState(""); // 班号
   const [attendanceCount, setAttendanceCount] = useState(2); // 出勤学生数
   const [attendanceStudents, setAttendanceStudents] = useState<string[]>(['', '']); // 出勤学生名单
+  const [isClassFirstLesson, setIsClassFirstLesson] = useState(false); // 小班课首次课
   
   // 三段文本
   const [lastFeedback, setLastFeedback] = useState("");
@@ -231,6 +232,7 @@ export default function Home() {
   const [apiUrl, setApiUrl] = useState("");
   const [roadmap, setRoadmap] = useState(""); // V9路书内容（一对一）
   const [roadmapClass, setRoadmapClass] = useState(""); // 小班课路书内容
+  const [classFirstLessonTemplate, setClassFirstLessonTemplate] = useState(""); // 小班课首次课范例
   const [driveBasePath, setDriveBasePath] = useState(""); // Google Drive存储根路径
   const [configLoaded, setConfigLoaded] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -316,6 +318,7 @@ export default function Home() {
       setCurrentYear(configQuery.data.currentYear || "2026");
       setRoadmap(configQuery.data.roadmap || "");
       setRoadmapClass(configQuery.data.roadmapClass || "");
+      setClassFirstLessonTemplate(configQuery.data.classFirstLessonTemplate || "");
       setDriveBasePath(configQuery.data.driveBasePath || "Mac/Documents/XDF/学生档案");
       setConfigLoaded(true);
     }
@@ -332,6 +335,7 @@ export default function Home() {
         currentYear: currentYear.trim() || undefined,
         roadmap: roadmap || undefined,
         roadmapClass: roadmapClass || undefined,
+        classFirstLessonTemplate: classFirstLessonTemplate || undefined,
         driveBasePath: driveBasePath.trim() || undefined,
       });
       // 刷新配置
@@ -1087,6 +1091,7 @@ export default function Home() {
     // 重置小班课相关状态
     setClassFeedbacks([]);
     setBubbleChartProgress([]);
+    setIsClassFirstLesson(false);
   };
 
   // 导出日志到Google Drive
@@ -1386,6 +1391,25 @@ export default function Home() {
                       </div>
                     </div>
 
+                    {/* 小班课首次课勾选框 */}
+                    <div className="flex items-center space-x-3 pt-2">
+                      <Switch
+                        id="isClassFirstLesson"
+                        checked={isClassFirstLesson}
+                        onCheckedChange={(checked) => {
+                          setIsClassFirstLesson(checked);
+                          // 勾选时自动填充小班课首次课范例
+                          if (checked && classFirstLessonTemplate) {
+                            setLastFeedback(classFirstLessonTemplate);
+                          }
+                        }}
+                        disabled={isGenerating}
+                      />
+                      <Label htmlFor="isClassFirstLesson" className="cursor-pointer">
+                        首次课（勾选后“上次反馈”将替换为小班课首次课范例）
+                      </Label>
+                    </div>
+
                     {/* 出勤学生 */}
                     <div className="space-y-3 pt-2 border-t mt-4">
                       <div className="flex items-center gap-4">
@@ -1443,13 +1467,20 @@ export default function Home() {
                 {/* 上次反馈 / 新生模板 */}
                 <div className="space-y-2">
                   <Label htmlFor="lastFeedback">
-                    {courseType === 'oneToOne' && isFirstLesson ? "新生首次课模板（可选）" : "上次课反馈"}
+                    {(courseType === 'oneToOne' && isFirstLesson) 
+                      ? "新生首次课模板（可选）" 
+                      : (courseType === 'class' && isClassFirstLesson)
+                        ? "小班课首次课范例"
+                        : "上次课反馈"
+                    }
                   </Label>
                   <Textarea
                     id="lastFeedback"
-                    placeholder={courseType === 'oneToOne' && isFirstLesson 
+                    placeholder={(courseType === 'oneToOne' && isFirstLesson) 
                       ? "如有新生模板可粘贴在此，没有可留空" 
-                      : "粘贴上次课的反馈内容..."
+                      : (courseType === 'class' && isClassFirstLesson)
+                        ? "小班课首次课范例将自动填充，也可手动修改"
+                        : "粘贴上次课的反馈内容..."
                     }
                     value={lastFeedback}
                     onChange={(e) => setLastFeedback(e.target.value)}
@@ -1457,9 +1488,11 @@ export default function Home() {
                     disabled={isGenerating}
                   />
                   <p className="text-xs text-gray-500">
-                    {courseType === 'oneToOne' && isFirstLesson 
+                    {(courseType === 'oneToOne' && isFirstLesson) 
                       ? "新生首次课可以不填此项" 
-                      : "用于对比上次课内容，避免重复"
+                      : (courseType === 'class' && isClassFirstLesson)
+                        ? "范例内容将透明转发给AI，可根据实际情况修改"
+                        : "用于对比上次课内容，避免重复"
                     }
                   </p>
                 </div>

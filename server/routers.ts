@@ -142,6 +142,7 @@ export const appRouter = router({
       const currentYear = await getConfig("currentYear");
       const roadmap = await getConfig("roadmap");
       const roadmapClass = await getConfig("roadmapClass");
+      const classFirstLessonTemplate = await getConfig("classFirstLessonTemplate");
       const driveBasePath = await getConfig("driveBasePath");
       
       return {
@@ -151,6 +152,7 @@ export const appRouter = router({
         currentYear: currentYear || DEFAULT_CONFIG.currentYear,
         roadmap: roadmap || "",
         roadmapClass: roadmapClass || "",
+        classFirstLessonTemplate: classFirstLessonTemplate || "",
         driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
         // 返回是否使用默认值
         isDefault: {
@@ -172,6 +174,7 @@ export const appRouter = router({
         currentYear: z.string().optional(),
         roadmap: z.string().optional(),
         roadmapClass: z.string().optional(),
+        classFirstLessonTemplate: z.string().optional(),
         driveBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
@@ -205,6 +208,11 @@ export const appRouter = router({
         if (input.roadmapClass !== undefined) {
           await setConfig("roadmapClass", input.roadmapClass, "小班课路书内容");
           updates.push("roadmapClass");
+        }
+        
+        if (input.classFirstLessonTemplate !== undefined) {
+          await setConfig("classFirstLessonTemplate", input.classFirstLessonTemplate, "小班课首次课范例");
+          updates.push("classFirstLessonTemplate");
         }
         
         if (input.driveBasePath !== undefined && input.driveBasePath.trim()) {
