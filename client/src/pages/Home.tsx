@@ -421,31 +421,112 @@ export default function Home() {
     };
 
     try {
-      // 步骤1: 生成学情反馈
+      // 步骤1: 生成学情反馈 (V45c: 使用 SSE 流式输出防止超时)
       checkAborted();
       const step1Start = Date.now();
       updateStep(0, { 
         status: 'running', 
         message: '正在调用AI生成学情反馈...',
-        detail: '连接AI服务中，预计1-2分钟',
+        detail: '连接AI服务中，预计1-3分钟',
         startTime: step1Start
       });
-      const step1Result = await generateFeedbackMutation.mutateAsync({
-        ...studentSnapshot,
-        ...configSnapshot,
+      
+      // 使用 SSE 流式端点替代 tRPC mutation
+      const sseResponse = await fetch('/api/feedback-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...studentSnapshot,
+          ...configSnapshot,
+        }),
       });
       
-      content = step1Result.feedbackContent;
-      date = step1Result.dateStr;
+      if (!sseResponse.ok) {
+        throw new Error(`学情反馈生成失败: HTTP ${sseResponse.status}`);
+      }
+      
+      // 读取 SSE 流式响应
+      const reader = sseResponse.body?.getReader();
+      if (!reader) {
+        throw new Error('无法读取响应流');
+      }
+      
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let feedbackContent = '';
+      let sseError: string | null = null;
+      let currentEventType = '';
+      let sseUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+      
+      while (true) {
+        checkAborted();
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEventType = line.slice(7).trim();
+            continue;
+          }
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (currentEventType === 'progress' && data.chars) {
+                const progressMsg = data.message || `正在生成学情反馈... 已生成 ${data.chars} 字符`;
+                updateStep(0, { status: 'running', message: progressMsg });
+              } else if (currentEventType === 'complete' && data.feedback) {
+                feedbackContent = data.feedback;
+                // 从 complete 事件中获取日期和上传结果
+                if (data.dateStr) {
+                  date = data.dateStr;
+                }
+                if (data.uploadResult) {
+                  sseUploadResult = data.uploadResult;
+                }
+              } else if (currentEventType === 'error' && data.message) {
+                sseError = data.message;
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+      
+      if (sseError) {
+        throw new Error(sseError);
+      }
+      
+      if (!feedbackContent) {
+        throw new Error('学情反馈生成失败: 未收到内容');
+      }
+      
+      content = feedbackContent;
+      
+      // 优先使用 SSE 返回的日期，否则从反馈内容中提取
+      if (!date) {
+        date = configSnapshot.lessonDate || '';
+        if (!date) {
+          const dateMatch = content.match(/(\d{1,2}月\d{1,2}日?)/);
+          date = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+        }
+      }
+      
       setFeedbackContent(content);
       setDateStr(date);
+      
       const step1End = Date.now();
       updateStep(0, { 
         status: 'success', 
         message: `生成完成 (耗时${Math.round((step1End - step1Start) / 1000)}秒)`,
-        detail: `学情反馈已生成，共${content.length}字`,
+        detail: `学情反馈已生成并上传，共${content.length}字`,
         endTime: step1End,
-        uploadResult: step1Result.uploadResult
+        uploadResult: sseUploadResult || undefined,
       });
       setCurrentStep(2);
 
