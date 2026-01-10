@@ -656,13 +656,14 @@ export default function Home() {
       specialRequirements: specialRequirements.trim(),
     };
 
-    // 配置快照
+    // 配置快照（和一对一保持一致，包含年份）
     const configSnapshot = {
       apiModel: apiModel.trim() || undefined,
       apiKey: apiKey.trim() || undefined,
       apiUrl: apiUrl.trim() || undefined,
       roadmapClass: roadmapClass || undefined,
       driveBasePath: driveBasePath.trim() || undefined,
+      currentYear: currentYear.trim() || undefined,
     };
 
     // 检查是否已停止
@@ -693,13 +694,16 @@ export default function Home() {
       // 1份完整的学情反馈
       combinedFeedback = feedbackResult.feedback;
       
-      // 从反馈中提取日期
-      const dateMatch = combinedFeedback.match(/(\d{1,2}月\d{1,2}日?)/);
-      extractedDate = dateMatch ? dateMatch[1] : classSnapshot.lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+      // 优先使用用户输入的日期，否则从反馈中提取（和一对一保持一致）
+      extractedDate = classSnapshot.lessonDate || '';
+      if (!extractedDate) {
+        const dateMatch = combinedFeedback.match(/(\d{1,2}月\d{1,2}日?)/);
+        extractedDate = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+      }
       setDateStr(extractedDate);
       
-      // 上传1份完整的学情反馈
-      await uploadClassFileMutation.mutateAsync({
+      // 上传1份完整的学情反馈（保存返回值）
+      const feedbackUploadResult = await uploadClassFileMutation.mutateAsync({
         classNumber: classSnapshot.classNumber,
         dateStr: extractedDate,
         fileType: 'feedback',
@@ -708,7 +712,15 @@ export default function Home() {
       });
       
       const step1Time = Math.round((Date.now() - step1Start) / 1000);
-      updateStep(0, { status: 'success', message: `学情反馈生成完成 (${step1Time}秒)` });
+      updateStep(0, { 
+        status: 'success', 
+        message: `学情反馈生成完成 (${step1Time}秒)`,
+        uploadResult: {
+          fileName: feedbackUploadResult.fileName,
+          url: feedbackUploadResult.url,
+          path: feedbackUploadResult.path,
+        }
+      });
       setCurrentStep(2);
 
       // 步骤2: 生成复习文档
@@ -730,8 +742,8 @@ export default function Home() {
         throw new Error('复习文档生成失败');
       }
       
-      // 上传复习文档
-      await uploadClassFileMutation.mutateAsync({
+      // 上传复习文档（保存返回值）
+      const reviewUploadResult = await uploadClassFileMutation.mutateAsync({
         classNumber: classSnapshot.classNumber,
         dateStr: extractedDate,
         fileType: 'review',
@@ -740,7 +752,15 @@ export default function Home() {
       });
       
       const step2Time = Math.round((Date.now() - step2Start) / 1000);
-      updateStep(1, { status: 'success', message: `生成完成 (${step2Time}秒)` });
+      updateStep(1, { 
+        status: 'success', 
+        message: `生成完成 (${step2Time}秒)`,
+        uploadResult: {
+          fileName: reviewUploadResult.fileName,
+          url: reviewUploadResult.url,
+          path: reviewUploadResult.path,
+        }
+      });
       setCurrentStep(3);
 
       // 步骤3: 生成测试本
@@ -762,8 +782,8 @@ export default function Home() {
         throw new Error('测试本生成失败');
       }
       
-      // 上传测试本
-      await uploadClassFileMutation.mutateAsync({
+      // 上传测试本（保存返回值）
+      const testUploadResult = await uploadClassFileMutation.mutateAsync({
         classNumber: classSnapshot.classNumber,
         dateStr: extractedDate,
         fileType: 'test',
@@ -772,7 +792,15 @@ export default function Home() {
       });
       
       const step3Time = Math.round((Date.now() - step3Start) / 1000);
-      updateStep(2, { status: 'success', message: `生成完成 (${step3Time}秒)` });
+      updateStep(2, { 
+        status: 'success', 
+        message: `生成完成 (${step3Time}秒)`,
+        uploadResult: {
+          fileName: testUploadResult.fileName,
+          url: testUploadResult.url,
+          path: testUploadResult.path,
+        }
+      });
       setCurrentStep(4);
 
       // 步骤4: 生成课后信息提取
@@ -793,8 +821,8 @@ export default function Home() {
         throw new Error('课后信息提取生成失败');
       }
       
-      // 上传课后信息提取
-      await uploadClassFileMutation.mutateAsync({
+      // 上传课后信息提取（保存返回值）
+      const extractionUploadResult = await uploadClassFileMutation.mutateAsync({
         classNumber: classSnapshot.classNumber,
         dateStr: extractedDate,
         fileType: 'extraction',
@@ -803,7 +831,15 @@ export default function Home() {
       });
       
       const step4Time = Math.round((Date.now() - step4Start) / 1000);
-      updateStep(3, { status: 'success', message: `生成完成 (${step4Time}秒)` });
+      updateStep(3, { 
+        status: 'success', 
+        message: `生成完成 (${step4Time}秒)`,
+        uploadResult: {
+          fileName: extractionUploadResult.fileName,
+          url: extractionUploadResult.url,
+          path: extractionUploadResult.path,
+        }
+      });
       setCurrentStep(5);
 
       // 步骤5: 为每个学生生成气泡图

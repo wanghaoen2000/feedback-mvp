@@ -880,6 +880,7 @@ export const appRouter = router({
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
         const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
         
         // 创建小班课日志会话（用班号作为标识符）
@@ -900,10 +901,13 @@ export const appRouter = router({
         console.log(`[小班课] 开始为 ${input.classNumber} 班生成学情反馈...`);
         console.log(`[小班课] 路书长度: ${roadmapClass?.length || 0} 字符`);
         
+        // 组合年份和日期（和一对一保持一致）
+        const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
+        
         const classInput: ClassFeedbackInput = {
           classNumber: input.classNumber,
           lessonNumber: input.lessonNumber || '',
-          lessonDate: input.lessonDate || '',
+          lessonDate: lessonDate,
           nextLessonDate: '', // 小班课从笔记中提取
           attendanceStudents: input.attendanceStudents.filter(s => s.trim()),
           lastFeedback: input.lastFeedback || '',
