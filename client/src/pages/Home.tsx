@@ -697,20 +697,33 @@ export default function Home() {
       }
       
       // 读取 SSE 流式响应
+      console.log('[DEBUG] SSE 响应状态:', sseResponse.status, sseResponse.statusText);
       const reader = sseResponse.body?.getReader();
       if (!reader) {
         throw new Error('无法读取响应流');
       }
       
+      console.log('[DEBUG] 开始读取 SSE 响应流');
       const decoder = new TextDecoder();
       let buffer = '';
       let feedbackContent = '';
       let sseError: string | null = null;
+      let chunkCount = 0;
+      
+      // 事件类型在循环外部跟踪，因为 event: 和 data: 可能在不同的块中
+      let currentEventType = '';
       
       while (true) {
         checkAborted();
         const { done, value } = await reader.read();
-        if (done) break;
+        chunkCount++;
+        if (chunkCount <= 5 || chunkCount % 10 === 0) {
+          console.log(`[DEBUG] 读取第 ${chunkCount} 块数据, done=${done}, value长度=${value?.length || 0}`);
+        }
+        if (done) {
+          console.log('[DEBUG] SSE 流读取完成, 共读取', chunkCount, '块');
+          break;
+        }
         
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -718,23 +731,30 @@ export default function Home() {
         
         for (const line of lines) {
           if (line.startsWith('event: ')) {
-            const eventType = line.slice(7).trim();
+            currentEventType = line.slice(7).trim();
+            console.log('[DEBUG] 事件类型:', currentEventType);
             continue;
           }
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              if (data.chars) {
+              console.log('[DEBUG] 事件数据 keys:', Object.keys(data), '当前事件类型:', currentEventType);
+              
+              // 根据事件类型处理
+              if (currentEventType === 'progress' && data.chars) {
                 // 进度更新
                 updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
-              }
-              if (data.feedback) {
+              } else if (currentEventType === 'complete' && data.feedback) {
                 // 完成
                 feedbackContent = data.feedback;
-              }
-              if (data.message && !data.feedback && !data.chars) {
-                // 错误
+                console.log('[SSE] 收到完成事件, 内容长度:', feedbackContent.length, '字符');
+              } else if (currentEventType === 'error' && data.message) {
+                // 错误事件
                 sseError = data.message;
+                console.error('[SSE] 收到错误事件:', sseError);
+              } else if (currentEventType === 'start') {
+                // 开始事件，忽略
+                console.log('[SSE] 收到开始事件:', data.message);
               }
             } catch (e) {
               // 忽略解析错误
@@ -743,33 +763,51 @@ export default function Home() {
         }
       }
       
+      console.log('[DEBUG] SSE循环结束, feedbackContent长度:', feedbackContent?.length, 'sseError:', sseError);
+      
       if (sseError) {
+        console.error('[DEBUG] 有sseError, 抛出异常');
         throw new Error(sseError);
       }
       
       if (!feedbackContent) {
+        console.error('[SSE] 未收到内容, feedbackContent:', feedbackContent);
         throw new Error('学情反馈生成失败: 未收到内容');
       }
+      
+      console.log('[SSE] 学情反馈生成完成, 内容长度:', feedbackContent.length, '字符');
+      console.log('[DEBUG] 准备赋值给 combinedFeedback...');
       
       // 1份完整的学情反馈
       combinedFeedback = feedbackContent;
       
       // 优先使用用户输入的日期，否则从反馈中提取（和一对一保持一致）
+      console.log('[DEBUG] 开始处理日期, classSnapshot.lessonDate:', classSnapshot.lessonDate);
       extractedDate = classSnapshot.lessonDate || '';
       if (!extractedDate) {
         const dateMatch = combinedFeedback.match(/(\d{1,2}月\d{1,2}日?)/);
         extractedDate = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
       }
+      console.log('[DEBUG] extractedDate:', extractedDate);
       setDateStr(extractedDate);
       
+      console.log('[DEBUG] 准备调用上传...');
       // 上传1份完整的学情反馈（保存返回值）
-      const feedbackUploadResult = await uploadClassFileMutation.mutateAsync({
-        classNumber: classSnapshot.classNumber,
-        dateStr: extractedDate,
-        fileType: 'feedback',
-        content: combinedFeedback,
-        driveBasePath: configSnapshot.driveBasePath,
-      });
+      console.log('[Upload] 开始上传学情反馈, 内容长度:', combinedFeedback.length, '字符');
+      let feedbackUploadResult;
+      try {
+        feedbackUploadResult = await uploadClassFileMutation.mutateAsync({
+          classNumber: classSnapshot.classNumber,
+          dateStr: extractedDate,
+          fileType: 'feedback',
+          content: combinedFeedback,
+          driveBasePath: configSnapshot.driveBasePath,
+        });
+        console.log('[Upload] 学情反馈上传成功:', feedbackUploadResult);
+      } catch (uploadError: any) {
+        console.error('[Upload] 学情反馈上传失败:', uploadError);
+        throw new Error(`学情反馈上传失败: ${uploadError.message || '未知错误'}`);
+      }
       
       const step1Time = Math.round((Date.now() - step1Start) / 1000);
       updateStep(0, { 
