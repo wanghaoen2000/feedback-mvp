@@ -231,6 +231,7 @@ export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [apiUrl, setApiUrl] = useState("");
   const [roadmap, setRoadmap] = useState(""); // V9路书内容（一对一）
+  const [firstLessonTemplate, setFirstLessonTemplate] = useState(""); // 一对一首次课范例
   const [roadmapClass, setRoadmapClass] = useState(""); // 小班课路书内容
   const [classFirstLessonTemplate, setClassFirstLessonTemplate] = useState(""); // 小班课首次课范例
   const [driveBasePath, setDriveBasePath] = useState(""); // Google Drive存储根路径
@@ -317,6 +318,7 @@ export default function Home() {
       setApiUrl(configQuery.data.apiUrl);
       setCurrentYear(configQuery.data.currentYear || "2026");
       setRoadmap(configQuery.data.roadmap || "");
+      setFirstLessonTemplate(configQuery.data.firstLessonTemplate || "");
       setRoadmapClass(configQuery.data.roadmapClass || "");
       setClassFirstLessonTemplate(configQuery.data.classFirstLessonTemplate || "");
       setDriveBasePath(configQuery.data.driveBasePath || "Mac/Documents/XDF/学生档案");
@@ -334,6 +336,7 @@ export default function Home() {
         apiUrl: apiUrl.trim() || undefined,
         currentYear: currentYear.trim() || undefined,
         roadmap: roadmap || undefined,
+        firstLessonTemplate: firstLessonTemplate || undefined,
         roadmapClass: roadmapClass || undefined,
         classFirstLessonTemplate: classFirstLessonTemplate || undefined,
         driveBasePath: driveBasePath.trim() || undefined,
@@ -1325,11 +1328,17 @@ export default function Home() {
                       <Switch
                         id="isFirstLesson"
                         checked={isFirstLesson}
-                        onCheckedChange={setIsFirstLesson}
+                        onCheckedChange={(checked) => {
+                          setIsFirstLesson(checked);
+                          // 勾选时自动填充一对一首次课范例
+                          if (checked && firstLessonTemplate) {
+                            setLastFeedback(firstLessonTemplate);
+                          }
+                        }}
                         disabled={isGenerating}
                       />
                       <Label htmlFor="isFirstLesson" className="cursor-pointer">
-                        新生首次课（勾选后“上次反馈”将替换为新生模板）
+                        新生首次课（勾选后“上次反馈”将替换为首次课范例）
                       </Label>
                     </div>
                   </>
@@ -1645,6 +1654,31 @@ export default function Home() {
                           disabled={isGenerating || !roadmap}
                         >
                           清空路书
+                        </Button>
+                      </div>
+                      
+                      {/* 一对一首次课范例 */}
+                      <div className="space-y-2">
+                        <Label htmlFor="firstLessonTemplate">一对一首次课范例（可选）</Label>
+                        <Textarea
+                          id="firstLessonTemplate"
+                          placeholder="粘贴一对一首次课范例内容...勾选首次课时会自动填入上次反馈"
+                          value={firstLessonTemplate}
+                          onChange={(e) => setFirstLessonTemplate(e.target.value)}
+                          className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
+                          disabled={isGenerating}
+                        />
+                        <p className="text-xs text-gray-500">
+                          一对一首次课时使用的范例内容。勾选“新生首次课”后会自动填入“上次反馈”输入框。
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setFirstLessonTemplate("")}
+                          disabled={isGenerating || !firstLessonTemplate}
+                        >
+                          清空范例
                         </Button>
                       </div>
                       
