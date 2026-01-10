@@ -946,11 +946,13 @@ export const appRouter = router({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
         apiUrl: z.string().optional(),
+        roadmapClass: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
         
         const classInput: ClassFeedbackInput = {
           classNumber: input.classNumber,
@@ -967,6 +969,7 @@ export const appRouter = router({
         const reviewBuffer = await generateClassReviewContent(
           classInput,
           input.combinedFeedback,
+          roadmapClass,
           { apiModel, apiKey, apiUrl }
         );
         
@@ -988,11 +991,13 @@ export const appRouter = router({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
         apiUrl: z.string().optional(),
+        roadmapClass: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
         
         const classInput: ClassFeedbackInput = {
           classNumber: input.classNumber,
@@ -1009,6 +1014,7 @@ export const appRouter = router({
         const testBuffer = await generateClassTestContent(
           classInput,
           input.combinedFeedback,
+          roadmapClass,
           { apiModel, apiKey, apiUrl }
         );
         
@@ -1029,11 +1035,13 @@ export const appRouter = router({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
         apiUrl: z.string().optional(),
+        roadmapClass: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
         const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
         const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+        const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
         
         const classInput: ClassFeedbackInput = {
           classNumber: input.classNumber,
@@ -1050,6 +1058,7 @@ export const appRouter = router({
         const extraction = await generateClassExtractionContent(
           classInput,
           input.combinedFeedback,
+          roadmapClass,
           { apiModel, apiKey, apiUrl }
         );
         

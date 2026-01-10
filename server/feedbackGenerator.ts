@@ -473,7 +473,9 @@ ${feedback}
 
 【重要边界限制】
 本次只需要生成气泡图SVG代码，不要生成学情反馈、复习文档、测试本或其他任何内容。
-输出</svg>后立即停止，不要继续输出任何内容。`;
+输出</svg>后立即停止，不要继续输出任何内容。
+
+【重要】不要与用户互动，不要等待确认，不要询问任何问题，直接生成完整内容。`;
 
   try {
     console.log(`[气泡图] 开始流式生成SVG...`);
@@ -546,7 +548,9 @@ ${input.transcript}
 
 【重要边界限制】
 本次只需要生成学情反馈文档，不要生成复习文档、测试本、课后信息提取或其他任何内容。
-学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。`;
+学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。
+
+【重要】不要与用户互动，不要等待确认，不要询问任何问题，直接生成完整内容。`;
 
   // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 FEEDBACK_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
@@ -588,7 +592,9 @@ ${feedback}
 
 【重要边界限制】
 本次只需要生成复习文档，不要生成学情反馈、测试本、课后信息提取或其他任何内容。
-复习文档完成后立即停止，不要继续输出任何内容。`;
+复习文档完成后立即停止，不要继续输出任何内容。
+
+【重要】不要与用户互动，不要等待确认，不要询问任何问题，直接生成完整内容。`;
 
   // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 REVIEW_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
@@ -628,7 +634,9 @@ ${feedback}
 
 【重要边界限制】
 本次只需要生成测试本，不要生成学情反馈、复习文档、课后信息提取或其他任何内容。
-测试本完成后立即停止，不要继续输出任何内容。`;
+测试本完成后立即停止，不要继续输出任何内容。
+
+【重要】不要与用户互动，不要等待确认，不要询问任何问题，直接生成完整内容。`;
 
   // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 TEST_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
@@ -667,7 +675,9 @@ ${feedback}
 
 【重要边界限制】
 本次只需要生成课后信息提取，不要生成学情反馈、复习文档、测试本或其他任何内容。
-课后信息提取完成后立即停止，不要继续输出任何内容。`;
+课后信息提取完成后立即停止，不要继续输出任何内容。
+
+【重要】不要与用户互动，不要等待确认，不要询问任何问题，直接生成完整内容。`;
 
   // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 EXTRACTION_SYSTEM_PROMPT
   const systemPrompt = config?.roadmap && config.roadmap.trim() 
@@ -894,9 +904,14 @@ const CLASS_EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。�
 
 // ========== 小班课生成函数 ==========
 
+// 不要互动指令（程序强制约束）
+const NO_INTERACTION_INSTRUCTION = `
+
+【重要】不要与用户互动，不要等待确认，不要询问任何问题，直接生成完整内容。`;
+
 /**
  * 生成小班课学情反馈（生成1份完整文件，包含全班共用部分+每个学生的单独部分）
- * 路书透明转发给AI，不做任何转述
+ * 路书作为 system prompt，透明转发给AI
  */
 export async function generateClassFeedbackContent(
   input: ClassFeedbackInput,
@@ -921,11 +936,17 @@ ${input.currentNotes}
 ${input.transcript}
 
 ${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\n` : ''}
-${roadmap ? `【路书】\n${roadmap}` : ''}`;
+
+【重要边界限制】
+本次只需要生成学情反馈文档，不要生成复习文档、测试本、课后信息提取或其他任何内容。
+学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
 
   console.log(`[小班课反馈] 开始为 ${input.classNumber} 班生成完整学情反馈...`);
   console.log(`[小班课反馈] 出勤学生: ${studentList}`);
   console.log(`[小班课反馈] 路书长度: ${roadmap?.length || 0} 字符`);
+  
+  // 路书作为 system prompt（和一对一一致）
+  const systemPrompt = roadmap && roadmap.trim() ? roadmap : CLASS_FEEDBACK_SYSTEM_PROMPT;
   
   const config: APIConfig = {
     apiModel: apiConfig.apiModel,
@@ -935,7 +956,7 @@ ${roadmap ? `【路书】\n${roadmap}` : ''}`;
   
   const content = await invokeWhatAIStream(
     [
-      { role: "system", content: CLASS_FEEDBACK_SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
     { max_tokens: 16000 },
@@ -950,10 +971,12 @@ ${roadmap ? `【路书】\n${roadmap}` : ''}`;
 
 /**
  * 生成小班课复习文档（全班共用一份）
+ * 路书作为 system prompt，透明转发给AI
  */
 export async function generateClassReviewContent(
   input: ClassFeedbackInput,
   combinedFeedback: string,
+  roadmap: string,
   apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
 ): Promise<Buffer> {
   const userPrompt = `请根据以下小班课信息生成复习文档：
@@ -969,9 +992,15 @@ ${combinedFeedback}
 【本次课笔记】
 ${input.currentNotes}
 
-请生成一份全班共用的复习文档。`;
+【重要边界限制】
+本次只需要生成复习文档，不要生成学情反馈、测试本、课后信息提取或其他任何内容。
+复习文档完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
 
   console.log(`[小班课复习文档] 开始生成...`);
+  
+  // 路书作为 system prompt（和一对一一致）
+  const systemPrompt = roadmap && roadmap.trim() ? roadmap : CLASS_REVIEW_SYSTEM_PROMPT;
+  
   const config: APIConfig = {
     apiModel: apiConfig.apiModel,
     apiKey: apiConfig.apiKey,
@@ -979,7 +1008,7 @@ ${input.currentNotes}
   };
   const reviewContent = await invokeWhatAIStream(
     [
-      { role: "system", content: CLASS_REVIEW_SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
     { max_tokens: 8000 },
@@ -1012,10 +1041,12 @@ ${input.currentNotes}
 
 /**
  * 生成小班课测试本（全班共用一份）
+ * 路书作为 system prompt，透明转发给AI
  */
 export async function generateClassTestContent(
   input: ClassFeedbackInput,
   combinedFeedback: string,
+  roadmap: string,
   apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
 ): Promise<Buffer> {
   const userPrompt = `请根据以下小班课信息生成测试本：
@@ -1030,9 +1061,15 @@ ${combinedFeedback}
 【本次课笔记】
 ${input.currentNotes}
 
-请生成一份全班共用的测试本，包含测试题和答案。`;
+【重要边界限制】
+本次只需要生成测试本，不要生成学情反馈、复习文档、课后信息提取或其他任何内容。
+测试本完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
 
   console.log(`[小班课测试本] 开始生成...`);
+  
+  // 路书作为 system prompt（和一对一一致）
+  const systemPrompt = roadmap && roadmap.trim() ? roadmap : CLASS_TEST_SYSTEM_PROMPT;
+  
   const config: APIConfig = {
     apiModel: apiConfig.apiModel,
     apiKey: apiConfig.apiKey,
@@ -1040,7 +1077,7 @@ ${input.currentNotes}
   };
   const testContent = await invokeWhatAIStream(
     [
-      { role: "system", content: CLASS_TEST_SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
     { max_tokens: 8000 },
@@ -1080,10 +1117,12 @@ ${input.currentNotes}
 
 /**
  * 生成小班课课后信息提取（全班共用一份）
+ * 路书作为 system prompt，透明转发给AI
  */
 export async function generateClassExtractionContent(
   input: ClassFeedbackInput,
   combinedFeedback: string,
+  roadmap: string,
   apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
 ): Promise<string> {
   const userPrompt = `请根据以下小班课信息提取课后信息：
@@ -1097,9 +1136,15 @@ export async function generateClassExtractionContent(
 【学情反馈汇总】
 ${combinedFeedback}
 
-请生成课后信息提取文档。`;
+【重要边界限制】
+本次只需要生成课后信息提取，不要生成学情反馈、复习文档、测试本或其他任何内容。
+课后信息提取完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
 
   console.log(`[小班课课后信息] 开始生成...`);
+  
+  // 路书作为 system prompt（和一对一一致）
+  const systemPrompt = roadmap && roadmap.trim() ? roadmap : CLASS_EXTRACTION_SYSTEM_PROMPT;
+  
   const config: APIConfig = {
     apiModel: apiConfig.apiModel,
     apiKey: apiConfig.apiKey,
@@ -1107,7 +1152,7 @@ ${combinedFeedback}
   };
   const extractionContent = await invokeWhatAIStream(
     [
-      { role: "system", content: CLASS_EXTRACTION_SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
     { max_tokens: 4000 },
@@ -1155,7 +1200,7 @@ ${combinedFeedback}
 
 【重要边界限制】
 本次只需要生成气泡图SVG代码，不要生成学情反馈、复习文档、测试本或其他任何内容。
-输出</svg>后立即停止，不要继续输出任何内容。`;
+输出</svg>后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
 
   // 如果有自定义路书，直接使用路书原文；否则使用默认提示词
   const systemPrompt = config.roadmap && config.roadmap.trim()
