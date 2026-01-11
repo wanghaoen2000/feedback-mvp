@@ -139,7 +139,6 @@ const classFeedbackInputSchema = z.object({
 export function registerClassStreamRoutes(app: Express): void {
   // SSE 端点：小班课学情反馈流式生成
   app.post("/api/class-feedback-stream", async (req: Request, res: Response) => {
-    console.log("[SSE] 收到小班课学情反馈流式请求");
     
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -228,9 +227,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
 
       const systemPrompt = roadmapClass && roadmapClass.trim() ? roadmapClass : CLASS_FEEDBACK_SYSTEM_PROMPT;
       
-      console.log(`[SSE] 开始为 ${input.classNumber} 班生成学情反馈...`);
-      console.log(`[SSE] 出勤学生: ${studentList}`);
-      console.log(`[SSE] 路书长度: ${roadmapClass?.length || 0} 字符`);
+
       
       // 发送开始事件
       sendEvent("start", { 
@@ -268,7 +265,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       // 清理内容
       const cleanedContent = cleanMarkdownAndHtml(content);
       
-      console.log(`[SSE] 学情反馈生成完成，长度: ${cleanedContent.length} 字符`);
+
       
       // 记录步骤成功
       stepSuccess(log, 'feedback', cleanedContent.length);
@@ -299,7 +296,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
     }
   });
   
-  console.log("[SSE] 小班课学情反馈流式端点已注册: POST /api/class-feedback-stream");
+
   
   // ========== V45c: 一对一学情反馈 SSE 端点 ==========
   
@@ -337,7 +334,6 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
   
   // SSE 端点：一对一学情反馈流式生成
   app.post("/api/feedback-stream", async (req: Request, res: Response) => {
-    console.log("[SSE] 收到一对一学情反馈流式请求");
     
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -418,8 +414,7 @@ ${input.transcript}
       
       const systemPrompt = roadmap && roadmap.trim() ? roadmap : FEEDBACK_SYSTEM_PROMPT;
       
-      console.log(`[SSE] 开始为 ${input.studentName} 生成学情反馈...`);
-      console.log(`[SSE] 路书长度: ${roadmap?.length || 0} 字符`);
+
       
       // 发送开始事件
       sendEvent("start", { 
@@ -457,7 +452,7 @@ ${input.transcript}
       // 清理内容
       const cleanedContent = cleanMarkdownAndHtml(content);
       
-      console.log(`[SSE] 学情反馈生成完成，长度: ${cleanedContent.length} 字符`);
+
       
       // 优先使用用户输入的日期，否则从反馈内容中提取
       let dateStr = input.lessonDate || '';
@@ -472,7 +467,7 @@ ${input.transcript}
       const fileName = `${input.studentName}${dateStr}阅读课反馈.md`;
       const folderPath = `${basePath}/学情反馈`;
       
-      console.log(`[SSE] 上传到 Google Drive: ${folderPath}/${fileName}`);
+
       sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
       
       const uploadResult = await uploadToGoogleDrive(cleanedContent, fileName, folderPath);
@@ -481,7 +476,7 @@ ${input.transcript}
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
       }
       
-      console.log(`[SSE] 上传成功: ${uploadResult.url}`);
+
       
       // 记录步骤成功
       stepSuccess(log, 'feedback', cleanedContent.length);
@@ -522,7 +517,7 @@ ${input.transcript}
     }
   });
   
-  console.log("[SSE] 一对一学情反馈流式端点已注册: POST /api/feedback-stream");
+
   
   // ========== V45d: 一对一复习文档 SSE 端点 ==========
   
@@ -576,7 +571,6 @@ ${input.transcript}
   
   // SSE 端点：一对一复习文档流式生成
   app.post("/api/review-stream", async (req: Request, res: Response) => {
-    console.log("[SSE] 收到一对一复习文档流式请求");
     
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -635,7 +629,7 @@ ${input.feedbackContent}
       
       const systemPrompt = roadmap && roadmap.trim() ? roadmap : REVIEW_SYSTEM_PROMPT;
       
-      console.log(`[SSE] 开始为 ${input.studentName} 生成复习文档...`);
+
       
       sendEvent("start", { 
         message: `开始为 ${input.studentName} 生成复习文档`,
@@ -666,7 +660,7 @@ ${input.feedbackContent}
       
       const cleanedContent = cleanMarkdownAndHtml(reviewContent);
       
-      console.log(`[SSE] 复习文档生成完成，长度: ${cleanedContent.length} 字符`);
+
       
       // 转换为 Word 文档
       sendEvent("progress", { chars: charCount, message: "正在转换为Word文档..." });
@@ -677,7 +671,7 @@ ${input.feedbackContent}
       const fileName = `${input.studentName}${input.dateStr}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       
-      console.log(`[SSE] 上传到 Google Drive: ${folderPath}/${fileName}`);
+
       sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
       
       const uploadResult = await uploadBinaryToGoogleDrive(docxBuffer, fileName, folderPath);
@@ -686,7 +680,7 @@ ${input.feedbackContent}
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
       }
       
-      console.log(`[SSE] 上传成功: ${uploadResult.url}`);
+
       
       // 记录步骤成功
       stepSuccess(log, 'review', cleanedContent.length);
@@ -722,7 +716,7 @@ ${input.feedbackContent}
     }
   });
   
-  console.log("[SSE] 一对一复习文档流式端点已注册: POST /api/review-stream");
+
   
   // ========== V45e: 小班课复习文档 SSE 端点 ==========
   
@@ -769,7 +763,6 @@ ${input.feedbackContent}
   
   // SSE 端点：小班课复习文档流式生成
   app.post("/api/class-review-stream", async (req: Request, res: Response) => {
-    console.log("[SSE] 收到小班课复习文档流式请求");
     
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -834,7 +827,7 @@ ${input.currentNotes}
       
       const systemPrompt = roadmapClass && roadmapClass.trim() ? roadmapClass : CLASS_REVIEW_SYSTEM_PROMPT;
       
-      console.log(`[SSE] 开始为 ${input.classNumber} 班生成复习文档...`);
+
       
       sendEvent("start", { 
         message: `开始为 ${input.classNumber} 班生成复习文档`,
@@ -865,7 +858,7 @@ ${input.currentNotes}
       
       const cleanedContent = cleanMarkdownAndHtml(reviewContent);
       
-      console.log(`[SSE] 小班课复习文档生成完成，长度: ${cleanedContent.length} 字符`);
+
       
       // 转换为 Word 文档
       sendEvent("progress", { chars: charCount, message: "正在转换为Word文档..." });
@@ -876,7 +869,7 @@ ${input.currentNotes}
       const fileName = `${input.classNumber}班${input.lessonDate || ''}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       
-      console.log(`[SSE] 上传到 Google Drive: ${folderPath}/${fileName}`);
+
       sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
       
       const uploadResult = await uploadBinaryToGoogleDrive(docxBuffer, fileName, folderPath);
@@ -885,7 +878,7 @@ ${input.currentNotes}
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
       }
       
-      console.log(`[SSE] 上传成功: ${uploadResult.url}`);
+
       
       // 记录步骤成功
       stepSuccess(log, 'review', cleanedContent.length);
@@ -921,5 +914,5 @@ ${input.currentNotes}
     }
   });
   
-  console.log("[SSE] 小班课复习文档流式端点已注册: POST /api/class-review-stream");
+
 }
