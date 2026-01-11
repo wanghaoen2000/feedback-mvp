@@ -10,6 +10,16 @@ import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive } from "./gdrive";
+import { 
+  createLogSession, 
+  startStep, 
+  stepSuccess, 
+  stepFailed, 
+  endLogSession, 
+  logInfo,
+  GenerationLog 
+} from "./logger";
+import { parseError } from "./errorHandler";
 
 // 默认配置值（和 routers.ts 保持一致）
 const DEFAULT_CONFIG = {
@@ -310,6 +320,9 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
     
+    // 创建日志会话
+    let log: GenerationLog | null = null;
+    
     try {
       // 验证输入
       const parseResult = feedbackInputSchema.safeParse(req.body);
@@ -327,6 +340,20 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
       const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
       const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || "");
+      
+      // 创建日志会话
+      log = createLogSession(
+        input.studentName,
+        { apiUrl, apiModel, maxTokens: 32000 },
+        {
+          notesLength: input.currentNotes.length,
+          transcriptLength: input.transcript.length,
+          lastFeedbackLength: input.lastFeedback?.length || 0,
+        },
+        input.lessonNumber,
+        input.lessonDate
+      );
+      logInfo(log, 'session', '开始一对一学情反馈生成 (SSE)');
       
       // 组合年份和日期，并添加星期信息
       const lessonDate = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : "";
@@ -368,6 +395,9 @@ ${input.transcript}
         message: `开始为 ${input.studentName} 生成学情反馈`,
         studentName: input.studentName
       });
+      
+      // 记录步骤开始
+      startStep(log, 'feedback');
       
       const config: APIConfig = { apiModel, apiKey, apiUrl };
       
@@ -422,6 +452,13 @@ ${input.transcript}
       
       console.log(`[SSE] 上传成功: ${uploadResult.url}`);
       
+      // 记录步骤成功
+      stepSuccess(log, 'feedback', cleanedContent.length);
+      logInfo(log, 'feedback', `上传成功: ${uploadResult.path}`);
+      
+      // 结束日志会话（保存日志文件）
+      endLogSession(log);
+      
       // 发送完成事件
       sendEvent("complete", { 
         success: true,
@@ -438,6 +475,13 @@ ${input.transcript}
       
     } catch (error: any) {
       console.error("[SSE] 生成失败:", error);
+      
+      // 记录步骤失败
+      if (log) {
+        stepFailed(log, 'feedback', parseError(error, 'feedback'));
+        endLogSession(log);
+      }
+      
       sendEvent("error", { 
         message: error.message || "生成失败",
         stack: process.env.NODE_ENV === "development" ? error.stack : undefined
