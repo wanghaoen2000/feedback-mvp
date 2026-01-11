@@ -153,6 +153,9 @@ export function registerClassStreamRoutes(app: Express): void {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
     
+    // 创建日志会话
+    let log: GenerationLog | null = null;
+    
     try {
       // 验证输入
       const parseResult = classFeedbackInputSchema.safeParse(req.body);
@@ -170,6 +173,20 @@ export function registerClassStreamRoutes(app: Express): void {
       const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
       const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
+      
+      // 创建日志会话（小班课用班号作为学生名）
+      log = createLogSession(
+        `班级${input.classNumber}`,
+        { apiUrl, apiModel, maxTokens: 32000 },
+        {
+          notesLength: input.currentNotes.length,
+          transcriptLength: input.transcript.length,
+          lastFeedbackLength: input.lastFeedback?.length || 0,
+        },
+        input.lessonNumber,
+        input.lessonDate
+      );
+      logInfo(log, 'session', `开始小班课学情反馈生成 (SSE)，出勤学生: ${input.attendanceStudents.join('、')}`);
       
       // 组合年份和日期，并添加星期信息
       const lessonDate = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : "";
@@ -221,6 +238,9 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
         students: classInput.attendanceStudents.length
       });
       
+      // 记录步骤开始
+      startStep(log, 'feedback');
+      
       const config: APIConfig = { apiModel, apiKey, apiUrl };
       
       let charCount = 0;
@@ -250,6 +270,10 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       
       console.log(`[SSE] 学情反馈生成完成，长度: ${cleanedContent.length} 字符`);
       
+      // 记录步骤成功
+      stepSuccess(log, 'feedback', cleanedContent.length);
+      endLogSession(log);
+      
       // 发送完成事件
       sendEvent("complete", { 
         success: true,
@@ -259,6 +283,13 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       
     } catch (error: any) {
       console.error("[SSE] 生成失败:", error);
+      
+      // 记录步骤失败
+      if (log) {
+        stepFailed(log, 'feedback', parseError(error, 'feedback'));
+        endLogSession(log);
+      }
+      
       sendEvent("error", { 
         message: error.message || "生成失败",
         stack: process.env.NODE_ENV === "development" ? error.stack : undefined
@@ -558,6 +589,9 @@ ${input.transcript}
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
     
+    // 创建日志会话
+    let log: GenerationLog | null = null;
+    
     try {
       const parseResult = reviewInputSchema.safeParse(req.body);
       if (!parseResult.success) {
@@ -573,6 +607,17 @@ ${input.transcript}
       const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
       const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || "");
       const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      
+      // 创建日志会话
+      log = createLogSession(
+        input.studentName,
+        { apiUrl, apiModel, maxTokens: 32000 },
+        { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
+        undefined,
+        input.dateStr
+      );
+      logInfo(log, 'session', '开始一对一复习文档生成 (SSE)');
+      startStep(log, 'review');
       
       const userPrompt = `学生姓名：${input.studentName}
 
@@ -643,6 +688,11 @@ ${input.feedbackContent}
       
       console.log(`[SSE] 上传成功: ${uploadResult.url}`);
       
+      // 记录步骤成功
+      stepSuccess(log, 'review', cleanedContent.length);
+      logInfo(log, 'review', `上传成功: ${uploadResult.path}`);
+      endLogSession(log);
+      
       sendEvent("complete", { 
         success: true,
         chars: cleanedContent.length,
@@ -656,6 +706,13 @@ ${input.feedbackContent}
       
     } catch (error: any) {
       console.error("[SSE] 复习文档生成失败:", error);
+      
+      // 记录步骤失败
+      if (log) {
+        stepFailed(log, 'review', parseError(error, 'review'));
+        endLogSession(log);
+      }
+      
       sendEvent("error", { 
         message: error.message || "生成失败",
         stack: process.env.NODE_ENV === "development" ? error.stack : undefined
@@ -725,6 +782,9 @@ ${input.feedbackContent}
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
     
+    // 创建日志会话
+    let log: GenerationLog | null = null;
+    
     try {
       const parseResult = classReviewInputSchema.safeParse(req.body);
       if (!parseResult.success) {
@@ -740,6 +800,17 @@ ${input.feedbackContent}
       const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
       const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      
+      // 创建日志会话
+      log = createLogSession(
+        `班级${input.classNumber}`,
+        { apiUrl, apiModel, maxTokens: 32000 },
+        { notesLength: input.currentNotes?.length || 0, transcriptLength: 0, lastFeedbackLength: input.combinedFeedback.length },
+        input.lessonNumber,
+        input.lessonDate
+      );
+      logInfo(log, 'session', '开始小班课复习文档生成 (SSE)');
+      startStep(log, 'review');
       
       // 给日期添加星期信息
       const lessonDateWithWeekday = input.lessonDate ? addWeekdayToDate(input.lessonDate) : '未指定';
@@ -816,6 +887,11 @@ ${input.currentNotes}
       
       console.log(`[SSE] 上传成功: ${uploadResult.url}`);
       
+      // 记录步骤成功
+      stepSuccess(log, 'review', cleanedContent.length);
+      logInfo(log, 'review', `上传成功: ${uploadResult.path}`);
+      endLogSession(log);
+      
       sendEvent("complete", { 
         success: true,
         chars: cleanedContent.length,
@@ -829,6 +905,13 @@ ${input.currentNotes}
       
     } catch (error: any) {
       console.error("[SSE] 小班课复习文档生成失败:", error);
+      
+      // 记录步骤失败
+      if (log) {
+        stepFailed(log, 'review', parseError(error, 'review'));
+        endLogSession(log);
+      }
+      
       sendEvent("error", { 
         message: error.message || "生成失败",
         stack: process.env.NODE_ENV === "development" ? error.stack : undefined
