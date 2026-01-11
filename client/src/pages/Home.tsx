@@ -1002,6 +1002,7 @@ export default function Home() {
       let classReviewSseError: string | null = null;
       let classReviewCurrentEventType = '';
       let classReviewUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+      let classReviewCharCount = 0;
       
       while (true) {
         checkAborted();
@@ -1022,10 +1023,12 @@ export default function Home() {
               const data = JSON.parse(line.slice(6));
               
               if (classReviewCurrentEventType === 'progress' && data.chars) {
+                classReviewCharCount = data.chars;
                 const progressMsg = data.message || `正在生成复习文档... 已生成 ${data.chars} 字符`;
                 updateStep(1, { status: 'running', message: progressMsg });
-              } else if (classReviewCurrentEventType === 'complete' && data.uploadResult) {
-                classReviewUploadResult = data.uploadResult;
+              } else if (classReviewCurrentEventType === 'complete') {
+                if (data.uploadResult) classReviewUploadResult = data.uploadResult;
+                if (data.chars) classReviewCharCount = data.chars;
               } else if (classReviewCurrentEventType === 'error' && data.message) {
                 classReviewSseError = data.message;
               }
@@ -1047,7 +1050,7 @@ export default function Home() {
       const step2Time = Math.round((Date.now() - step2Start) / 1000);
       updateStep(1, { 
         status: 'success', 
-        message: `生成完成 (${step2Time}秒)`,
+        message: classReviewCharCount > 0 ? `生成完成 (${step2Time}秒)，共${classReviewCharCount}字` : `生成完成 (${step2Time}秒)`,
         uploadResult: classReviewUploadResult
       });
       setCurrentStep(3);
