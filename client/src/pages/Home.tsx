@@ -566,6 +566,7 @@ export default function Home() {
       let reviewSseError: string | null = null;
       let reviewCurrentEventType = '';
       let reviewUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+      let reviewCharCount = 0;
       
       while (true) {
         checkAborted();
@@ -586,10 +587,12 @@ export default function Home() {
               const data = JSON.parse(line.slice(6));
               
               if (reviewCurrentEventType === 'progress' && data.chars) {
+                reviewCharCount = data.chars;
                 const progressMsg = data.message || `正在生成复习文档... 已生成 ${data.chars} 字符`;
                 updateStep(1, { status: 'running', message: progressMsg });
-              } else if (reviewCurrentEventType === 'complete' && data.uploadResult) {
-                reviewUploadResult = data.uploadResult;
+              } else if (reviewCurrentEventType === 'complete') {
+                if (data.uploadResult) reviewUploadResult = data.uploadResult;
+                if (data.chars) reviewCharCount = data.chars;
               } else if (reviewCurrentEventType === 'error' && data.message) {
                 reviewSseError = data.message;
               }
@@ -612,7 +615,7 @@ export default function Home() {
       updateStep(1, { 
         status: 'success', 
         message: `生成完成 (耗时${Math.round((step2End - step2Start) / 1000)}秒)`,
-        detail: '复习文档已上传到Google Drive',
+        detail: reviewCharCount > 0 ? `复习文档已上传到Google Drive，共${reviewCharCount}字` : '复习文档已上传到Google Drive',
         endTime: step2End,
         uploadResult: reviewUploadResult
       });
