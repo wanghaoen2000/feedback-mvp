@@ -272,11 +272,26 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       endLogSession(log);
       
       // 发送完成事件
-      sendEvent("complete", { 
-        success: true,
-        feedback: cleanedContent,
-        chars: cleanedContent.length
-      });
+      // 如果内容超过 15000 字符，分块发送避免 SSE 数据包过大
+      const CHUNK_SIZE = 15000;
+      if (cleanedContent.length > CHUNK_SIZE) {
+        const totalChunks = Math.ceil(cleanedContent.length / CHUNK_SIZE);
+        for (let i = 0; i < totalChunks; i++) {
+          const chunk = cleanedContent.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          sendEvent("content-chunk", { index: i, total: totalChunks, text: chunk });
+        }
+        sendEvent("complete", { 
+          success: true,
+          chunked: true,
+          chars: cleanedContent.length
+        });
+      } else {
+        sendEvent("complete", { 
+          success: true,
+          feedback: cleanedContent,
+          chars: cleanedContent.length
+        });
+      }
       
     } catch (error: any) {
       console.error("[SSE] 生成失败:", error);
@@ -486,18 +501,42 @@ ${input.transcript}
       endLogSession(log);
       
       // 发送完成事件
-      sendEvent("complete", { 
-        success: true,
-        feedback: cleanedContent,
-        chars: cleanedContent.length,
-        dateStr: dateStr,
-        uploadResult: {
-          fileName: fileName,
-          url: uploadResult.url || '',
-          path: uploadResult.path || '',
-          folderUrl: uploadResult.folderUrl || '',
+      // 如果内容超过 15000 字符，分块发送避免 SSE 数据包过大
+      const CHUNK_SIZE = 15000;
+      if (cleanedContent.length > CHUNK_SIZE) {
+        const totalChunks = Math.ceil(cleanedContent.length / CHUNK_SIZE);
+        for (let i = 0; i < totalChunks; i++) {
+          const chunk = cleanedContent.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          sendEvent("content-chunk", { index: i, total: totalChunks, text: chunk });
         }
-      });
+        // complete 事件不发 feedback，前端从 chunks 拼接
+        sendEvent("complete", { 
+          success: true,
+          chunked: true,
+          chars: cleanedContent.length,
+          dateStr: dateStr,
+          uploadResult: {
+            fileName: fileName,
+            url: uploadResult.url || '',
+            path: uploadResult.path || '',
+            folderUrl: uploadResult.folderUrl || '',
+          }
+        });
+      } else {
+        // 小内容直接发送
+        sendEvent("complete", { 
+          success: true,
+          feedback: cleanedContent,
+          chars: cleanedContent.length,
+          dateStr: dateStr,
+          uploadResult: {
+            fileName: fileName,
+            url: uploadResult.url || '',
+            path: uploadResult.path || '',
+            folderUrl: uploadResult.folderUrl || '',
+          }
+        });
+      }
       
     } catch (error: any) {
       console.error("[SSE] 生成失败:", error);
