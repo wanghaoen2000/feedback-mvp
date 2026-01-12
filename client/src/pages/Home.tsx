@@ -472,31 +472,22 @@ export default function Home() {
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             currentEventType = line.slice(7).trim();
-            console.log('[SSE-DEBUG] 事件类型:', currentEventType);
             continue;
           }
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              console.log('[SSE-DEBUG] 收到数据, 当前事件类型:', currentEventType, 'keys:', Object.keys(data));
-              
-              if (currentEventType === 'complete') {
-                console.log('[SSE-DEBUG] complete事件, feedback存在:', !!data.feedback, 'chunked:', data.chunked, 'feedback长度:', data.feedback?.length);
-              }
-              
               if (currentEventType === 'progress' && data.chars) {
                 const progressMsg = data.message || `正在生成学情反馈... 已生成 ${data.chars} 字符`;
                 updateStep(0, { status: 'running', message: progressMsg });
               } else if (currentEventType === 'content-chunk' && data.text !== undefined) {
                 // 分块内容
                 contentChunks[data.index] = data.text;
-                console.log('[SSE-DEBUG] 收到分块', data.index + 1, '/', data.total);
               } else if (currentEventType === 'complete') {
                 // 完成事件
                 if (data.chunked && contentChunks.length > 0) {
                   // 从分块拼接内容
                   feedbackContent = contentChunks.join('');
-                  console.log('[SSE-DEBUG] 从分块拼接内容, 长度:', feedbackContent.length);
                 } else if (data.feedback) {
                   feedbackContent = data.feedback;
                 }
@@ -517,14 +508,11 @@ export default function Home() {
         }
       }
       
-      console.log('[SSE-DEBUG] SSE循环结束, feedbackContent长度:', feedbackContent?.length, 'sseError:', sseError);
-      
       if (sseError) {
         throw new Error(sseError);
       }
       
       if (!feedbackContent) {
-        console.error('[SSE-DEBUG] feedbackContent为空!');
         throw new Error('学情反馈生成失败: 未收到内容');
       }
       
