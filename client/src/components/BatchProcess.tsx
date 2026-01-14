@@ -521,7 +521,7 @@ export function BatchProcess() {
             placeholder="粘贴路书内容，包含学生信息和课堂笔记..."
             value={roadmap}
             onChange={(e) => setRoadmap(e.target.value)}
-            className="min-h-[200px] font-mono text-sm"
+            className="h-36 overflow-y-auto resize-none font-mono text-sm"
             disabled={isGenerating}
           />
           <p className="text-xs text-gray-500">
