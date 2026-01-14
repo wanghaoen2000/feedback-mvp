@@ -399,3 +399,13 @@
 - [x] 前端改用 fetch + 流式读取替代 tRPC mutation
 - [ ] 测试小班课生成不超时（待用户验证）
 - [ ] 验证一对一功能不受影响（待用户验证）
+
+
+## V46: SSE 模块化重构
+
+- [x] 创建 server/core/sseHelper.ts 工具模块
+- [x] 包含 setupSSEHeaders 函数
+- [x] 包含 sendSSEEvent 函数
+- [x] 包含 sendChunkedContent 函数
+- [x] 响应头包含 X-Accel-Buffering: no
+- [x] pnpm build 无报错
