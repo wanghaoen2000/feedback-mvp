@@ -104,7 +104,8 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     endNumber, 
     concurrency = 5, 
     roadmap, 
-    storagePath 
+    storagePath,
+    filePrefix = '任务'
   } = req.body;
 
   // 参数验证
@@ -147,6 +148,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   console.log(`[BatchRoutes] 并发数: ${concurrencyNum}`);
   console.log(`[BatchRoutes] 路书长度: ${roadmap.length} 字符`);
   console.log(`[BatchRoutes] 存储路径: ${storagePath || "(未指定)"}`);
+  console.log(`[BatchRoutes] 文件名前缀: ${filePrefix}`);
 
   // 设置 SSE 响应头
   setupSSEHeaders(res);
@@ -269,7 +271,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       timestamp: Date.now(),
     });
 
-    const { buffer, filename } = await generateBatchDocument(content, taskNumber);
+    const { buffer, filename } = await generateBatchDocument(content, taskNumber, filePrefix);
     console.log(`[BatchRoutes] 任务 ${taskNumber} Word 文档生成完成: ${filename}`);
 
     // 上传到 Google Drive（如果指定了存储路径）

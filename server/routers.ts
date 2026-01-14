@@ -47,6 +47,7 @@ const DEFAULT_CONFIG = {
   currentYear: "2026",
   roadmap: "",
   driveBasePath: "Mac/Documents/XDF/学生档案",
+  batchFilePrefix: "任务",
 };
 
 // 获取配置值（优先从数据库，否则用默认值）
@@ -145,6 +146,7 @@ export const appRouter = router({
       const firstLessonTemplate = await getConfig("firstLessonTemplate");
       const classFirstLessonTemplate = await getConfig("classFirstLessonTemplate");
       const driveBasePath = await getConfig("driveBasePath");
+      const batchFilePrefix = await getConfig("batchFilePrefix");
       
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
@@ -156,6 +158,7 @@ export const appRouter = router({
         firstLessonTemplate: firstLessonTemplate || "",
         classFirstLessonTemplate: classFirstLessonTemplate || "",
         driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
+        batchFilePrefix: batchFilePrefix || DEFAULT_CONFIG.batchFilePrefix,
         // 返回是否使用默认值
         isDefault: {
           apiModel: !apiModel,
@@ -163,6 +166,7 @@ export const appRouter = router({
           apiUrl: !apiUrl,
           currentYear: !currentYear,
           driveBasePath: !driveBasePath,
+          batchFilePrefix: !batchFilePrefix,
         }
       };
     }),
@@ -179,6 +183,7 @@ export const appRouter = router({
         firstLessonTemplate: z.string().optional(),
         classFirstLessonTemplate: z.string().optional(),
         driveBasePath: z.string().optional(),
+        batchFilePrefix: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -234,6 +239,11 @@ export const appRouter = router({
           }
           await setConfig("driveBasePath", path, "Google Drive存储根路径");
           updates.push("driveBasePath");
+        }
+        
+        if (input.batchFilePrefix !== undefined) {
+          await setConfig("batchFilePrefix", input.batchFilePrefix.trim() || DEFAULT_CONFIG.batchFilePrefix, "批量处理文件名前缀");
+          updates.push("batchFilePrefix");
         }
         
         return {

@@ -46,13 +46,13 @@ function formatTaskNumber(taskNumber: number): string {
  * 生成批量任务的 Word 文档
  * @param content Markdown 或纯文本内容
  * @param taskNumber 任务编号
- * @param suggestedFilename 可选的建议文件名（不含扩展名）
+ * @param filePrefix 文件名前缀（默认为"任务"）
  * @returns { buffer: Buffer, filename: string }
  */
 export async function generateBatchDocument(
   content: string,
   taskNumber: number,
-  suggestedFilename?: string
+  filePrefix: string = '任务'
 ): Promise<{ buffer: Buffer; filename: string }> {
   // 清理 Markdown 标记
   const cleanedText = cleanMarkdownAndHtml(content);
@@ -60,15 +60,14 @@ export async function generateBatchDocument(
   
   // 生成文件名
   const taskNumStr = formatTaskNumber(taskNumber);
-  const filename = suggestedFilename 
-    ? `任务${taskNumStr}_${suggestedFilename}.docx`
-    : `任务${taskNumStr}.docx`;
+  const prefix = filePrefix.trim() || '任务';
+  const filename = `${prefix}${taskNumStr}.docx`;
   
   // 构建文档内容
   const children: Paragraph[] = [];
   
   // 添加标题
-  const title = suggestedFilename || `任务 ${taskNumber}`;
+  const title = `${prefix} ${taskNumber}`;
   children.push(
     new Paragraph({
       children: [new TextRun({ text: title, bold: true, size: 32 })],

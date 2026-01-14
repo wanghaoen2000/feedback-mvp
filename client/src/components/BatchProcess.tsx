@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,6 +48,19 @@ export function BatchProcess() {
   const [endNumber, setEndNumber] = useState("");
   const [concurrency, setConcurrency] = useState("5");
   const [storagePath, setStoragePath] = useState("");
+  const [filePrefix, setFilePrefix] = useState("任务");
+  const [isPrefixSaving, setIsPrefixSaving] = useState(false);
+
+  // 从数据库加载配置
+  const { data: config } = trpc.config.getAll.useQuery();
+  const updateConfig = trpc.config.update.useMutation();
+
+  // 加载配置后更新前缀
+  useEffect(() => {
+    if (config?.batchFilePrefix) {
+      setFilePrefix(config.batchFilePrefix);
+    }
+  }, [config?.batchFilePrefix]);
   
   // 路书内容
   const [roadmap, setRoadmap] = useState("");
@@ -147,6 +161,7 @@ export function BatchProcess() {
           concurrency: concurrencyNum,
           roadmap: roadmap.trim(),
           storagePath: storagePath.trim() || undefined,
+          filePrefix: filePrefix.trim() || '任务',
         }),
       });
 
@@ -272,7 +287,7 @@ export function BatchProcess() {
       setIsGenerating(false);
       setIsStopping(false);
     }
-  }, [startNumber, endNumber, concurrency, roadmap, storagePath]);
+  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix]);
 
   // 渲染单个任务卡片
   const renderTaskCard = (task: TaskState) => {
@@ -377,7 +392,7 @@ export function BatchProcess() {
             </div>
           </div>
 
-          {/* 并发数和存储路径 */}
+          {/* 并发数和文件名前缀 */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="concurrency">并发数</Label>
@@ -392,20 +407,48 @@ export function BatchProcess() {
               <p className="text-xs text-gray-500">同时处理的任务数量，建议3-5</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="storagePath">存储路径</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="storagePath"
-                  type="text"
-                  placeholder="Google Drive 文件夹路径"
-                  value={storagePath}
-                  onChange={(e) => setStoragePath(e.target.value)}
-                  disabled={isGenerating}
-                />
-                <Button variant="outline" size="icon" disabled={isGenerating}>
-                  <FolderOpen className="w-4 h-4" />
-                </Button>
-              </div>
+              <Label htmlFor="filePrefix">文件名前缀</Label>
+              <Input
+                id="filePrefix"
+                type="text"
+                placeholder="如：生词表、练习册"
+                value={filePrefix}
+                onChange={(e) => setFilePrefix(e.target.value)}
+                onBlur={async () => {
+                  if (filePrefix !== config?.batchFilePrefix) {
+                    setIsPrefixSaving(true);
+                    try {
+                      await updateConfig.mutateAsync({ batchFilePrefix: filePrefix });
+                    } catch (e) {
+                      console.error('保存前缀失败:', e);
+                    } finally {
+                      setIsPrefixSaving(false);
+                    }
+                  }
+                }}
+                disabled={isGenerating}
+              />
+              <p className="text-xs text-gray-500">
+                {isPrefixSaving ? '保存中...' : '文件命名格式：{前缀}01.docx'}
+              </p>
+            </div>
+          </div>
+
+          {/* 存储路径 */}
+          <div className="space-y-2">
+            <Label htmlFor="storagePath">存储路径</Label>
+            <div className="flex gap-2">
+              <Input
+                id="storagePath"
+                type="text"
+                placeholder="Google Drive 文件夹路径"
+                value={storagePath}
+                onChange={(e) => setStoragePath(e.target.value)}
+                disabled={isGenerating}
+              />
+              <Button variant="outline" size="icon" disabled={isGenerating}>
+                <FolderOpen className="w-4 h-4" />
+              </Button>
             </div>
           </div>
         </div>
