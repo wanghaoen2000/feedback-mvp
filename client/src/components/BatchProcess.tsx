@@ -339,7 +339,7 @@ export function BatchProcess() {
           批量处理
         </CardTitle>
         <CardDescription>
-          批量生成多个学生的学情反馈文档，支持并发处理
+          批量生成文档，支持并发处理
         </CardDescription>
       </CardHeader>
       
