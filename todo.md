@@ -447,3 +447,15 @@
 - [x] 在 server/index.ts 注册路由
 - [x] curl 测试端点正常工作
 - [x] pnpm build 无报错
+
+
+## V46g: 前端调用 SSE 端点，显示实时字符数
+
+- [x] 添加状态：isGenerating, currentChars, result
+- [x] 点击开始后调用 POST /api/batch/generate-stream
+- [x] 用 fetch + ReadableStream 读取 SSE 事件
+- [x] 收到 task-progress 时更新 currentChars
+- [x] 收到 task-complete 时显示完成
+- [x] 事件类型判断用 event: 行（V45b 教训）
+- [x] currentEventType 在 while 外部声明（V45b 教训）
+- [x] 生成失败时显示错误信息
