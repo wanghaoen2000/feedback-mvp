@@ -492,3 +492,13 @@
 - [x] 新增 batch-start 事件（totalTasks, concurrency）
 - [x] 新增 batch-complete 事件（completed, failed）
 - [x] 测试并发限制（同时只有 concurrency 个任务执行）
+
+
+## V46k: 前端显示多任务进度
+
+- [x] 修改 BatchProcess.tsx
+- [x] 添加状态：tasks Map, completedTasks, waitingTasks
+- [x] 根据 SSE 事件更新状态（task-start/progress/complete）
+- [x] UI 分三个区域：并发池（执行中）、已完成、等待中
+- [x] 每个执行中的任务显示实时字符数
+- [x] 任务完成后自动移到已完成区域

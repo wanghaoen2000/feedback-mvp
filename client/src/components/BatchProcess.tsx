@@ -11,8 +11,33 @@ import {
   FolderOpen,
   Loader2,
   CheckCircle,
-  XCircle
+  XCircle,
+  Clock,
+  ExternalLink
 } from "lucide-react";
+
+// 任务状态类型
+type TaskStatus = 'waiting' | 'running' | 'completed' | 'error';
+
+// 单个任务的状态
+interface TaskState {
+  taskNumber: number;
+  status: TaskStatus;
+  chars: number;
+  message?: string;
+  filename?: string;
+  url?: string;
+  error?: string;
+}
+
+// 批次状态
+interface BatchState {
+  batchId: string;
+  totalTasks: number;
+  concurrency: number;
+  completed: number;
+  failed: number;
+}
 
 export function BatchProcess() {
   // 基本设置
@@ -26,30 +51,48 @@ export function BatchProcess() {
 
   // 生成状态
   const [isGenerating, setIsGenerating] = useState(false);
-  const [currentChars, setCurrentChars] = useState(0);
-  const [result, setResult] = useState<{
-    success: boolean;
-    content?: string;
-    error?: string;
-    chars?: number;
-  } | null>(null);
+  const [batchState, setBatchState] = useState<BatchState | null>(null);
+  const [tasks, setTasks] = useState<Map<number, TaskState>>(new Map());
+
+  // 根据状态分类任务
+  const runningTasks = Array.from(tasks.values()).filter(t => t.status === 'running');
+  const completedTasks = Array.from(tasks.values()).filter(t => t.status === 'completed');
+  const errorTasks = Array.from(tasks.values()).filter(t => t.status === 'error');
+  const waitingTasks = Array.from(tasks.values()).filter(t => t.status === 'waiting');
 
   const handleStart = useCallback(async () => {
     // 验证参数
-    const taskNumber = parseInt(startNumber);
-    if (isNaN(taskNumber)) {
-      setResult({ success: false, error: "请输入有效的任务编号" });
+    const start = parseInt(startNumber);
+    const end = parseInt(endNumber);
+    const concurrencyNum = parseInt(concurrency) || 5;
+
+    if (isNaN(start) || isNaN(end)) {
+      alert("请输入有效的任务编号范围");
+      return;
+    }
+    if (start > end) {
+      alert("起始编号不能大于结束编号");
       return;
     }
     if (!roadmap.trim()) {
-      setResult({ success: false, error: "请输入路书内容" });
+      alert("请输入路书内容");
       return;
+    }
+
+    // 初始化任务列表
+    const initialTasks = new Map<number, TaskState>();
+    for (let i = start; i <= end; i++) {
+      initialTasks.set(i, {
+        taskNumber: i,
+        status: 'waiting',
+        chars: 0,
+      });
     }
 
     // 重置状态
     setIsGenerating(true);
-    setCurrentChars(0);
-    setResult(null);
+    setBatchState(null);
+    setTasks(initialTasks);
 
     try {
       // 调用 SSE 端点
@@ -57,7 +100,9 @@ export function BatchProcess() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          taskNumber,
+          startNumber: start,
+          endNumber: end,
+          concurrency: concurrencyNum,
           roadmap: roadmap.trim(),
           storagePath: storagePath.trim() || undefined,
         }),
@@ -75,11 +120,6 @@ export function BatchProcess() {
 
       const decoder = new TextDecoder();
       let buffer = '';
-      let finalContent = '';
-      let sseError: string | null = null;
-      
-      // 支持分块内容
-      const contentChunks: string[] = [];
       
       // 事件类型在循环外部跟踪（V45b 教训）
       let currentEventType = '';
@@ -104,27 +144,76 @@ export function BatchProcess() {
               const data = JSON.parse(line.slice(6));
 
               // 根据事件类型处理
-              if (currentEventType === 'task-start') {
-                // 任务开始
-                setCurrentChars(0);
-              } else if (currentEventType === 'task-progress' && data.chars !== undefined) {
-                // 进度更新
-                setCurrentChars(data.chars);
-              } else if (currentEventType === 'content-chunk' && data.text !== undefined) {
-                // 分块内容
-                contentChunks[data.index] = data.text;
+              if (currentEventType === 'batch-start') {
+                setBatchState({
+                  batchId: data.batchId,
+                  totalTasks: data.totalTasks,
+                  concurrency: data.concurrency,
+                  completed: 0,
+                  failed: 0,
+                });
+              } else if (currentEventType === 'task-start') {
+                setTasks(prev => {
+                  const newTasks = new Map(prev);
+                  const task = newTasks.get(data.taskNumber);
+                  if (task) {
+                    newTasks.set(data.taskNumber, {
+                      ...task,
+                      status: 'running',
+                      message: data.message,
+                    });
+                  }
+                  return newTasks;
+                });
+              } else if (currentEventType === 'task-progress') {
+                setTasks(prev => {
+                  const newTasks = new Map(prev);
+                  const task = newTasks.get(data.taskNumber);
+                  if (task) {
+                    newTasks.set(data.taskNumber, {
+                      ...task,
+                      chars: data.chars || task.chars,
+                      message: data.message || task.message,
+                    });
+                  }
+                  return newTasks;
+                });
               } else if (currentEventType === 'task-complete') {
-                // 完成事件
-                if (data.chunked && contentChunks.length > 0) {
-                  // 从分块拼接内容
-                  finalContent = contentChunks.join('');
-                } else if (data.content) {
-                  finalContent = data.content;
-                }
-                setCurrentChars(data.chars || finalContent.length);
-              } else if (currentEventType === 'task-error' && data.error) {
-                // 错误事件
-                sseError = data.error;
+                setTasks(prev => {
+                  const newTasks = new Map(prev);
+                  const task = newTasks.get(data.taskNumber);
+                  if (task) {
+                    newTasks.set(data.taskNumber, {
+                      ...task,
+                      status: 'completed',
+                      chars: data.chars || task.chars,
+                      filename: data.filename,
+                      url: data.url,
+                    });
+                  }
+                  return newTasks;
+                });
+                setBatchState(prev => prev ? { ...prev, completed: prev.completed + 1 } : null);
+              } else if (currentEventType === 'task-error') {
+                setTasks(prev => {
+                  const newTasks = new Map(prev);
+                  const task = newTasks.get(data.taskNumber);
+                  if (task) {
+                    newTasks.set(data.taskNumber, {
+                      ...task,
+                      status: 'error',
+                      error: data.error,
+                    });
+                  }
+                  return newTasks;
+                });
+                setBatchState(prev => prev ? { ...prev, failed: prev.failed + 1 } : null);
+              } else if (currentEventType === 'batch-complete') {
+                setBatchState(prev => prev ? {
+                  ...prev,
+                  completed: data.completed,
+                  failed: data.failed,
+                } : null);
               }
             } catch (e) {
               // 忽略解析错误
@@ -133,30 +222,70 @@ export function BatchProcess() {
         }
       }
 
-      if (sseError) {
-        throw new Error(sseError);
-      }
-
-      if (!finalContent) {
-        throw new Error('未收到生成内容');
-      }
-
-      // 设置成功结果
-      setResult({
-        success: true,
-        content: finalContent,
-        chars: finalContent.length,
-      });
-
     } catch (error: any) {
-      setResult({
-        success: false,
-        error: error.message || '生成失败',
-      });
+      console.error('批量处理失败:', error);
+      alert(`批量处理失败: ${error.message}`);
     } finally {
       setIsGenerating(false);
     }
-  }, [startNumber, roadmap, storagePath]);
+  }, [startNumber, endNumber, concurrency, roadmap, storagePath]);
+
+  // 渲染单个任务卡片
+  const renderTaskCard = (task: TaskState) => {
+    const statusConfig = {
+      waiting: { icon: Clock, color: 'text-gray-400', bg: 'bg-gray-50', border: 'border-gray-200' },
+      running: { icon: Loader2, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
+      completed: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200' },
+      error: { icon: XCircle, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
+    };
+    const config = statusConfig[task.status];
+    const Icon = config.icon;
+
+    return (
+      <div 
+        key={task.taskNumber}
+        className={`flex items-center gap-3 p-3 rounded-lg border ${config.bg} ${config.border}`}
+      >
+        <Icon className={`w-5 h-5 ${config.color} ${task.status === 'running' ? 'animate-spin' : ''}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-gray-800">#{task.taskNumber}</span>
+            {task.status === 'running' && (
+              <span className="text-sm text-blue-600">
+                生成中... {task.chars > 0 && `已收到 ${task.chars} 字`}
+              </span>
+            )}
+            {task.status === 'completed' && (
+              <span className="text-sm text-green-600">
+                完成 ({task.chars} 字)
+              </span>
+            )}
+            {task.status === 'error' && (
+              <span className="text-sm text-red-600 truncate">
+                {task.error || '失败'}
+              </span>
+            )}
+            {task.status === 'waiting' && (
+              <span className="text-sm text-gray-500">等待中</span>
+            )}
+          </div>
+          {task.filename && (
+            <div className="text-xs text-gray-500 truncate">{task.filename}</div>
+          )}
+        </div>
+        {task.url && (
+          <a 
+            href={task.url} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </a>
+        )}
+      </div>
+    );
+  };
 
   return (
     <Card className="shadow-xl">
@@ -250,7 +379,7 @@ export function BatchProcess() {
             placeholder="粘贴路书内容，包含学生信息和课堂笔记..."
             value={roadmap}
             onChange={(e) => setRoadmap(e.target.value)}
-            className="min-h-[300px] font-mono text-sm"
+            className="min-h-[200px] font-mono text-sm"
             disabled={isGenerating}
           />
           <p className="text-xs text-gray-500">
@@ -258,55 +387,92 @@ export function BatchProcess() {
           </p>
         </div>
 
-        {/* 生成状态显示 */}
-        {isGenerating && (
+        {/* 批次状态概览 */}
+        {batchState && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-center gap-3">
-              <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+            <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-blue-800">生成中...</p>
-                <p className="text-sm text-blue-600">已生成 {currentChars} 字符</p>
+                <p className="font-medium text-blue-800">
+                  批次 {batchState.batchId}
+                </p>
+                <p className="text-sm text-blue-600">
+                  共 {batchState.totalTasks} 个任务，并发 {batchState.concurrency}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm">
+                  <span className="text-green-600 font-medium">{batchState.completed} 完成</span>
+                  {batchState.failed > 0 && (
+                    <span className="text-red-600 font-medium ml-2">{batchState.failed} 失败</span>
+                  )}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {batchState.completed + batchState.failed} / {batchState.totalTasks}
+                </p>
               </div>
             </div>
           </div>
         )}
 
-        {/* 生成结果显示 */}
-        {result && !isGenerating && (
-          <div className={`border rounded-lg p-4 ${
-            result.success 
-              ? 'bg-green-50 border-green-200' 
-              : 'bg-red-50 border-red-200'
-          }`}>
-            <div className="flex items-center gap-3">
-              {result.success ? (
-                <CheckCircle className="w-5 h-5 text-green-600" />
-              ) : (
-                <XCircle className="w-5 h-5 text-red-600" />
-              )}
+        {/* 任务进度显示 */}
+        {tasks.size > 0 && (
+          <div className="space-y-4">
+            {/* 执行中的任务 */}
+            {runningTasks.length > 0 && (
               <div>
-                {result.success ? (
-                  <>
-                    <p className="font-medium text-green-800">生成完成</p>
-                    <p className="text-sm text-green-600">共 {result.chars} 字符</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-medium text-red-800">生成失败</p>
-                    <p className="text-sm text-red-600">{result.error}</p>
-                  </>
-                )}
+                <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                  执行中 ({runningTasks.length})
+                </h4>
+                <div className="space-y-2">
+                  {runningTasks.map(renderTaskCard)}
+                </div>
               </div>
-            </div>
-            
-            {/* 显示生成内容预览 */}
-            {result.success && result.content && (
-              <div className="mt-3 pt-3 border-t border-green-200">
-                <p className="text-xs text-green-700 mb-2">内容预览（前500字）：</p>
-                <pre className="text-xs text-gray-700 bg-white p-2 rounded border overflow-auto max-h-40">
-                  {result.content.slice(0, 500)}
-                  {result.content.length > 500 && '...'}
-                </pre>
+            )}
+
+            {/* 等待中的任务 */}
+            {waitingTasks.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-gray-400" />
+                  等待中 ({waitingTasks.length})
+                </h4>
+                <div className="flex flex-wrap gap-2">
+                  {waitingTasks.map(task => (
+                    <span 
+                      key={task.taskNumber}
+                      className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded"
+                    >
+                      #{task.taskNumber}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 已完成的任务 */}
+            {completedTasks.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                  已完成 ({completedTasks.length})
+                </h4>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {completedTasks.map(renderTaskCard)}
+                </div>
+              </div>
+            )}
+
+            {/* 失败的任务 */}
+            {errorTasks.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <XCircle className="w-4 h-4 text-red-600" />
+                  失败 ({errorTasks.length})
+                </h4>
+                <div className="space-y-2">
+                  {errorTasks.map(renderTaskCard)}
+                </div>
               </div>
             )}
           </div>
@@ -323,7 +489,7 @@ export function BatchProcess() {
             {isGenerating ? (
               <>
                 <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                生成中...
+                处理中...
               </>
             ) : (
               <>
