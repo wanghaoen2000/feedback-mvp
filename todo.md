@@ -680,3 +680,13 @@
 - [x] 测试验证：首次打开页面显示默认值
 - [x] 测试验证：修改路径后刷新页面，路径保持
 - [x] 测试验证：清空路径后刷新，恢复默认值
+
+
+## V47: 词汇卡片精确排版模板
+
+- [x] 创建 server/templates/ 目录
+- [x] 创建 server/templates/wordCardTemplate.ts
+- [x] 将 JavaScript 代码转换为 TypeScript（import/export 语法）
+- [x] 修复 Bookmark API 兼容性（docx 9.5.1 版本）
+- [x] pnpm build 无报错
+- [x] generateWordListDocx 函数可被其他文件 import
