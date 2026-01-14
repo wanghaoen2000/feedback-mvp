@@ -280,7 +280,19 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     if (templateType === 'wordCard') {
       // 词汇卡片模板：解析 JSON 并调用精确排版模板
       try {
-        const jsonData = JSON.parse(content) as WordListData;
+        // 清理可能的 Markdown 代码块标记（AI 有时会输出 ```json ... ``` 包裹的 JSON）
+        let cleanContent = content.trim();
+        if (cleanContent.startsWith('```json')) {
+          cleanContent = cleanContent.slice(7); // 去掉 ```json
+        } else if (cleanContent.startsWith('```')) {
+          cleanContent = cleanContent.slice(3); // 去掉 ```
+        }
+        if (cleanContent.endsWith('```')) {
+          cleanContent = cleanContent.slice(0, -3); // 去掉结尾的 ```
+        }
+        cleanContent = cleanContent.trim();
+        
+        const jsonData = JSON.parse(cleanContent) as WordListData;
         buffer = await generateWordListDocx(jsonData);
         // 文件名使用前缀 + 任务编号
         const taskNumStr = taskNumber.toString().padStart(2, '0');

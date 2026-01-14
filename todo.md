@@ -708,3 +708,13 @@
 - [x] templateType="default" 时使用原有 Markdown 转 Word 逻辑
 - [x] JSON 解析失败时返回错误信息
 - [x] pnpm build 无报错
+
+
+
+## V47d: JSON解析增加容错处理（方案A）
+
+- [x] 在 batchRoutes.ts 中词汇卡片的 JSON 解析前添加清理逻辑
+- [x] 清理 \`\`\`json 标记
+- [x] 清理 \`\`\` 标记
+- [x] AI输出带 \`\`\`json 标记时能正常解析
+- [x] AI输出纯JSON时也能正常解析
