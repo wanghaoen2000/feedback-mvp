@@ -1,6 +1,6 @@
 /**
  * 批量处理 SSE 路由
- * 提供批量生成学情反馈的 SSE 端点，支持并发控制和错误重试
+ * 提供批量生成学情反馈的 SSE 端点，支持并发控制、错误重试和停止功能
  */
 import { Router, Request, Response } from "express";
 import { setupSSEHeaders, sendSSEEvent, sendChunkedContent } from "../core/sseHelper";
@@ -13,6 +13,12 @@ const router = Router();
 
 // 最大重试次数
 const MAX_RETRIES = 1;
+
+// 活跃批次管理（用于停止功能）
+const activeBatches = new Map<string, {
+  pool: ConcurrencyPool<any>;
+  stopped: boolean;
+}>();
 
 /**
  * 生成批次 ID（格式：YYYYMMDD-HHmmss）
@@ -44,6 +50,40 @@ interface BatchTaskResult {
   url?: string;
   path?: string;
 }
+
+/**
+ * POST /api/batch/stop
+ * 停止批量处理
+ * 
+ * 请求参数：
+ * - batchId: 批次 ID
+ */
+router.post("/stop", async (req: Request, res: Response) => {
+  const { batchId } = req.body;
+
+  if (!batchId) {
+    res.status(400).json({ error: "缺少 batchId 参数" });
+    return;
+  }
+
+  const batch = activeBatches.get(batchId);
+  if (!batch) {
+    res.status(404).json({ error: "批次不存在或已完成" });
+    return;
+  }
+
+  console.log(`[BatchRoutes] 收到停止请求，批次 ID: ${batchId}`);
+  
+  // 标记为已停止并调用 pool.stop()
+  batch.stopped = true;
+  batch.pool.stop();
+
+  res.json({ 
+    success: true, 
+    message: "停止信号已发送，等待当前任务完成",
+    batchId 
+  });
+});
 
 /**
  * POST /api/batch/generate-stream
@@ -112,6 +152,13 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   // 获取 API 配置
   const config = await getAPIConfig();
 
+  // 创建并发池
+  const pool = new ConcurrencyPool<BatchTaskResult>(concurrencyNum);
+  pool.addTasks(taskNumbers);
+
+  // 注册到活跃批次（用于停止功能）
+  activeBatches.set(batchId, { pool, stopped: false });
+
   // 发送批次开始事件
   sendSSEEvent(res, "batch-start", {
     batchId,
@@ -125,10 +172,6 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   // 统计
   let completedCount = 0;
   let failedCount = 0;
-
-  // 创建并发池
-  const pool = new ConcurrencyPool<BatchTaskResult>(concurrencyNum);
-  pool.addTasks(taskNumbers);
 
   /**
    * 执行单个任务（带重试）
@@ -323,16 +366,25 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     // 执行所有任务
     await pool.execute(taskExecutor, onProgress, onComplete);
 
+    // 检查是否被停止
+    const batch = activeBatches.get(batchId);
+    const wasStopped = batch?.stopped || false;
+
     // 发送批次完成事件
     sendSSEEvent(res, "batch-complete", {
       batchId,
       totalTasks,
       completed: completedCount,
       failed: failedCount,
+      stopped: wasStopped,
       timestamp: Date.now(),
     });
 
-    console.log(`[BatchRoutes] 批次 ${batchId} 完成: ${completedCount} 成功, ${failedCount} 失败`);
+    if (wasStopped) {
+      console.log(`[BatchRoutes] 批次 ${batchId} 已停止: ${completedCount} 成功, ${failedCount} 失败`);
+    } else {
+      console.log(`[BatchRoutes] 批次 ${batchId} 完成: ${completedCount} 成功, ${failedCount} 失败`);
+    }
 
   } catch (error: any) {
     console.error(`[BatchRoutes] 批次执行失败:`, error.message);
@@ -343,6 +395,8 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       timestamp: Date.now(),
     });
   } finally {
+    // 清理活跃批次
+    activeBatches.delete(batchId);
     res.end();
   }
 });

@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { 
   Play, 
+  Square,
   Settings,
   FileText,
   FolderOpen,
@@ -37,6 +38,7 @@ interface BatchState {
   concurrency: number;
   completed: number;
   failed: number;
+  stopped?: boolean;
 }
 
 export function BatchProcess() {
@@ -51,6 +53,7 @@ export function BatchProcess() {
 
   // 生成状态
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [batchState, setBatchState] = useState<BatchState | null>(null);
   const [tasks, setTasks] = useState<Map<number, TaskState>>(new Map());
 
@@ -59,6 +62,44 @@ export function BatchProcess() {
   const completedTasks = Array.from(tasks.values()).filter(t => t.status === 'completed');
   const errorTasks = Array.from(tasks.values()).filter(t => t.status === 'error');
   const waitingTasks = Array.from(tasks.values()).filter(t => t.status === 'waiting');
+
+  // 停止处理
+  const handleStop = useCallback(async () => {
+    if (!batchState?.batchId) return;
+    
+    setIsStopping(true);
+    
+    try {
+      const response = await fetch('/api/batch/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: batchState.batchId }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        console.error('停止失败:', data.error);
+      } else {
+        console.log('停止信号已发送');
+        // 将等待中的任务标记为已取消（显示为灰色）
+        setTasks(prev => {
+          const newTasks = new Map(prev);
+          Array.from(newTasks.entries()).forEach(([taskNumber, task]) => {
+            if (task.status === 'waiting') {
+              newTasks.set(taskNumber, {
+                ...task,
+                status: 'error',
+                error: '已取消',
+              });
+            }
+          });
+          return newTasks;
+        });
+      }
+    } catch (error: any) {
+      console.error('停止请求失败:', error.message);
+    }
+  }, [batchState?.batchId]);
 
   const handleStart = useCallback(async () => {
     // 验证参数
@@ -91,6 +132,7 @@ export function BatchProcess() {
 
     // 重置状态
     setIsGenerating(true);
+    setIsStopping(false);
     setBatchState(null);
     setTasks(initialTasks);
 
@@ -213,6 +255,7 @@ export function BatchProcess() {
                   ...prev,
                   completed: data.completed,
                   failed: data.failed,
+                  stopped: data.stopped,
                 } : null);
               }
             } catch (e) {
@@ -227,6 +270,7 @@ export function BatchProcess() {
       alert(`批量处理失败: ${error.message}`);
     } finally {
       setIsGenerating(false);
+      setIsStopping(false);
     }
   }, [startNumber, endNumber, concurrency, roadmap, storagePath]);
 
@@ -320,7 +364,6 @@ export function BatchProcess() {
                 disabled={isGenerating}
               />
             </div>
-            
             <div className="space-y-2">
               <Label htmlFor="endNumber">结束任务编号</Label>
               <Input
@@ -333,7 +376,7 @@ export function BatchProcess() {
               />
             </div>
           </div>
-          
+
           {/* 并发数和存储路径 */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -348,26 +391,25 @@ export function BatchProcess() {
               />
               <p className="text-xs text-gray-500">同时处理的任务数量，建议3-5</p>
             </div>
-            
             <div className="space-y-2">
               <Label htmlFor="storagePath">存储路径</Label>
               <div className="flex gap-2">
                 <Input
                   id="storagePath"
+                  type="text"
                   placeholder="Google Drive 文件夹路径"
                   value={storagePath}
                   onChange={(e) => setStoragePath(e.target.value)}
-                  className="flex-1"
                   disabled={isGenerating}
                 />
-                <Button type="button" variant="outline" size="icon" disabled={isGenerating}>
+                <Button variant="outline" size="icon" disabled={isGenerating}>
                   <FolderOpen className="w-4 h-4" />
                 </Button>
               </div>
             </div>
           </div>
         </div>
-        
+
         {/* 路书输入区域 */}
         <div className="space-y-2">
           <Label htmlFor="roadmap" className="flex items-center gap-2">
@@ -389,13 +431,14 @@ export function BatchProcess() {
 
         {/* 批次状态概览 */}
         {batchState && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className={`border rounded-lg p-4 ${batchState.stopped ? 'bg-yellow-50 border-yellow-200' : 'bg-blue-50 border-blue-200'}`}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-blue-800">
+                <p className={`font-medium ${batchState.stopped ? 'text-yellow-800' : 'text-blue-800'}`}>
                   批次 {batchState.batchId}
+                  {batchState.stopped && <span className="ml-2 text-yellow-600">(已停止)</span>}
                 </p>
-                <p className="text-sm text-blue-600">
+                <p className={`text-sm ${batchState.stopped ? 'text-yellow-600' : 'text-blue-600'}`}>
                   共 {batchState.totalTasks} 个任务，并发 {batchState.concurrency}
                 </p>
               </div>
@@ -478,26 +521,48 @@ export function BatchProcess() {
           </div>
         )}
         
-        {/* 开始按钮 */}
-        <div className="flex justify-center pt-4">
-          <Button 
-            onClick={handleStart}
-            size="lg"
-            className="px-8"
-            disabled={isGenerating}
-          >
-            {isGenerating ? (
-              <>
+        {/* 按钮区域 */}
+        <div className="flex justify-center gap-4 pt-4">
+          {isGenerating ? (
+            <>
+              <Button 
+                onClick={handleStop}
+                size="lg"
+                variant="destructive"
+                className="px-8"
+                disabled={isStopping}
+              >
+                {isStopping ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    正在停止...
+                  </>
+                ) : (
+                  <>
+                    <Square className="w-5 h-5 mr-2" />
+                    停止
+                  </>
+                )}
+              </Button>
+              <Button 
+                size="lg"
+                className="px-8"
+                disabled
+              >
                 <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                 处理中...
-              </>
-            ) : (
-              <>
-                <Play className="w-5 h-5 mr-2" />
-                开始批量生成
-              </>
-            )}
-          </Button>
+              </Button>
+            </>
+          ) : (
+            <Button 
+              onClick={handleStart}
+              size="lg"
+              className="px-8"
+            >
+              <Play className="w-5 h-5 mr-2" />
+              开始批量生成
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
