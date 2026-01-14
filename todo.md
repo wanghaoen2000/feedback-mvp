@@ -470,3 +470,14 @@
 - [x] 复用现有 docx 库和生成逻辑
 - [x] 测试函数返回 Buffer
 - [x] Buffer 写入文件后 Word 打开正常
+
+
+## V46i: 批量任务 Google Drive 上传
+
+- [x] 修改 server/batch/batchRoutes.ts
+- [x] 在 task-complete 之前调用 batchWordGenerator 生成 Word 文档
+- [x] 创建批次文件夹（格式：YYYYMMDD-HHmmss）
+- [x] 上传到 {storagePath}/{batchId}/ 路径
+- [x] task-complete 事件包含 filename, url
+- [x] 复用 gdrive.ts 的上传逻辑
+- [x] 测试文件出现在 Google Drive 指定路径
