@@ -414,3 +414,11 @@
 - [x] 包含 invokeAIStream 函数
 - [x] 包含 getAPIConfig 函数
 - [x] pnpm build 无报错
+
+- [x] 创建 server/core/concurrencyPool.ts 模块
+- [x] 实现 ConcurrencyPool 类
+- [x] 包含 addTasks 方法
+- [x] 包含 execute 方法
+- [x] 包含 stop 方法
+- [x] pnpm build 无报错
+- [x] 简单测试通过
