@@ -459,3 +459,14 @@
 - [x] 事件类型判断用 event: 行（V45b 教训）
 - [x] currentEventType 在 while 外部声明（V45b 教训）
 - [x] 生成失败时显示错误信息
+
+
+## V46h: 批量任务 Word 文档生成
+
+- [x] 创建 server/batch/batchWordGenerator.ts
+- [x] 实现 generateBatchDocument(content, taskNumber, suggestedFilename?)
+- [x] 返回 { buffer: Buffer, filename: string }
+- [x] 文件名格式：任务01_xxx.docx（编号补零到2位）
+- [x] 复用现有 docx 库和生成逻辑
+- [x] 测试函数返回 Buffer
+- [x] Buffer 写入文件后 Word 打开正常
