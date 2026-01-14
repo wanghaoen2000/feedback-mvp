@@ -481,3 +481,14 @@
 - [x] task-complete 事件包含 filename, url
 - [x] 复用 gdrive.ts 的上传逻辑
 - [x] 测试文件出现在 Google Drive 指定路径
+
+
+## V46j: 后端整合并发池，支持多任务
+
+- [x] 修改 server/batch/batchRoutes.ts
+- [x] 请求参数改为 startNumber, endNumber, concurrency, roadmap, storagePath
+- [x] 使用 ConcurrencyPool 管理任务执行
+- [x] 为每个任务发送独立的 SSE 事件（带 taskNumber）
+- [x] 新增 batch-start 事件（totalTasks, concurrency）
+- [x] 新增 batch-complete 事件（completed, failed）
+- [x] 测试并发限制（同时只有 concurrency 个任务执行）
