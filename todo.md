@@ -667,3 +667,16 @@
 - [x] 修改文件命名逻辑使用前缀
 - [x] 测试验证：修改前缀为「生词表」，生成文件名为「生词表01.docx」「生词表02.docx」
 - [ ] 测试验证：刷新页面后前缀值保持（待验证）
+
+
+## Step 20: 存储路径默认值和持久化
+
+- [x] 后端：添加 batchStoragePath 配置到 DEFAULT_CONFIG
+- [x] 后端：config.getAll 返回 batchStoragePath
+- [x] 后端：config.update 支持 batchStoragePath 保存
+- [x] 前端：存储路径输入框有默认值 Mac(online)/Documents/XDF/批量任务
+- [x] 前端：修改后 onBlur 保存到数据库
+- [x] 前端：清空后恢复默认值
+- [x] 测试验证：首次打开页面显示默认值
+- [x] 测试验证：修改路径后刷新页面，路径保持
+- [x] 测试验证：清空路径后刷新，恢复默认值

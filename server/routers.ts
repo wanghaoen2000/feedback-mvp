@@ -48,6 +48,7 @@ const DEFAULT_CONFIG = {
   roadmap: "",
   driveBasePath: "Mac/Documents/XDF/学生档案",
   batchFilePrefix: "任务",
+  batchStoragePath: "Mac(online)/Documents/XDF/批量任务",
 };
 
 // 获取配置值（优先从数据库，否则用默认值）
@@ -147,6 +148,7 @@ export const appRouter = router({
       const classFirstLessonTemplate = await getConfig("classFirstLessonTemplate");
       const driveBasePath = await getConfig("driveBasePath");
       const batchFilePrefix = await getConfig("batchFilePrefix");
+      const batchStoragePath = await getConfig("batchStoragePath");
       
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
@@ -159,6 +161,7 @@ export const appRouter = router({
         classFirstLessonTemplate: classFirstLessonTemplate || "",
         driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
         batchFilePrefix: batchFilePrefix || DEFAULT_CONFIG.batchFilePrefix,
+        batchStoragePath: batchStoragePath || DEFAULT_CONFIG.batchStoragePath,
         // 返回是否使用默认值
         isDefault: {
           apiModel: !apiModel,
@@ -167,6 +170,7 @@ export const appRouter = router({
           currentYear: !currentYear,
           driveBasePath: !driveBasePath,
           batchFilePrefix: !batchFilePrefix,
+          batchStoragePath: !batchStoragePath,
         }
       };
     }),
@@ -184,6 +188,7 @@ export const appRouter = router({
         classFirstLessonTemplate: z.string().optional(),
         driveBasePath: z.string().optional(),
         batchFilePrefix: z.string().optional(),
+        batchStoragePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -244,6 +249,19 @@ export const appRouter = router({
         if (input.batchFilePrefix !== undefined) {
           await setConfig("batchFilePrefix", input.batchFilePrefix.trim() || DEFAULT_CONFIG.batchFilePrefix, "批量处理文件名前缀");
           updates.push("batchFilePrefix");
+        }
+        
+        if (input.batchStoragePath !== undefined && input.batchStoragePath.trim()) {
+          // 验证路径格式：不能以/开头或结尾
+          let path = input.batchStoragePath.trim();
+          if (path.startsWith('/')) {
+            path = path.slice(1);
+          }
+          if (path.endsWith('/')) {
+            path = path.slice(0, -1);
+          }
+          await setConfig("batchStoragePath", path, "批量处理存储路径");
+          updates.push("batchStoragePath");
         }
         
         return {

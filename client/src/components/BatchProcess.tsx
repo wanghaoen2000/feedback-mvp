@@ -47,7 +47,8 @@ export function BatchProcess() {
   const [startNumber, setStartNumber] = useState("");
   const [endNumber, setEndNumber] = useState("");
   const [concurrency, setConcurrency] = useState("5");
-  const [storagePath, setStoragePath] = useState("");
+  const [storagePath, setStoragePath] = useState("Mac(online)/Documents/XDF/批量任务");
+  const [isPathSaving, setIsPathSaving] = useState(false);
   const [filePrefix, setFilePrefix] = useState("任务");
   const [isPrefixSaving, setIsPrefixSaving] = useState(false);
 
@@ -55,12 +56,19 @@ export function BatchProcess() {
   const { data: config } = trpc.config.getAll.useQuery();
   const updateConfig = trpc.config.update.useMutation();
 
-  // 加载配置后更新前缀
+  // 加载配置后更新前缀和存储路径
   useEffect(() => {
     if (config?.batchFilePrefix) {
       setFilePrefix(config.batchFilePrefix);
     }
   }, [config?.batchFilePrefix]);
+
+  useEffect(() => {
+    // 如果数据库有保存的路径，使用保存的值；否则保持默认值
+    if (config?.batchStoragePath) {
+      setStoragePath(config.batchStoragePath);
+    }
+  }, [config?.batchStoragePath]);
   
   // 路书内容
   const [roadmap, setRoadmap] = useState("");
@@ -444,12 +452,34 @@ export function BatchProcess() {
                 placeholder="Google Drive 文件夹路径"
                 value={storagePath}
                 onChange={(e) => setStoragePath(e.target.value)}
+                onBlur={async () => {
+                  const trimmedPath = storagePath.trim();
+                  // 如果为空，恢复默认值
+                  if (!trimmedPath) {
+                    setStoragePath("Mac(online)/Documents/XDF/批量任务");
+                    return;
+                  }
+                  // 如果值有变化，保存到数据库
+                  if (trimmedPath !== config?.batchStoragePath) {
+                    setIsPathSaving(true);
+                    try {
+                      await updateConfig.mutateAsync({ batchStoragePath: trimmedPath });
+                    } catch (e) {
+                      console.error('保存存储路径失败:', e);
+                    } finally {
+                      setIsPathSaving(false);
+                    }
+                  }
+                }}
                 disabled={isGenerating}
               />
               <Button variant="outline" size="icon" disabled={isGenerating}>
                 <FolderOpen className="w-4 h-4" />
               </Button>
             </div>
+            <p className="text-xs text-gray-500">
+              {isPathSaving ? '保存中...' : '文件将上传到此 Google Drive 路径'}
+            </p>
           </div>
         </div>
 
