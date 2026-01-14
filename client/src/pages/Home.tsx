@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { BatchProcess } from "@/components/BatchProcess";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -2562,24 +2563,7 @@ export default function Home() {
 
           {/* 批量处理 Tab 内容 */}
           <TabsContent value="batch">
-            <Card className="shadow-xl">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="w-5 h-5 text-blue-600" />
-                  批量处理
-                </CardTitle>
-                <CardDescription>
-                  批量生成多个学生的学情反馈文档
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12 text-gray-500">
-                  <Users className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                  <p className="text-lg">批量处理功能开发中...</p>
-                  <p className="text-sm mt-2">敬请期待</p>
-                </div>
-              </CardContent>
-            </Card>
+            <BatchProcess />
           </TabsContent>
         </Tabs>
       </div>
