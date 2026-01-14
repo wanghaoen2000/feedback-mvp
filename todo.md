@@ -435,3 +435,15 @@
 - [x] 包含开始按钮
 - [x] 在 Home.tsx 中引入组件
 - [x] UI布局合理，风格一致
+
+
+## V46f: 批量处理 SSE 端点（单任务版本）
+
+- [x] 创建 server/batch/batchRoutes.ts
+- [x] 实现 POST /api/batch/generate-stream 端点
+- [x] 使用 sseHelper.ts 设置响应头、发送事件
+- [x] 使用 aiClient.ts 调用 AI
+- [x] SSE 事件：task-start, task-progress, task-complete
+- [x] 在 server/index.ts 注册路由
+- [x] curl 测试端点正常工作
+- [x] pnpm build 无报错

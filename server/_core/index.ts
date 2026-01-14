@@ -5,6 +5,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerClassStreamRoutes } from "../classStreamRoutes";
+import batchRoutes from "../batch/batchRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -44,6 +45,8 @@ async function startServer() {
   registerOAuthRoutes(app);
   // SSE 端点：小班课学情反馈流式生成
   registerClassStreamRoutes(app);
+  // 批量处理 SSE 端点
+  app.use("/api/batch", batchRoutes);
   // tRPC API - 设置请求超时为15分钟
   app.use(
     "/api/trpc",
