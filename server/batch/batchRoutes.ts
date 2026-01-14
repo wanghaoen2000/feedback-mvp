@@ -6,6 +6,7 @@ import { Router, Request, Response } from "express";
 import { setupSSEHeaders, sendSSEEvent, sendChunkedContent } from "../core/sseHelper";
 import { invokeAIStream, getAPIConfig } from "../core/aiClient";
 import { generateBatchDocument } from "./batchWordGenerator";
+import { generateWordListDocx, WordListData } from "../templates/wordCardTemplate";
 import { uploadBinaryToGoogleDrive } from "../gdrive";
 import { ConcurrencyPool, TaskResult } from "../core/concurrencyPool";
 
@@ -105,7 +106,8 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     concurrency = 5, 
     roadmap, 
     storagePath,
-    filePrefix = '任务'
+    filePrefix = '任务',
+    templateType = 'default'
   } = req.body;
 
   // 参数验证
@@ -146,6 +148,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   console.log(`[BatchRoutes] 批次 ID: ${batchId}`);
   console.log(`[BatchRoutes] 任务范围: ${start} - ${end} (共 ${totalTasks} 个)`);
   console.log(`[BatchRoutes] 并发数: ${concurrencyNum}`);
+  console.log(`[BatchRoutes] 模板类型: ${templateType}`);
   console.log(`[BatchRoutes] 路书长度: ${roadmap.length} 字符`);
   console.log(`[BatchRoutes] 存储路径: ${storagePath || "(未指定)"}`);
   console.log(`[BatchRoutes] 文件名前缀: ${filePrefix}`);
@@ -271,8 +274,30 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       timestamp: Date.now(),
     });
 
-    const { buffer, filename } = await generateBatchDocument(content, taskNumber, filePrefix);
-    console.log(`[BatchRoutes] 任务 ${taskNumber} Word 文档生成完成: ${filename}`);
+    let buffer: Buffer;
+    let filename: string;
+
+    if (templateType === 'wordCard') {
+      // 词汇卡片模板：解析 JSON 并调用精确排版模板
+      try {
+        const jsonData = JSON.parse(content) as WordListData;
+        buffer = await generateWordListDocx(jsonData);
+        // 文件名使用前缀 + 任务编号
+        const taskNumStr = taskNumber.toString().padStart(2, '0');
+        const prefix = filePrefix.trim() || '任务';
+        filename = `${prefix}${taskNumStr}.docx`;
+        console.log(`[BatchRoutes] 任务 ${taskNumber} 词汇卡片生成完成: ${filename}`);
+      } catch (parseError: any) {
+        console.error(`[BatchRoutes] 任务 ${taskNumber} JSON 解析失败:`, parseError.message);
+        throw new Error(`AI返回的内容不是有效的JSON格式: ${parseError.message}`);
+      }
+    } else {
+      // 默认模板：Markdown 转 Word
+      const result = await generateBatchDocument(content, taskNumber, filePrefix);
+      buffer = result.buffer;
+      filename = result.filename;
+      console.log(`[BatchRoutes] 任务 ${taskNumber} Word 文档生成完成: ${filename}`);
+    }
 
     // 上传到 Google Drive（如果指定了存储路径）
     let uploadUrl: string | undefined;

@@ -699,3 +699,12 @@
 - [x] 默认选中「通用文档」
 - [x] 状态变量 templateType 存储选中值
 - [x] 发送请求时传递 templateType 给后端
+
+
+## V47c: 后端根据模板类型选择Word生成方式
+
+- [x] 从请求参数获取 templateType
+- [x] templateType="wordCard" 时解析 JSON 并调用 generateWordListDocx
+- [x] templateType="default" 时使用原有 Markdown 转 Word 逻辑
+- [x] JSON 解析失败时返回错误信息
+- [x] pnpm build 无报错
