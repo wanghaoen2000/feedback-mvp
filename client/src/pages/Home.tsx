@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -1551,6 +1552,21 @@ export default function Home() {
           <p className="text-gray-600">输入课堂信息，自动生成5个文档并存储到Google Drive</p>
         </div>
 
+        {/* 大分页 Tab 切换 */}
+        <Tabs defaultValue="classroom" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-6">
+            <TabsTrigger value="classroom" className="text-base py-2">
+              <FileText className="w-4 h-4 mr-2" />
+              课堂反馈
+            </TabsTrigger>
+            <TabsTrigger value="batch" className="text-base py-2">
+              <Users className="w-4 h-4 mr-2" />
+              批量处理
+            </TabsTrigger>
+          </TabsList>
+
+          {/* 课堂反馈 Tab 内容 */}
+          <TabsContent value="classroom">
         <Card className="shadow-xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -2542,6 +2558,30 @@ export default function Home() {
           <p className="mt-1">文档将按照V9路书规范格式化，并自动存储到Google Drive对应文件夹</p>
           <p className="mt-1">日期信息将从课堂笔记中自动提取，无需手动填写</p>
         </div>
+          </TabsContent>
+
+          {/* 批量处理 Tab 内容 */}
+          <TabsContent value="batch">
+            <Card className="shadow-xl">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-blue-600" />
+                  批量处理
+                </CardTitle>
+                <CardDescription>
+                  批量生成多个学生的学情反馈文档
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-12 text-gray-500">
+                  <Users className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                  <p className="text-lg">批量处理功能开发中...</p>
+                  <p className="text-sm mt-2">敬请期待</p>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
