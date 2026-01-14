@@ -1,6 +1,6 @@
 /**
  * 批量处理 SSE 路由
- * 提供批量生成学情反馈的 SSE 端点，支持并发控制
+ * 提供批量生成学情反馈的 SSE 端点，支持并发控制和错误重试
  */
 import { Router, Request, Response } from "express";
 import { setupSSEHeaders, sendSSEEvent, sendChunkedContent } from "../core/sseHelper";
@@ -10,6 +10,9 @@ import { uploadBinaryToGoogleDrive } from "../gdrive";
 import { ConcurrencyPool, TaskResult } from "../core/concurrencyPool";
 
 const router = Router();
+
+// 最大重试次数
+const MAX_RETRIES = 1;
 
 /**
  * 生成批次 ID（格式：YYYYMMDD-HHmmss）
@@ -23,6 +26,13 @@ function generateBatchId(): string {
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const seconds = String(now.getSeconds()).padStart(2, '0');
   return `${year}${month}${day}-${hours}${minutes}${seconds}`;
+}
+
+/**
+ * 延迟函数
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -120,21 +130,48 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   const pool = new ConcurrencyPool<BatchTaskResult>(concurrencyNum);
   pool.addTasks(taskNumbers);
 
-  // 任务执行器
-  const taskExecutor = async (
+  /**
+   * 执行单个任务（带重试）
+   */
+  const executeTaskWithRetry = async (
+    taskNumber: number,
+    onProgress: (chars: number) => void,
+    retryCount: number = 0
+  ): Promise<BatchTaskResult> => {
+    try {
+      return await executeTask(taskNumber, onProgress);
+    } catch (error: any) {
+      if (retryCount < MAX_RETRIES) {
+        console.log(`[BatchRoutes] 任务 ${taskNumber} 失败，正在重试 (${retryCount + 1}/${MAX_RETRIES})...`);
+        
+        // 发送重试事件
+        sendSSEEvent(res, "task-retry", {
+          taskNumber,
+          batchId,
+          retryCount: retryCount + 1,
+          maxRetries: MAX_RETRIES,
+          error: error.message || "未知错误",
+          timestamp: Date.now(),
+        });
+
+        // 等待1秒后重试
+        await delay(1000);
+        
+        return executeTaskWithRetry(taskNumber, onProgress, retryCount + 1);
+      }
+      
+      // 重试次数用尽，抛出错误
+      throw error;
+    }
+  };
+
+  /**
+   * 执行单个任务（核心逻辑）
+   */
+  const executeTask = async (
     taskNumber: number,
     onProgress: (chars: number) => void
   ): Promise<BatchTaskResult> => {
-    console.log(`[BatchRoutes] 任务 ${taskNumber} 开始执行`);
-
-    // 发送任务开始事件
-    sendSSEEvent(res, "task-start", {
-      taskNumber,
-      batchId,
-      message: `任务 ${taskNumber} 开始处理`,
-      timestamp: Date.now(),
-    });
-
     // 构建用户消息
     const userMessage = `这是任务编号 ${taskNumber}，请按照路书要求生成内容。`;
 
@@ -162,6 +199,11 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       },
       { config }
     );
+
+    // 检查内容是否有效
+    if (!content || content.length === 0) {
+      throw new Error("AI 返回内容为空");
+    }
 
     // 发送最终进度
     if (content.length !== lastReportedChars) {
@@ -207,7 +249,8 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
         uploadPath = uploadResult.path;
         console.log(`[BatchRoutes] 任务 ${taskNumber} 上传成功`);
       } else {
-        console.error(`[BatchRoutes] 任务 ${taskNumber} 上传失败: ${uploadResult.error}`);
+        // 上传失败也抛出错误，触发重试
+        throw new Error(`上传失败: ${uploadResult.error}`);
       }
     }
 
@@ -217,6 +260,25 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       url: uploadUrl,
       path: uploadPath,
     };
+  };
+
+  // 任务执行器（包装重试逻辑）
+  const taskExecutor = async (
+    taskNumber: number,
+    onProgress: (chars: number) => void
+  ): Promise<BatchTaskResult> => {
+    console.log(`[BatchRoutes] 任务 ${taskNumber} 开始执行`);
+
+    // 发送任务开始事件
+    sendSSEEvent(res, "task-start", {
+      taskNumber,
+      batchId,
+      message: `任务 ${taskNumber} 开始处理`,
+      timestamp: Date.now(),
+    });
+
+    // 执行任务（带重试）
+    return executeTaskWithRetry(taskNumber, onProgress);
   };
 
   // 进度回调
@@ -244,15 +306,16 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     } else {
       failedCount++;
 
-      // 发送任务错误事件
+      // 发送任务错误事件（重试后仍失败）
       sendSSEEvent(res, "task-error", {
         taskNumber,
         batchId,
         error: result.error?.message || "未知错误",
+        retriesExhausted: true,
         timestamp: Date.now(),
       });
 
-      console.error(`[BatchRoutes] 任务 ${taskNumber} 失败: ${result.error?.message}`);
+      console.error(`[BatchRoutes] 任务 ${taskNumber} 最终失败: ${result.error?.message}`);
     }
   };
 
