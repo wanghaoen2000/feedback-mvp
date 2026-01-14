@@ -62,13 +62,13 @@ export async function generateBatchDocument(
   const taskNumStr = formatTaskNumber(taskNumber);
   const filename = suggestedFilename 
     ? `任务${taskNumStr}_${suggestedFilename}.docx`
-    : `任务${taskNumStr}_学情反馈.docx`;
+    : `任务${taskNumStr}.docx`;
   
   // 构建文档内容
   const children: Paragraph[] = [];
   
   // 添加标题
-  const title = suggestedFilename || `任务 ${taskNumber} 学情反馈`;
+  const title = suggestedFilename || `任务 ${taskNumber}`;
   children.push(
     new Paragraph({
       children: [new TextRun({ text: title, bold: true, size: 32 })],

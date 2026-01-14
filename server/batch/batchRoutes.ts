@@ -1,6 +1,6 @@
 /**
  * 批量处理 SSE 路由
- * 提供批量生成学情反馈的 SSE 端点，支持并发控制、错误重试和停止功能
+ * 提供批量生成文档的 SSE 端点，支持并发控制、错误重试和停止功能
  */
 import { Router, Request, Response } from "express";
 import { setupSSEHeaders, sendSSEEvent, sendChunkedContent } from "../core/sseHelper";
