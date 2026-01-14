@@ -21,16 +21,18 @@ const activeBatches = new Map<string, {
 }>();
 
 /**
- * 生成批次 ID（格式：YYYYMMDD-HHmmss）
+ * 生成批次 ID（格式：YYYYMMDD-HHmmss，使用北京时间 UTC+8）
  */
 function generateBatchId(): string {
+  // 使用北京时间 (UTC+8)
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const beijingTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const year = beijingTime.getUTCFullYear();
+  const month = String(beijingTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(beijingTime.getUTCDate()).padStart(2, '0');
+  const hours = String(beijingTime.getUTCHours()).padStart(2, '0');
+  const minutes = String(beijingTime.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(beijingTime.getUTCSeconds()).padStart(2, '0');
   return `${year}${month}${day}-${hours}${minutes}${seconds}`;
 }
 
