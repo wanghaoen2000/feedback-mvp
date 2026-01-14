@@ -283,42 +283,26 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       });
 
       const folderPath = `${storagePath}/${batchId}`;
-      console.log(`[BATCH DEBUG] 任务 ${taskNumber} 准备上传:`, { 
-        filename, 
-        batchId, 
-        storagePath,
-        folderPath,
-        bufferSize: buffer.length 
-      });
+      console.log(`[BatchRoutes] 任务 ${taskNumber} 上传到: ${folderPath}/${filename}`);
 
       const uploadResult = await uploadBinaryToGoogleDrive(buffer, filename, folderPath);
-      console.log(`[BATCH DEBUG] 任务 ${taskNumber} 上传结果:`, JSON.stringify(uploadResult, null, 2));
 
       if (uploadResult.status === 'success') {
         uploadUrl = uploadResult.url;
         uploadPath = uploadResult.path;
-        console.log(`[BATCH DEBUG] 任务 ${taskNumber} 上传成功, URL: ${uploadUrl}`);
+        console.log(`[BatchRoutes] 任务 ${taskNumber} 上传成功`);
       } else {
         // 上传失败也抛出错误，触发重试
         throw new Error(`上传失败: ${uploadResult.error}`);
       }
-    } else {
-      console.log(`[BATCH DEBUG] 任务 ${taskNumber} 未指定 storagePath，跳过上传`);
     }
 
-    const result = {
+    return {
       content,
       filename,
       url: uploadUrl,
       path: uploadPath,
     };
-    console.log(`[BATCH DEBUG] 任务 ${taskNumber} 返回结果:`, { 
-      filename: result.filename, 
-      url: result.url, 
-      path: result.path,
-      contentLength: result.content.length 
-    });
-    return result;
   };
 
   // 任务执行器（包装重试逻辑）
@@ -351,7 +335,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       completedCount++;
       
       // 发送任务完成事件
-      const completeData = {
+      sendSSEEvent(res, "task-complete", {
         taskNumber,
         batchId,
         chars: result.result.content.length,
@@ -359,9 +343,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
         url: result.result.url,
         path: result.result.path,
         timestamp: Date.now(),
-      };
-      console.log(`[BATCH DEBUG] 任务 ${taskNumber} complete事件数据:`, JSON.stringify(completeData, null, 2));
-      sendSSEEvent(res, "task-complete", completeData);
+      });
 
       console.log(`[BatchRoutes] 任务 ${taskNumber} 完成 (${completedCount}/${totalTasks})`);
     } else {
