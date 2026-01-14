@@ -7,7 +7,7 @@ import { setupSSEHeaders, sendSSEEvent, sendChunkedContent } from "../core/sseHe
 import { invokeAIStream, getAPIConfig } from "../core/aiClient";
 import { generateBatchDocument } from "./batchWordGenerator";
 import { generateWordListDocx, WordListData } from "../templates/wordCardTemplate";
-import { uploadBinaryToGoogleDrive } from "../gdrive";
+import { uploadBinaryToGoogleDrive, ensureFolderExists } from "../gdrive";
 import { ConcurrencyPool, TaskResult } from "../core/concurrencyPool";
 
 const router = Router();
@@ -176,6 +176,26 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     timestamp: Date.now(),
   });
 
+  // 预创建批次文件夹（避免并发任务竞争创建）
+  let batchFolderPath: string | undefined;
+  if (storagePath) {
+    batchFolderPath = `${storagePath}/${batchId}`;
+    console.log(`[BatchRoutes] 预创建批次文件夹: ${batchFolderPath}`);
+    
+    const folderResult = await ensureFolderExists(batchFolderPath);
+    if (!folderResult.success) {
+      console.error(`[BatchRoutes] 创建批次文件夹失败: ${folderResult.error}`);
+      sendSSEEvent(res, "batch-error", {
+        batchId,
+        error: `创建批次文件夹失败: ${folderResult.error}`,
+        timestamp: Date.now(),
+      });
+      res.end();
+      return;
+    }
+    console.log(`[BatchRoutes] 批次文件夹创建成功`);
+  }
+
   // 统计
   let completedCount = 0;
   let failedCount = 0;
@@ -315,7 +335,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     let uploadUrl: string | undefined;
     let uploadPath: string | undefined;
 
-    if (storagePath) {
+    if (batchFolderPath) {
       sendSSEEvent(res, "task-progress", {
         taskNumber,
         chars: content.length,
@@ -323,10 +343,10 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
         timestamp: Date.now(),
       });
 
-      const folderPath = `${storagePath}/${batchId}`;
-      console.log(`[BatchRoutes] 任务 ${taskNumber} 上传到: ${folderPath}/${filename}`);
+      // 使用预创建的批次文件夹路径（避免并发竞争）
+      console.log(`[BatchRoutes] 任务 ${taskNumber} 上传到: ${batchFolderPath}/${filename}`);
 
-      const uploadResult = await uploadBinaryToGoogleDrive(buffer, filename, folderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(buffer, filename, batchFolderPath);
 
       if (uploadResult.status === 'success') {
         uploadUrl = uploadResult.url;

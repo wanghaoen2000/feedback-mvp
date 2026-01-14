@@ -47,7 +47,7 @@ export async function verifyFileExists(filePath: string): Promise<{ exists: bool
 /**
  * 使用OAuth创建或获取文件夹ID
  */
-async function getOrCreateFolderWithOAuth(folderPath: string, token: string): Promise<string> {
+export async function getOrCreateFolderWithOAuth(folderPath: string, token: string): Promise<string> {
   const parts = folderPath.split('/').filter(p => p);
   let parentId = 'root';
   
@@ -504,4 +504,37 @@ export async function verifyAllFiles(filePaths: string[]): Promise<{
     allExist: results.every(r => r.exists),
     results,
   };
+}
+
+
+/**
+ * 预创建 Google Drive 文件夹（用于批量任务开始前）
+ * 确保文件夹存在，避免并发创建时的竞争条件
+ */
+export async function ensureFolderExists(folderPath: string): Promise<{ success: boolean; folderId?: string; error?: string }> {
+  try {
+    // 尝试使用 OAuth
+    const token = await getValidToken();
+    if (token) {
+      console.log(`[GDrive] 使用OAuth预创建文件夹: ${folderPath}`);
+      const folderId = await getOrCreateFolderWithOAuth(folderPath, token);
+      console.log(`[GDrive] 文件夹创建成功，ID: ${folderId}`);
+      return { success: true, folderId };
+    }
+  } catch (oauthError) {
+    console.log(`[GDrive] OAuth创建文件夹失败，尝试rclone: ${oauthError}`);
+  }
+
+  // Fallback 到 rclone
+  try {
+    console.log(`[GDrive] 使用rclone预创建文件夹: ${folderPath}`);
+    const mkdirCmd = `rclone mkdir "${REMOTE_NAME}:${folderPath}" --config ${RCLONE_CONFIG}`;
+    await execAsync(mkdirCmd);
+    console.log(`[GDrive] 文件夹创建成功（rclone）`);
+    return { success: true };
+  } catch (rcloneError) {
+    const errorMsg = rcloneError instanceof Error ? rcloneError.message : String(rcloneError);
+    console.error(`[GDrive] 创建文件夹失败: ${errorMsg}`);
+    return { success: false, error: errorMsg };
+  }
 }
