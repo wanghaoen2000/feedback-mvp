@@ -409,3 +409,8 @@
 - [x] 包含 sendChunkedContent 函数
 - [x] 响应头包含 X-Accel-Buffering: no
 - [x] pnpm build 无报错
+
+- [x] 创建 server/core/aiClient.ts 模块
+- [x] 包含 invokeAIStream 函数
+- [x] 包含 getAPIConfig 函数
+- [x] pnpm build 无报错

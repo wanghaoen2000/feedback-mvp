@@ -1,0 +1,222 @@
+/**
+ * AI 调用模块
+ * 封装 AI API 调用，提供统一的接口
+ */
+import { getDb } from "../db";
+import { systemConfig } from "../../drizzle/schema";
+import { eq } from "drizzle-orm";
+
+// 默认配置值
+const DEFAULT_CONFIG = {
+  apiModel: "claude-sonnet-4-5-20250929",
+  apiKey: process.env.WHATAI_API_KEY || "sk-WyfaRl3qxKk8gpaptVWUfe1ZiJYQg0Vqjd7nscsZMT4l0c9U",
+  apiUrl: "https://www.DMXapi.com/v1",
+  currentYear: "2026",
+  roadmap: "",
+  roadmapClass: "",
+  driveBasePath: "Mac/Documents/XDF/学生档案",
+};
+
+/**
+ * API 配置接口
+ */
+export interface APIConfig {
+  apiModel: string;
+  apiKey: string;
+  apiUrl: string;
+  roadmap?: string;
+  roadmapClass?: string;
+  driveBasePath?: string;
+  currentYear?: string;
+}
+
+/**
+ * 从数据库读取单个配置值
+ */
+async function getConfigValue(key: string): Promise<string> {
+  try {
+    const db = await getDb();
+    if (!db) return DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] || "";
+    const result = await db.select().from(systemConfig).where(eq(systemConfig.key, key)).limit(1);
+    if (result.length > 0 && result[0].value) {
+      return result[0].value;
+    }
+  } catch (e) {
+    console.error(`获取配置 ${key} 失败:`, e);
+  }
+  return DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] || "";
+}
+
+/**
+ * 获取完整的 API 配置
+ * 从数据库读取所有 API 相关配置
+ */
+export async function getAPIConfig(): Promise<APIConfig> {
+  const [apiModel, apiKey, apiUrl, roadmap, roadmapClass, driveBasePath, currentYear] = await Promise.all([
+    getConfigValue("apiModel"),
+    getConfigValue("apiKey"),
+    getConfigValue("apiUrl"),
+    getConfigValue("roadmap"),
+    getConfigValue("roadmapClass"),
+    getConfigValue("driveBasePath"),
+    getConfigValue("currentYear"),
+  ]);
+
+  return {
+    apiModel: apiModel || DEFAULT_CONFIG.apiModel,
+    apiKey: apiKey || DEFAULT_CONFIG.apiKey,
+    apiUrl: apiUrl || DEFAULT_CONFIG.apiUrl,
+    roadmap,
+    roadmapClass,
+    driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
+    currentYear: currentYear || DEFAULT_CONFIG.currentYear,
+  };
+}
+
+/**
+ * 延迟函数
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 流式调用 AI API
+ * @param systemPrompt 系统提示词
+ * @param userMessage 用户消息
+ * @param onProgress 进度回调，参数为当前累计字符数
+ * @param options 可选参数
+ * @returns 完整的 AI 响应内容
+ */
+export async function invokeAIStream(
+  systemPrompt: string,
+  userMessage: string,
+  onProgress?: (chars: number) => void,
+  options?: {
+    config?: APIConfig;
+    maxTokens?: number;
+    temperature?: number;
+    timeout?: number;
+    retries?: number;
+  }
+): Promise<string> {
+  // 获取配置
+  const config = options?.config || await getAPIConfig();
+  const maxTokens = options?.maxTokens || 32000;
+  const temperature = options?.temperature ?? 0.7;
+  const timeout = options?.timeout || 600000; // 默认10分钟
+  const maxRetries = options?.retries ?? 2;
+
+  const messages = [
+    { role: "system" as const, content: systemPrompt },
+    { role: "user" as const, content: userMessage },
+  ];
+
+  console.log(`[AIClient] 调用模型: ${config.apiModel}`);
+  console.log(`[AIClient] API地址: ${config.apiUrl}`);
+  console.log(`[AIClient] System prompt长度: ${systemPrompt.length}`);
+  console.log(`[AIClient] User message长度: ${userMessage.length}`);
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      console.log(`[AIClient] 第${attempt}次重试...`);
+      await delay(2000 * attempt);
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+      const response = await fetch(`${config.apiUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.apiModel,
+          messages,
+          max_tokens: maxTokens,
+          temperature,
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[AIClient] API错误: ${response.status} - ${errorText}`);
+
+        if (response.status === 403 || response.status === 401) {
+          throw new Error(`AI API错误: ${response.status} - ${errorText}`);
+        }
+
+        lastError = new Error(`AI API错误: ${response.status} - ${errorText}`);
+        continue;
+      }
+
+      // 读取流式响应
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("无法获取响应流");
+      }
+
+      const decoder = new TextDecoder();
+      let fullContent = "";
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // 处理 SSE 格式的数据
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              const content = parsed.choices?.[0]?.delta?.content || "";
+              if (content) {
+                fullContent += content;
+                if (onProgress) {
+                  onProgress(fullContent.length);
+                }
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+
+      console.log(`[AIClient] 响应完成，内容长度: ${fullContent.length}字符`);
+      return fullContent;
+
+    } catch (error: any) {
+      console.error(`[AIClient] 请求失败 (尝试 ${attempt + 1}/${maxRetries + 1}):`, error.message);
+
+      if (error.name === "AbortError") {
+        lastError = new Error(`请求超时（${timeout / 1000}秒）`);
+      } else {
+        lastError = error;
+      }
+
+      if (error.message?.includes("403") || error.message?.includes("401")) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error("AI API调用失败");
+}
