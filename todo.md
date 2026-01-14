@@ -690,3 +690,12 @@
 - [x] 修复 Bookmark API 兼容性（docx 9.5.1 版本）
 - [x] pnpm build 无报错
 - [x] generateWordListDocx 函数可被其他文件 import
+
+
+## V47b: 批量处理界面添加模板类型选择
+
+- [x] 在「基本设置」区域添加「模板类型」下拉选择
+- [x] 选项：通用文档（default）、词汇卡片（wordCard）
+- [x] 默认选中「通用文档」
+- [x] 状态变量 templateType 存储选中值
+- [x] 发送请求时传递 templateType 给后端
