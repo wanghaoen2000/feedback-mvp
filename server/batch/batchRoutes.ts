@@ -354,21 +354,50 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       }
     } else if (templateType === 'writing_material') {
       // 写作素材模板：解析 JSON 并调用写作素材模板
+      console.log(`[BatchRoutes] 任务 ${taskNumber} 进入 writing_material 分支`);
+      console.log(`[BatchRoutes] AI输出前100字符: ${content.substring(0, 100)}`);
       try {
         // 清理可能的 Markdown 代码块标记（AI 有时会输出 ```json ... ``` 包裹的 JSON）
         let cleanContent = content.trim();
+        
+        // 方法1：去掉开头的 ```json 或 ```
         if (cleanContent.startsWith('```json')) {
-          cleanContent = cleanContent.slice(7); // 去掉 ```json
+          cleanContent = cleanContent.slice(7);
         } else if (cleanContent.startsWith('```')) {
-          cleanContent = cleanContent.slice(3); // 去掉 ```
+          cleanContent = cleanContent.slice(3);
         }
+        // 去掉结尾的 ```
         if (cleanContent.endsWith('```')) {
-          cleanContent = cleanContent.slice(0, -3); // 去掉结尾的 ```
+          cleanContent = cleanContent.slice(0, -3);
         }
         cleanContent = cleanContent.trim();
         
+        // 方法2：如果还不是以 { 开头，尝试提取 JSON
+        if (!cleanContent.startsWith('{')) {
+          console.log(`[BatchRoutes] 内容不是以 { 开头，尝试提取 JSON`);
+          // 尝试从 markdown 代码块中提取
+          const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+          if (jsonMatch) {
+            cleanContent = jsonMatch[1].trim();
+            console.log(`[BatchRoutes] 从代码块提取到 JSON`);
+          } else {
+            // 尝试提取 { 到 } 的内容
+            const braceMatch = content.match(/\{[\s\S]*\}/);
+            if (braceMatch) {
+              cleanContent = braceMatch[0];
+              console.log(`[BatchRoutes] 从大括号提取到 JSON`);
+            }
+          }
+        }
+        
+        console.log(`[BatchRoutes] 清理后内容前100字符: ${cleanContent.substring(0, 100)}`);
+        
         const jsonData = JSON.parse(cleanContent) as WritingMaterialData;
+        console.log(`[BatchRoutes] JSON 解析成功，调用 generateWritingMaterialDocx`);
+        
         buffer = await generateWritingMaterialDocx(jsonData);
+        console.log(`[BatchRoutes] generateWritingMaterialDocx 返回 buffer 大小: ${buffer.length}`);
+        
         // 文件名：优先使用自定义文件名
         if (customName) {
           filename = `${customName}.docx`;
@@ -380,6 +409,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
         console.log(`[BatchRoutes] 任务 ${taskNumber} 写作素材生成完成: ${filename}`);
       } catch (parseError: any) {
         console.error(`[BatchRoutes] 任务 ${taskNumber} 写作素材 JSON 解析失败:`, parseError.message);
+        console.error(`[BatchRoutes] AI原始输出: ${content.substring(0, 500)}`);
         throw new Error(`AI返回的内容不是有效的JSON格式: ${parseError.message}`);
       }
     } else if (templateType === 'markdown_file') {
