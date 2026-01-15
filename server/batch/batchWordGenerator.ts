@@ -300,28 +300,35 @@ const STYLE_CONFIG = {
 };
 
 /**
- * 生成批量任务的 Word 文档
- * @param content Markdown 或纯文本内容
+ * 生成批量文档
+ * @param content Markdown 文本内容
  * @param taskNumber 任务编号
  * @param filePrefix 文件名前缀（默认为"任务"）
  * @param useStyled 是否使用带样式的模板（默认为 true）
+ * @param customFilename 可选：自定义文件名（不含扩展名）
  * @returns { buffer: Buffer, filename: string }
  */
 export async function generateBatchDocument(
   content: string,
   taskNumber: number,
   filePrefix: string = '任务',
-  useStyled: boolean = true
+  useStyled: boolean = true,
+  customFilename?: string
 ): Promise<{ buffer: Buffer; filename: string }> {
   const styleConfig = useStyled ? STYLE_CONFIG.styled : STYLE_CONFIG.plain;
   // 清理 Markdown 标记
   const cleanedText = cleanMarkdownAndHtml(content);
   const lines = cleanedText.split('\n');
   
-  // 生成文件名
-  const taskNumStr = formatTaskNumber(taskNumber);
+  // 生成文件名：优先使用自定义文件名
   const prefix = filePrefix.trim() || '任务';
-  const filename = `${prefix}${taskNumStr}.docx`;
+  let filename: string;
+  if (customFilename) {
+    filename = `${customFilename}.docx`;
+  } else {
+    const taskNumStr = formatTaskNumber(taskNumber);
+    filename = `${prefix}${taskNumStr}.docx`;
+  }
   
   // 构建文档内容（支持 Paragraph 和 Table 混合）
   const children: (Paragraph | Table)[] = [];

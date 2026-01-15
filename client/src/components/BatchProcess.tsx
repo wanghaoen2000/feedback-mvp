@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,11 @@ export function BatchProcess() {
   const [isPathSaving, setIsPathSaving] = useState(false);
   const [filePrefix, setFilePrefix] = useState("任务");
   const [isPrefixSaving, setIsPrefixSaving] = useState(false);
+
+  // 文件命名方式
+  const [namingMethod, setNamingMethod] = useState<'prefix' | 'custom'>('prefix');
+  const [customNames, setCustomNames] = useState<string>('');
+  const [parsedNames, setParsedNames] = useState<Map<number, string>>(new Map());
 
   // 从数据库加载配置
   const { data: config } = trpc.config.getAll.useQuery();
@@ -172,6 +177,8 @@ export function BatchProcess() {
           storagePath: storagePath.trim() || undefined,
           filePrefix: filePrefix.trim() || '任务',
           templateType: templateType,
+          // 如果使用自定义命名，传递 customFileNames
+          customFileNames: namingMethod === 'custom' ? Object.fromEntries(parsedNames) : undefined,
         }),
       });
 
@@ -297,7 +304,7 @@ export function BatchProcess() {
       setIsGenerating(false);
       setIsStopping(false);
     }
-  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix, templateType]);
+  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix, templateType, namingMethod, parsedNames]);
 
   // 渲染单个任务卡片
   const renderTaskCard = (task: TaskState) => {
@@ -448,6 +455,39 @@ export function BatchProcess() {
               <p className="text-xs text-gray-500">同时处理的任务数量，建议3-5</p>
             </div>
             <div className="space-y-2">
+              <Label>文件命名方式</Label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="namingMethod"
+                    value="prefix"
+                    checked={namingMethod === 'prefix'}
+                    onChange={() => setNamingMethod('prefix')}
+                    disabled={isGenerating}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span className="text-sm">前缀+编号</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="namingMethod"
+                    value="custom"
+                    checked={namingMethod === 'custom'}
+                    onChange={() => setNamingMethod('custom')}
+                    disabled={isGenerating}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span className="text-sm">从文本解析</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* 前缀+编号方式 */}
+          {namingMethod === 'prefix' && (
+            <div className="space-y-2">
               <Label htmlFor="filePrefix">文件名前缀</Label>
               <Input
                 id="filePrefix"
@@ -473,7 +513,88 @@ export function BatchProcess() {
                 {isPrefixSaving ? '保存中...' : '文件命名格式：{前缀}01.docx'}
               </p>
             </div>
-          </div>
+          )}
+
+          {/* 从文本解析方式 */}
+          {namingMethod === 'custom' && (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="customNames">文件名列表（一行一个）</Label>
+                <Textarea
+                  id="customNames"
+                  placeholder="模块B讲义&#10;模块B练习册&#10;&#10;模块C讲义"
+                  value={customNames}
+                  onChange={(e) => setCustomNames(e.target.value)}
+                  className="h-28 font-mono text-sm"
+                  disabled={isGenerating}
+                />
+                <p className="text-xs text-gray-500">
+                  第1行对应起始任务编号，空行使用默认值「任务XX」
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const start = parseInt(startNumber) || 1;
+                  const end = parseInt(endNumber) || start;
+                  const lines = customNames.split('\n');
+                  const newParsedNames = new Map<number, string>();
+                  
+                  for (let i = start; i <= end; i++) {
+                    const lineIndex = i - start;
+                    const rawName = lines[lineIndex] || '';
+                    // 过滤非法字符：\ / : * ? " < > |
+                    const cleanName = rawName.trim().replace(/[\\/:*?"<>|]/g, '');
+                    if (cleanName) {
+                      newParsedNames.set(i, cleanName);
+                    }
+                    // 空行不设置，后端会使用默认值
+                  }
+                  
+                  setParsedNames(newParsedNames);
+                }}
+                disabled={isGenerating || !startNumber || !endNumber}
+              >
+                确认文件名
+              </Button>
+
+              {/* 文件名预览 */}
+              {parsedNames.size > 0 && (
+                <div className="space-y-2">
+                  <Label>文件名预览</Label>
+                  <div className="bg-gray-100 rounded-md p-3 max-h-40 overflow-y-auto">
+                    {(() => {
+                      const start = parseInt(startNumber) || 1;
+                      const end = parseInt(endNumber) || start;
+                      const ext = templateType === 'markdown_file' ? '.md' : '.docx';
+                      const previews: React.ReactNode[] = [];
+                      
+                      for (let i = start; i <= end; i++) {
+                        const customName = parsedNames.get(i);
+                        const displayName = customName || `任务${i.toString().padStart(2, '0')}`;
+                        const isDefault = !customName;
+                        
+                        previews.push(
+                          <div key={i} className="text-sm font-mono flex items-center gap-2">
+                            <span className="text-gray-500 w-16">任务{i}</span>
+                            <span className="text-gray-400">→</span>
+                            <span className={isDefault ? 'text-gray-400' : 'text-gray-700'}>
+                              {displayName}{ext}
+                              {isDefault && <span className="text-xs ml-1">(默认)</span>}
+                            </span>
+                          </div>
+                        );
+                      }
+                      
+                      return previews;
+                    })()}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 存储路径 */}
           <div className="space-y-2">

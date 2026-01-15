@@ -107,7 +107,8 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     roadmap, 
     storagePath,
     filePrefix = '任务',
-    templateType = 'markdown_styled'
+    templateType = 'markdown_styled',
+    customFileNames  // 可选：自定义文件名映射 Record<number, string>
   } = req.body;
 
   // 参数验证
@@ -152,6 +153,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   console.log(`[BatchRoutes] 路书长度: ${roadmap.length} 字符`);
   console.log(`[BatchRoutes] 存储路径: ${storagePath || "(未指定)"}`);
   console.log(`[BatchRoutes] 文件名前缀: ${filePrefix}`);
+  console.log(`[BatchRoutes] 自定义文件名: ${customFileNames ? Object.keys(customFileNames).length + ' 个' : '(未指定)'}`);
 
   // 设置 SSE 响应头
   setupSSEHeaders(res);
@@ -297,6 +299,9 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     let buffer: Buffer;
     let filename: string;
 
+    // 获取自定义文件名（如果有）
+    const customName = customFileNames?.[taskNumber] as string | undefined;
+
     if (templateType === 'word_card') {
       // 词汇卡片模板：解析 JSON 并调用精确排版模板
       try {
@@ -314,10 +319,14 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
         
         const jsonData = JSON.parse(cleanContent) as WordListData;
         buffer = await generateWordListDocx(jsonData);
-        // 文件名使用前缀 + 任务编号
-        const taskNumStr = taskNumber.toString().padStart(2, '0');
-        const prefix = filePrefix.trim() || '任务';
-        filename = `${prefix}${taskNumStr}.docx`;
+        // 文件名：优先使用自定义文件名
+        if (customName) {
+          filename = `${customName}.docx`;
+        } else {
+          const taskNumStr = taskNumber.toString().padStart(2, '0');
+          const prefix = filePrefix.trim() || '任务';
+          filename = `${prefix}${taskNumStr}.docx`;
+        }
         console.log(`[BatchRoutes] 任务 ${taskNumber} 词汇卡片生成完成: ${filename}`);
       } catch (parseError: any) {
         console.error(`[BatchRoutes] 任务 ${taskNumber} JSON 解析失败:`, parseError.message);
@@ -325,20 +334,24 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       }
     } else if (templateType === 'markdown_file') {
       // 生成 MD 文件：直接保存原始 Markdown 内容
-      const taskNumStr = taskNumber.toString().padStart(2, '0');
-      const prefix = filePrefix.trim() || '任务';
-      filename = `${prefix}${taskNumStr}.md`;
+      if (customName) {
+        filename = `${customName}.md`;
+      } else {
+        const taskNumStr = taskNumber.toString().padStart(2, '0');
+        const prefix = filePrefix.trim() || '任务';
+        filename = `${prefix}${taskNumStr}.md`;
+      }
       buffer = Buffer.from(content, 'utf-8');
       console.log(`[BatchRoutes] 任务 ${taskNumber} MD 文件生成完成: ${filename}`);
     } else if (templateType === 'markdown_plain') {
       // 通用文档（无样式）：黑白简洁
-      const result = await generateBatchDocument(content, taskNumber, filePrefix, false);
+      const result = await generateBatchDocument(content, taskNumber, filePrefix, false, customName);
       buffer = result.buffer;
       filename = result.filename;
       console.log(`[BatchRoutes] 任务 ${taskNumber} 通用文档生成完成: ${filename}`);
     } else {
       // 默认模板（markdown_styled）：教学材料（带样式）
-      const result = await generateBatchDocument(content, taskNumber, filePrefix, true);
+      const result = await generateBatchDocument(content, taskNumber, filePrefix, true, customName);
       buffer = result.buffer;
       filename = result.filename;
       console.log(`[BatchRoutes] 任务 ${taskNumber} 教学材料生成完成: ${filename}`);
