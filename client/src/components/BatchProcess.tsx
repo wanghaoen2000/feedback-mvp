@@ -15,7 +15,11 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  ExternalLink
+  ExternalLink,
+  Upload,
+  File,
+  Image,
+  Trash2
 } from "lucide-react";
 
 // 任务状态类型
@@ -29,6 +33,17 @@ interface TaskState {
   message?: string;
   filename?: string;
   url?: string;
+  error?: string;
+}
+
+// 上传文件类型
+interface UploadedFile {
+  originalName: string;
+  mimeType: string;
+  size: number;
+  type: 'document' | 'image';
+  url?: string;
+  base64DataUri?: string;
   error?: string;
 }
 
@@ -79,6 +94,12 @@ export function BatchProcess() {
   // 路书内容
   const [roadmap, setRoadmap] = useState("");
 
+  // 文件上传
+  const [uploadedFiles, setUploadedFiles] = useState<Map<number, UploadedFile>>(new Map());
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
   // 生成状态
   const [isGenerating, setIsGenerating] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
@@ -90,6 +111,70 @@ export function BatchProcess() {
   const completedTasks = Array.from(tasks.values()).filter(t => t.status === 'completed');
   const errorTasks = Array.from(tasks.values()).filter(t => t.status === 'error');
   const waitingTasks = Array.from(tasks.values()).filter(t => t.status === 'waiting');
+
+  // 文件上传处理
+  const handleFileUpload = useCallback(async (files: FileList) => {
+    const start = parseInt(startNumber) || 1;
+    const end = parseInt(endNumber) || start;
+    
+    setIsUploading(true);
+    setUploadError(null);
+    
+    try {
+      const formData = new FormData();
+      Array.from(files).forEach(file => formData.append('files', file));
+      
+      const response = await fetch('/api/batch/upload-files', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        setUploadError(result.error || '上传失败');
+        return;
+      }
+      
+      // 过滤掉有错误的文件，按文件名排序
+      const successFiles = result.files
+        .filter((f: UploadedFile) => !f.error)
+        .sort((a: UploadedFile, b: UploadedFile) => 
+          a.originalName.localeCompare(b.originalName, 'zh-CN')
+        );
+      
+      // 分配给任务编号
+      const fileMap = new Map<number, UploadedFile>();
+      successFiles.forEach((file: UploadedFile, index: number) => {
+        const taskNumber = start + index;
+        if (taskNumber <= end) {
+          fileMap.set(taskNumber, file);
+        }
+      });
+      
+      setUploadedFiles(fileMap);
+      
+      // 检查是否有上传失败的文件
+      const errorFiles = result.files.filter((f: UploadedFile) => f.error);
+      if (errorFiles.length > 0) {
+        setUploadError(`${errorFiles.length} 个文件上传失败`);
+      }
+    } catch (error: any) {
+      console.error('文件上传错误:', error);
+      setUploadError(error.message || '上传失败');
+    } finally {
+      setIsUploading(false);
+    }
+  }, [startNumber, endNumber]);
+
+  // 清空上传文件
+  const handleClearFiles = useCallback(() => {
+    setUploadedFiles(new Map());
+    setUploadError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
 
   // 停止处理
   const handleStop = useCallback(async () => {
@@ -654,6 +739,111 @@ export function BatchProcess() {
           <p className="text-xs text-gray-500">
             路书格式：每个任务用分隔符分开，包含学生姓名、课次、课堂笔记等信息
           </p>
+        </div>
+
+        {/* 配套文件上传 */}
+        <div className="space-y-3">
+          <Label className="flex items-center gap-2">
+            <Upload className="w-4 h-4" />
+            配套文件上传（可选）
+          </Label>
+          
+          {/* 隐藏的文件输入 */}
+          <input
+            type="file"
+            multiple
+            accept=".docx,.md,.txt,.pdf,.png,.jpg,.jpeg,.webp"
+            onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
+            style={{ display: 'none' }}
+            ref={fileInputRef}
+          />
+          
+          {/* 上传区域 */}
+          <div
+            className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+              isUploading ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+            }`}
+            onClick={() => !isUploading && !isGenerating && fileInputRef.current?.click()}
+          >
+            {isUploading ? (
+              <div className="flex flex-col items-center gap-2">
+                <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                <p className="text-sm text-blue-600">正在上传...</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2">
+                <Upload className="w-8 h-8 text-gray-400" />
+                <p className="text-sm text-gray-600">点击选择文件</p>
+                <p className="text-xs text-gray-400">
+                  支持：docx/md/txt/pdf/png/jpg/webp
+                </p>
+                <p className="text-xs text-gray-400">
+                  文档最大30MB，图片最大20MB
+                </p>
+              </div>
+            )}
+          </div>
+          
+          {/* 错误提示 */}
+          {uploadError && (
+            <div className="text-sm text-red-600 flex items-center gap-1">
+              <XCircle className="w-4 h-4" />
+              {uploadError}
+            </div>
+          )}
+          
+          {/* 清空按钮 */}
+          {uploadedFiles.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearFiles}
+              disabled={isGenerating || isUploading}
+              className="flex items-center gap-1"
+            >
+              <Trash2 className="w-4 h-4" />
+              清空重传
+            </Button>
+          )}
+          
+          {/* 上传预览 */}
+          {(uploadedFiles.size > 0 || (startNumber && endNumber)) && (
+            <div className="space-y-2">
+              <Label>上传预览</Label>
+              <div className="bg-gray-100 rounded-md p-3 max-h-40 overflow-y-auto">
+                {(() => {
+                  const start = parseInt(startNumber) || 1;
+                  const end = parseInt(endNumber) || start;
+                  const previews: React.ReactNode[] = [];
+                  
+                  for (let i = start; i <= end; i++) {
+                    const file = uploadedFiles.get(i);
+                    
+                    previews.push(
+                      <div key={i} className="text-sm font-mono flex items-center gap-2">
+                        <span className="text-gray-500 w-16">任务{i}</span>
+                        <span className="text-gray-400">→</span>
+                        {file ? (
+                          <span className="flex items-center gap-1 text-gray-700">
+                            {file.type === 'image' ? (
+                              <Image className="w-4 h-4 text-green-500" />
+                            ) : (
+                              <File className="w-4 h-4 text-blue-500" />
+                            )}
+                            {file.originalName}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">（未上传）</span>
+                        )}
+                      </div>
+                    );
+                  }
+                  
+                  return previews;
+                })()}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 批次状态概览 */}
