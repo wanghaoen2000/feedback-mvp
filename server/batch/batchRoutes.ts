@@ -7,7 +7,7 @@ import multer from "multer";
 import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
 import { setupSSEHeaders, sendSSEEvent, sendChunkedContent } from "../core/sseHelper";
-import { invokeAIStream, getAPIConfig } from "../core/aiClient";
+import { invokeAIStream, getAPIConfig, FileInfo } from "../core/aiClient";
 import { generateBatchDocument } from "./batchWordGenerator";
 import { generateWordListDocx, WordListData } from "../templates/wordCardTemplate";
 import { uploadBinaryToGoogleDrive, ensureFolderExists } from "../gdrive";
@@ -111,7 +111,8 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     storagePath,
     filePrefix = '任务',
     templateType = 'markdown_styled',
-    customFileNames  // 可选：自定义文件名映射 Record<number, string>
+    customFileNames,  // 可选：自定义文件名映射 Record<number, string>
+    files  // 可选：上传的文件信息 Record<number, FileInfo>
   } = req.body;
 
   // 参数验证
@@ -247,8 +248,23 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     taskNumber: number,
     onProgress: (chars: number) => void
   ): Promise<BatchTaskResult> => {
+    // 获取当前任务的文件信息
+    const taskFiles = files as Record<number, FileInfo> | undefined;
+    const fileInfo = taskFiles?.[taskNumber];
+    
     // 构建用户消息
-    const userMessage = `这是任务编号 ${taskNumber}，请按照路书要求生成内容。`;
+    let userMessage = `这是任务编号 ${taskNumber}，请按照路书要求生成内容。`;
+    
+    // 如果有文件，添加提示
+    if (fileInfo) {
+      if (fileInfo.type === 'image') {
+        userMessage += `\n\n【附件】请分析上面的图片内容。`;
+        console.log(`[BatchRoutes] 任务 ${taskNumber} 附带图片`);
+      } else if (fileInfo.type === 'document') {
+        userMessage += `\n\n【附件】请分析上面的文档内容。`;
+        console.log(`[BatchRoutes] 任务 ${taskNumber} 附带文档: ${fileInfo.url}`);
+      }
+    }
 
     // 调用 AI，透明转发路书作为 system prompt
     const systemPrompt = roadmap + "\n\n【重要】请直接输出结果，不要与用户互动，不要询问任何问题。";
@@ -272,7 +288,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
           lastReportedChars = chars;
         }
       },
-      { config }
+      { config, fileInfo }  // 传递文件信息
     );
 
     // 检查内容是否有效

@@ -19,7 +19,8 @@ export type FileContent = {
   type: "file_url";
   file_url: {
     url: string;
-    mime_type?: "audio/mpeg" | "audio/wav" | "application/pdf" | "audio/mp4" | "video/mp4" ;
+    // 扩展支持更多文档类型
+    mime_type?: string;
   };
 };
 

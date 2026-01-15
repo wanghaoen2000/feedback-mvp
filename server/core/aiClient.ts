@@ -80,6 +80,14 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// 文件信息类型
+export interface FileInfo {
+  type: 'document' | 'image';
+  url?: string;
+  base64DataUri?: string;
+  mimeType: string;
+}
+
 /**
  * 流式调用 AI API
  * @param systemPrompt 系统提示词
@@ -98,6 +106,7 @@ export async function invokeAIStream(
     temperature?: number;
     timeout?: number;
     retries?: number;
+    fileInfo?: FileInfo;  // 新增：文件信息
   }
 ): Promise<string> {
   // 获取配置
@@ -106,10 +115,52 @@ export async function invokeAIStream(
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
   const maxRetries = options?.retries ?? 2;
+  const fileInfo = options?.fileInfo;
+
+  // 构建用户消息内容
+  let userContent: any;
+  
+  if (fileInfo) {
+    // 带文件的消息，使用数组格式
+    const contentParts: any[] = [];
+    
+    if (fileInfo.type === 'image' && fileInfo.base64DataUri) {
+      // 图片使用 image_url 类型
+      contentParts.push({
+        type: "image_url",
+        image_url: {
+          url: fileInfo.base64DataUri,
+          detail: "high"
+        }
+      });
+      console.log(`[AIClient] 添加图片内容 (Base64)`);
+    } else if (fileInfo.type === 'document' && fileInfo.url) {
+      // 文档使用 file_url 类型
+      contentParts.push({
+        type: "file_url",
+        file_url: {
+          url: fileInfo.url,
+          mime_type: fileInfo.mimeType
+        }
+      });
+      console.log(`[AIClient] 添加文档内容: ${fileInfo.url}`);
+    }
+    
+    // 添加文本消息
+    contentParts.push({
+      type: "text",
+      text: userMessage
+    });
+    
+    userContent = contentParts;
+  } else {
+    // 普通文本消息
+    userContent = userMessage;
+  }
 
   const messages = [
     { role: "system" as const, content: systemPrompt },
-    { role: "user" as const, content: userMessage },
+    { role: "user" as const, content: userContent },
   ];
 
   console.log(`[AIClient] 调用模型: ${config.apiModel}`);

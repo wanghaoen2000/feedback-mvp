@@ -264,6 +264,18 @@ export function BatchProcess() {
           templateType: templateType,
           // 如果使用自定义命名，传递 customFileNames
           customFileNames: namingMethod === 'custom' ? Object.fromEntries(parsedNames) : undefined,
+          // 传递上传的文件信息
+          files: uploadedFiles.size > 0 ? Object.fromEntries(
+            Array.from(uploadedFiles.entries()).map(([taskNum, file]) => [
+              taskNum,
+              {
+                type: file.type,
+                url: file.url,
+                base64DataUri: file.base64DataUri,
+                mimeType: file.mimeType,
+              }
+            ])
+          ) : undefined,
         }),
       });
 
@@ -389,7 +401,7 @@ export function BatchProcess() {
       setIsGenerating(false);
       setIsStopping(false);
     }
-  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix, templateType, namingMethod, parsedNames]);
+  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix, templateType, namingMethod, parsedNames, uploadedFiles]);
 
   // 渲染单个任务卡片
   const renderTaskCard = (task: TaskState) => {
