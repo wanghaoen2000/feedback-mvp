@@ -3,6 +3,9 @@
  * 提供批量生成文档的 SSE 端点，支持并发控制、错误重试和停止功能
  */
 import { Router, Request, Response } from "express";
+import multer from "multer";
+import { storagePut } from "../storage";
+import { nanoid } from "nanoid";
 import { setupSSEHeaders, sendSSEEvent, sendChunkedContent } from "../core/sseHelper";
 import { invokeAIStream, getAPIConfig } from "../core/aiClient";
 import { generateBatchDocument } from "./batchWordGenerator";
@@ -485,6 +488,187 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     // 清理活跃批次
     activeBatches.delete(batchId);
     res.end();
+  }
+});
+
+// ============================================
+// 文件上传端点
+// ============================================
+
+// 允许的文件类型
+const ALLOWED_DOCUMENT_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  'text/plain',
+  'text/markdown',
+];
+
+// 根据文件后缀名判断类型（备用）
+const DOCUMENT_EXTENSIONS = ['.pdf', '.docx', '.txt', '.md'];
+const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
+
+const ALLOWED_IMAGE_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+];
+
+// 文件大小限制
+const MAX_DOCUMENT_SIZE = 30 * 1024 * 1024; // 30MB
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
+
+// 配置 multer（内存存储）
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_DOCUMENT_SIZE, // 使用较大的限制，后续根据类型检查
+  },
+});
+
+// 上传文件的返回类型
+interface UploadedFile {
+  originalName: string;
+  mimeType: string;
+  size: number;
+  type: 'document' | 'image';
+  url?: string;
+  base64DataUri?: string;
+  error?: string;
+}
+
+/**
+ * 判断是否为文档类型
+ */
+function isDocument(mimeType: string, filename: string): boolean {
+  // 先根据 MIME 类型判断
+  if (ALLOWED_DOCUMENT_TYPES.includes(mimeType)) {
+    return true;
+  }
+  // 如果 MIME 类型不明确，根据文件后缀名判断
+  const ext = '.' + filename.split('.').pop()?.toLowerCase();
+  return DOCUMENT_EXTENSIONS.includes(ext);
+}
+
+/**
+ * 判断是否为图片类型
+ */
+function isImage(mimeType: string, filename: string): boolean {
+  // 先根据 MIME 类型判断
+  if (ALLOWED_IMAGE_TYPES.includes(mimeType)) {
+    return true;
+  }
+  // 如果 MIME 类型不明确，根据文件后缀名判断
+  const ext = '.' + filename.split('.').pop()?.toLowerCase();
+  return IMAGE_EXTENSIONS.includes(ext);
+}
+
+/**
+ * POST /api/batch/upload-files
+ * 批量上传文件（文档和图片）
+ */
+router.post("/upload-files", upload.array("files", 20), async (req: Request, res: Response) => {
+  console.log("[BatchRoutes] 收到文件上传请求");
+  
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    
+    if (!files || files.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: "没有上传任何文件",
+      });
+      return;
+    }
+    
+    console.log(`[BatchRoutes] 收到 ${files.length} 个文件`);
+    
+    const results: UploadedFile[] = [];
+    
+    for (const file of files) {
+      console.log(`[BatchRoutes] 处理文件: ${file.originalname}, 类型: ${file.mimetype}, 大小: ${file.size}`);
+      
+      const result: UploadedFile = {
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        size: file.size,
+        type: 'document', // 默认值，后续会修改
+      };
+      
+      // 检查文件类型
+      if (!isDocument(file.mimetype, file.originalname) && !isImage(file.mimetype, file.originalname)) {
+        result.error = `不支持的文件类型: ${file.mimetype}`;
+        results.push(result);
+        console.log(`[BatchRoutes] 文件类型不支持: ${file.originalname}`);
+        continue;
+      }
+      
+      // 检查文件大小
+      if (isDocument(file.mimetype, file.originalname) && file.size > MAX_DOCUMENT_SIZE) {
+        result.error = `文档文件超过大小限制 (${MAX_DOCUMENT_SIZE / 1024 / 1024}MB)`;
+        results.push(result);
+        console.log(`[BatchRoutes] 文档文件过大: ${file.originalname}`);
+        continue;
+      }
+      
+      if (isImage(file.mimetype, file.originalname) && file.size > MAX_IMAGE_SIZE) {
+        result.error = `图片文件超过大小限制 (${MAX_IMAGE_SIZE / 1024 / 1024}MB)`;
+        results.push(result);
+        console.log(`[BatchRoutes] 图片文件过大: ${file.originalname}`);
+        continue;
+      }
+      
+      try {
+        if (isDocument(file.mimetype, file.originalname)) {
+          // 文档：上传到 S3
+          result.type = 'document';
+          
+          // 生成唯一文件名
+          const ext = file.originalname.split('.').pop() || 'bin';
+          const uniqueKey = `batch-uploads/${nanoid()}.${ext}`;
+          
+          const uploadResult = await storagePut(uniqueKey, file.buffer, file.mimetype);
+          result.url = uploadResult.url;
+          
+          console.log(`[BatchRoutes] 文档上传成功: ${file.originalname} -> ${uploadResult.url}`);
+        } else if (isImage(file.mimetype, file.originalname)) {
+          // 图片：转为 Base64
+          result.type = 'image';
+          
+          const base64 = file.buffer.toString('base64');
+          result.base64DataUri = `data:${file.mimetype};base64,${base64}`;
+          
+          console.log(`[BatchRoutes] 图片转换成功: ${file.originalname} (${base64.length} chars)`);
+        }
+      } catch (error: any) {
+        result.error = `处理失败: ${error.message}`;
+        console.error(`[BatchRoutes] 文件处理失败: ${file.originalname}`, error.message);
+      }
+      
+      results.push(result);
+    }
+    
+    // 统计结果
+    const successCount = results.filter(r => !r.error).length;
+    const errorCount = results.filter(r => r.error).length;
+    
+    console.log(`[BatchRoutes] 文件上传完成: ${successCount} 成功, ${errorCount} 失败`);
+    
+    res.json({
+      success: true,
+      files: results,
+      summary: {
+        total: results.length,
+        success: successCount,
+        error: errorCount,
+      },
+    });
+    
+  } catch (error: any) {
+    console.error("[BatchRoutes] 文件上传错误:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || "文件上传失败",
+    });
   }
 });
 
