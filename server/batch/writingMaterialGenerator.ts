@@ -66,7 +66,7 @@ function createPartHeader(partNum: number, title: string): Paragraph {
           new TextRun({
             text: `Part ${partNum}. ${title}`,
             bold: true,
-            size: 64,  // 32pt = 64 half-points
+            size: 28,  // 14pt = 28 half-points
             color: COLORS.white,
             font: {
               name: "微软雅黑",
@@ -84,7 +84,7 @@ function createPartHeader(partNum: number, title: string): Paragraph {
     },
     spacing: {
       before: 200,
-      after: 300,
+      after: 150,
     },
   });
 }
@@ -106,7 +106,7 @@ function createListHeader(
           new TextRun({
             text: `List ${listNum} ${title}`,
             bold: true,
-            size: 52,  // 26pt = 52 half-points
+            size: 26,  // 13pt = 26 half-points
             color: COLORS.white,
             font: {
               name: "微软雅黑",
@@ -115,7 +115,7 @@ function createListHeader(
           }),
           new TextRun({
             text: `              ${itemCount}条`,
-            size: 44,  // 22pt
+            size: 22,  // 11pt = 22 half-points
             color: COLORS.lightPurple,
             font: {
               name: "微软雅黑",
@@ -133,7 +133,7 @@ function createListHeader(
     },
     spacing: {
       before: 200,
-      after: 300,
+      after: 100,
     },
   });
 }
@@ -147,31 +147,7 @@ function createCategoryTitle(id: string, name: string): Paragraph {
       new TextRun({
         text: `${id}. ${name}`,
         bold: true,
-        size: 48,  // 24pt = 48 half-points
-        color: COLORS.primary,
-        font: {
-          name: "微软雅黑",
-          eastAsia: "微软雅黑",
-        },
-      }),
-    ],
-    spacing: {
-      before: 300,
-      after: 150,
-    },
-  });
-}
-
-/**
- * 创建小节标题（紫色加粗）
- */
-function createSectionTitle(code: string, name: string): Paragraph {
-  return new Paragraph({
-    children: [
-      new TextRun({
-        text: `${code} ${name}`,
-        bold: true,
-        size: 44,  // 22pt = 44 half-points
+        size: 24,  // 12pt = 24 half-points
         color: COLORS.primary,
         font: {
           name: "微软雅黑",
@@ -187,6 +163,30 @@ function createSectionTitle(code: string, name: string): Paragraph {
 }
 
 /**
+ * 创建小节标题（紫色加粗）
+ */
+function createSectionTitle(code: string, name: string): Paragraph {
+  return new Paragraph({
+    children: [
+      new TextRun({
+        text: `${code} ${name}`,
+        bold: true,
+        size: 22,  // 11pt = 22 half-points
+        color: COLORS.primary,
+        font: {
+          name: "微软雅黑",
+          eastAsia: "微软雅黑",
+        },
+      }),
+    ],
+    spacing: {
+      before: 150,
+      after: 80,
+    },
+  });
+}
+
+/**
  * 创建条目（紫色编号 + 黑色英文 + 灰色中文）
  */
 function createItem(num: number, english: string, chinese: string): Paragraph {
@@ -196,7 +196,7 @@ function createItem(num: number, english: string, chinese: string): Paragraph {
       new TextRun({
         text: `${num}. `,
         bold: true,
-        size: 40,  // 20pt = 40 half-points
+        size: 20,  // 10pt = 20 half-points
         color: COLORS.primary,
         font: {
           name: "Arial",
@@ -205,7 +205,7 @@ function createItem(num: number, english: string, chinese: string): Paragraph {
       // 黑色英文
       new TextRun({
         text: english,
-        size: 40,  // 20pt
+        size: 20,  // 10pt = 20 half-points
         color: COLORS.text,
         font: {
           name: "Arial",
@@ -214,7 +214,7 @@ function createItem(num: number, english: string, chinese: string): Paragraph {
       // 分隔符
       new TextRun({
         text: " - ",
-        size: 40,
+        size: 20,  // 10pt = 20 half-points
         color: COLORS.gray,
         font: {
           name: "Arial",
@@ -223,7 +223,7 @@ function createItem(num: number, english: string, chinese: string): Paragraph {
       // 灰色中文
       new TextRun({
         text: chinese,
-        size: 40,  // 20pt
+        size: 20,  // 10pt = 20 half-points
         color: COLORS.gray,
         font: {
           name: "微软雅黑",
@@ -232,7 +232,7 @@ function createItem(num: number, english: string, chinese: string): Paragraph {
       }),
     ],
     spacing: {
-      before: 60,
+      before: 40,
       after: 60,
     },
     indent: {
