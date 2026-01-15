@@ -44,7 +44,7 @@ interface BatchState {
 
 export function BatchProcess() {
   // 基本设置
-  const [templateType, setTemplateType] = useState<'default' | 'wordCard' | 'markdown_file'>('default');
+  const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card'>('markdown_styled');
   const [startNumber, setStartNumber] = useState("");
   const [endNumber, setEndNumber] = useState("");
   const [concurrency, setConcurrency] = useState("5");
@@ -383,21 +383,24 @@ export function BatchProcess() {
               id="templateType"
               value={templateType}
               onChange={(e) => {
-                const value = e.target.value as 'default' | 'wordCard' | 'markdown_file';
+                const value = e.target.value as 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card';
                 setTemplateType(value);
                 console.log('模板类型已切换:', value);
               }}
               disabled={isGenerating}
               className="w-full h-10 px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
-              <option value="default">通用文档（Markdown转Word）</option>
-              <option value="wordCard">词汇卡片（精确排版）</option>
+              <option value="markdown_styled">教学材料（带样式）</option>
+              <option value="markdown_plain">通用文档（无样式）</option>
               <option value="markdown_file">生成MD文件（不转换）</option>
+              <option value="word_card">词汇卡片（精确排版）</option>
             </select>
             <p className="text-xs text-gray-500">
-              {templateType === 'default' 
-                ? '将AI生成的Markdown转换为Word文档' 
-                : templateType === 'wordCard'
+              {templateType === 'markdown_styled' 
+                ? '紫色标题、表格高亮，适合教学材料' 
+                : templateType === 'markdown_plain'
+                ? '黑白简洁，无特殊颜色'
+                : templateType === 'word_card'
                 ? 'AI输出JSON数据，程序套用模板生成精确排版的Word'
                 : 'AI返回的Markdown内容直接保存为.md文件'
               }

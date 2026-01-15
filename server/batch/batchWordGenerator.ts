@@ -91,18 +91,37 @@ function formatTaskNumber(taskNumber: number): string {
   return taskNumber.toString().padStart(2, '0');
 }
 
+// 样式配置
+const STYLE_CONFIG = {
+  // 教学材料（带样式）
+  styled: {
+    titleColor: '6A1B9A',  // 紫色
+    headingColor: '6A1B9A',
+    accentColor: 'FF6F00',  // 橙色
+  },
+  // 通用文档（无样式）
+  plain: {
+    titleColor: '000000',  // 黑色
+    headingColor: '000000',
+    accentColor: '000000',
+  }
+};
+
 /**
  * 生成批量任务的 Word 文档
  * @param content Markdown 或纯文本内容
  * @param taskNumber 任务编号
  * @param filePrefix 文件名前缀（默认为"任务"）
+ * @param useStyled 是否使用带样式的模板（默认为 true）
  * @returns { buffer: Buffer, filename: string }
  */
 export async function generateBatchDocument(
   content: string,
   taskNumber: number,
-  filePrefix: string = '任务'
+  filePrefix: string = '任务',
+  useStyled: boolean = true
 ): Promise<{ buffer: Buffer; filename: string }> {
+  const styleConfig = useStyled ? STYLE_CONFIG.styled : STYLE_CONFIG.plain;
   // 清理 Markdown 标记
   const cleanedText = cleanMarkdownAndHtml(content);
   const lines = cleanedText.split('\n');
@@ -119,7 +138,7 @@ export async function generateBatchDocument(
   const title = `${prefix} ${taskNumber}`;
   children.push(
     new Paragraph({
-      children: [new TextRun({ text: title, bold: true, size: 32 })],
+      children: [new TextRun({ text: title, bold: true, size: 32, color: styleConfig.titleColor })],
       heading: HeadingLevel.HEADING_1,
       alignment: AlignmentType.CENTER,
       spacing: { after: 400 },
@@ -141,7 +160,7 @@ export async function generateBatchDocument(
       );
       children.push(
         new Paragraph({
-          children: [new TextRun({ text: '答案部分', bold: true, size: 28 })],
+          children: [new TextRun({ text: '答案部分', bold: true, size: 28, color: styleConfig.titleColor })],
           heading: HeadingLevel.HEADING_1,
           alignment: AlignmentType.CENTER,
           spacing: { before: 200, after: 400 },
@@ -155,7 +174,7 @@ export async function generateBatchDocument(
     if (trimmedLine.match(/^【.+】$/)) {
       children.push(
         new Paragraph({
-          children: [new TextRun({ text: trimmedLine, bold: true, size: 26 })],
+          children: [new TextRun({ text: trimmedLine, bold: true, size: 26, color: styleConfig.headingColor })],
           heading: HeadingLevel.HEADING_2,
           spacing: { before: 300, after: 200 },
         })
@@ -167,7 +186,7 @@ export async function generateBatchDocument(
     if (trimmedLine.match(/^[一二三四五六七八九十]+、/)) {
       children.push(
         new Paragraph({
-          children: [new TextRun({ text: trimmedLine, bold: true, size: 24 })],
+          children: [new TextRun({ text: trimmedLine, bold: true, size: 24, color: styleConfig.headingColor })],
           heading: HeadingLevel.HEADING_3,
           spacing: { before: 200, after: 150 },
         })
@@ -187,7 +206,7 @@ export async function generateBatchDocument(
       
       children.push(
         new Paragraph({
-          children: [new TextRun({ text: headingText, bold: true, size: fontSize })],
+          children: [new TextRun({ text: headingText, bold: true, size: fontSize, color: styleConfig.headingColor })],
           heading: headingLevel,
           spacing: { before: 200, after: 150 },
         })

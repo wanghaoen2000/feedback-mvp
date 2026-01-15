@@ -107,7 +107,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     roadmap, 
     storagePath,
     filePrefix = '任务',
-    templateType = 'default'
+    templateType = 'markdown_styled'
   } = req.body;
 
   // 参数验证
@@ -297,7 +297,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     let buffer: Buffer;
     let filename: string;
 
-    if (templateType === 'wordCard') {
+    if (templateType === 'word_card') {
       // 词汇卡片模板：解析 JSON 并调用精确排版模板
       try {
         // 清理可能的 Markdown 代码块标记（AI 有时会输出 ```json ... ``` 包裹的 JSON）
@@ -330,12 +330,18 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       filename = `${prefix}${taskNumStr}.md`;
       buffer = Buffer.from(content, 'utf-8');
       console.log(`[BatchRoutes] 任务 ${taskNumber} MD 文件生成完成: ${filename}`);
-    } else {
-      // 默认模板：Markdown 转 Word
-      const result = await generateBatchDocument(content, taskNumber, filePrefix);
+    } else if (templateType === 'markdown_plain') {
+      // 通用文档（无样式）：黑白简洁
+      const result = await generateBatchDocument(content, taskNumber, filePrefix, false);
       buffer = result.buffer;
       filename = result.filename;
-      console.log(`[BatchRoutes] 任务 ${taskNumber} Word 文档生成完成: ${filename}`);
+      console.log(`[BatchRoutes] 任务 ${taskNumber} 通用文档生成完成: ${filename}`);
+    } else {
+      // 默认模板（markdown_styled）：教学材料（带样式）
+      const result = await generateBatchDocument(content, taskNumber, filePrefix, true);
+      buffer = result.buffer;
+      filename = result.filename;
+      console.log(`[BatchRoutes] 任务 ${taskNumber} 教学材料生成完成: ${filename}`);
     }
 
     // 上传到 Google Drive（如果指定了存储路径）

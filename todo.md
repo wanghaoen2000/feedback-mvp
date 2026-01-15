@@ -760,3 +760,12 @@
 - [x] 解析 ***粗斜体*** 标记
 - [x] 生成对应的 TextRun 数组
 - [x] TypeScript 编译无报错
+
+
+## V48 Step 2b: 模板类型扩展为4个选项
+
+- [x] 前端：模板类型改为4个选项（markdown_plain, markdown_styled, markdown_file, word_card）
+- [x] 前端：默认选中「教学材料（带样式）」
+- [x] 后端：markdown_plain 使用黑白简洁样式（标题颜色 #000000）
+- [x] 后端：markdown_styled 使用紫色标题（#6A1B9A）
+- [x] TypeScript 编译无报错
