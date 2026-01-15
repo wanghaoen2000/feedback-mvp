@@ -284,6 +284,7 @@ const STYLE_CONFIG = {
     titleColor: '6A1B9A',  // 紫色
     headingColor: '6A1B9A',
     accentColor: 'FF6F00',  // 橙色
+    quoteColor: 'FF6F00',  // 引用块标记颜色（橙色）
     tableHeaderBg: 'E8D5F0',  // 浅紫色表头背景
     tableBorder: 'CCCCCC',  // 浅灰色边框
   },
@@ -292,6 +293,7 @@ const STYLE_CONFIG = {
     titleColor: '000000',  // 黑色
     headingColor: '000000',
     accentColor: '000000',
+    quoteColor: '',  // 无颜色标记
     tableHeaderBg: '',  // 无背景
     tableBorder: 'CCCCCC',  // 浅灰色边框
   }
@@ -411,6 +413,86 @@ export async function generateBatchDocument(
           children: [new TextRun({ text: headingText, bold: true, size: fontSize, color: styleConfig.headingColor })],
           heading: headingLevel,
           spacing: { before: 200, after: 150 },
+        })
+      );
+      continue;
+    }
+    
+    // 检测分隔线（--- 但不是表格分隔行）
+    if (/^-{3,}$/.test(trimmedLine) || /^\*{3,}$/.test(trimmedLine) || /^_{3,}$/.test(trimmedLine)) {
+      // 插入空行作为分隔
+      children.push(
+        new Paragraph({
+          children: [],
+          spacing: { before: 100, after: 100 },
+          border: {
+            bottom: {
+              color: 'CCCCCC',
+              size: 6,
+              style: BorderStyle.SINGLE,
+              space: 1,
+            },
+          },
+        })
+      );
+      continue;
+    }
+    
+    // 检测引用块（> text）
+    if (trimmedLine.startsWith('>')) {
+      const quoteContent = trimmedLine.replace(/^>\s*/, '');
+      const quoteRuns: TextRun[] = [];
+      
+      // 带样式模式添加橙色标记
+      if (styleConfig.quoteColor) {
+        quoteRuns.push(new TextRun({ text: '▸ ', color: styleConfig.quoteColor, size: 22 }));
+      }
+      
+      // 添加引用内容（支持粗体/斜体）
+      quoteRuns.push(...parseInlineFormatting(quoteContent, 22));
+      
+      children.push(
+        new Paragraph({
+          children: quoteRuns,
+          indent: { left: 720 },  // 约 0.5 英寸缩进
+          spacing: { after: 100 },
+        })
+      );
+      continue;
+    }
+    
+    // 检测编号列表（1. 2. 3. 等）
+    const orderedListMatch = trimmedLine.match(/^(\d+)\.\s+(.+)$/);
+    if (orderedListMatch) {
+      const listNum = orderedListMatch[1];
+      const listContent = orderedListMatch[2];
+      
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({ text: `${listNum}. `, size: 22 }),
+            ...parseInlineFormatting(listContent, 22)
+          ],
+          indent: { left: 360 },  // 约 0.25 英寸缩进
+          spacing: { after: 80 },
+        })
+      );
+      continue;
+    }
+    
+    // 检测项目符号列表（- 或 * 开头）
+    const unorderedListMatch = trimmedLine.match(/^[-*]\s+(.+)$/);
+    if (unorderedListMatch) {
+      const listContent = unorderedListMatch[1];
+      
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({ text: '• ', size: 22 }),
+            ...parseInlineFormatting(listContent, 22)
+          ],
+          indent: { left: 360 },  // 约 0.25 英寸缩进
+          spacing: { after: 80 },
         })
       );
       continue;

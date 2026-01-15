@@ -780,3 +780,13 @@
 - [x] 表格边框：浅灰色细线 #CCCCCC
 - [x] 单元格内容支持粗体/斜体（复用 parseInlineFormatting）
 - [x] TypeScript 编译无报错
+
+
+## V48 Step 5: Markdown解析器 - 新增列表/引用/分隔线支持
+
+- [x] 编号列表（1. 2. 3.）→ Word 编号列表（带缩进）
+- [x] 项目符号（- 或 *）→ Word 项目符号列表（带缩进）
+- [x] 引用块（> text）→ 带样式模式加橙色标记 ▸，无样式模式仅缩进
+- [x] 分隔线（---）→ Word 水平线（浅灰色底边框）
+- [x] 列表项内容支持粗体/斜体（复用 parseInlineFormatting）
+- [x] TypeScript 编译无报错
