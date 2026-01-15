@@ -10,6 +10,7 @@ import { setupSSEHeaders, sendSSEEvent, sendChunkedContent } from "../core/sseHe
 import { invokeAIStream, getAPIConfig, FileInfo } from "../core/aiClient";
 import { generateBatchDocument } from "./batchWordGenerator";
 import { generateWordListDocx, WordListData } from "../templates/wordCardTemplate";
+import { generateWritingMaterialDocx, WritingMaterialData } from "./writingMaterialGenerator";
 import { uploadBinaryToGoogleDrive, ensureFolderExists } from "../gdrive";
 import { ConcurrencyPool, TaskResult } from "../core/concurrencyPool";
 
@@ -349,6 +350,36 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
         console.log(`[BatchRoutes] 任务 ${taskNumber} 词汇卡片生成完成: ${filename}`);
       } catch (parseError: any) {
         console.error(`[BatchRoutes] 任务 ${taskNumber} JSON 解析失败:`, parseError.message);
+        throw new Error(`AI返回的内容不是有效的JSON格式: ${parseError.message}`);
+      }
+    } else if (templateType === 'writing_material') {
+      // 写作素材模板：解析 JSON 并调用写作素材模板
+      try {
+        // 清理可能的 Markdown 代码块标记（AI 有时会输出 ```json ... ``` 包裹的 JSON）
+        let cleanContent = content.trim();
+        if (cleanContent.startsWith('```json')) {
+          cleanContent = cleanContent.slice(7); // 去掉 ```json
+        } else if (cleanContent.startsWith('```')) {
+          cleanContent = cleanContent.slice(3); // 去掉 ```
+        }
+        if (cleanContent.endsWith('```')) {
+          cleanContent = cleanContent.slice(0, -3); // 去掉结尾的 ```
+        }
+        cleanContent = cleanContent.trim();
+        
+        const jsonData = JSON.parse(cleanContent) as WritingMaterialData;
+        buffer = await generateWritingMaterialDocx(jsonData);
+        // 文件名：优先使用自定义文件名
+        if (customName) {
+          filename = `${customName}.docx`;
+        } else {
+          const taskNumStr = taskNumber.toString().padStart(2, '0');
+          const prefix = filePrefix.trim() || '任务';
+          filename = `${prefix}${taskNumStr}.docx`;
+        }
+        console.log(`[BatchRoutes] 任务 ${taskNumber} 写作素材生成完成: ${filename}`);
+      } catch (parseError: any) {
+        console.error(`[BatchRoutes] 任务 ${taskNumber} 写作素材 JSON 解析失败:`, parseError.message);
         throw new Error(`AI返回的内容不是有效的JSON格式: ${parseError.message}`);
       }
     } else if (templateType === 'markdown_file') {
