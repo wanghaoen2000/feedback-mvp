@@ -59,7 +59,7 @@ interface BatchState {
 
 export function BatchProcess() {
   // 基本设置
-  const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card'>('markdown_styled');
+  const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material'>('markdown_styled');
   const [startNumber, setStartNumber] = useState("");
   const [endNumber, setEndNumber] = useState("");
   const [concurrency, setConcurrency] = useState("5");
@@ -487,7 +487,7 @@ export function BatchProcess() {
               id="templateType"
               value={templateType}
               onChange={(e) => {
-                const value = e.target.value as 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card';
+                const value = e.target.value as 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material';
                 setTemplateType(value);
                 console.log('模板类型已切换:', value);
               }}
@@ -498,6 +498,7 @@ export function BatchProcess() {
               <option value="markdown_plain">通用文档（无样式）</option>
               <option value="markdown_file">生成MD文件（不转换）</option>
               <option value="word_card">词汇卡片（精确排版）</option>
+              <option value="writing_material">写作素材模板</option>
             </select>
             <p className="text-xs text-gray-500">
               {templateType === 'markdown_styled' 
@@ -506,6 +507,8 @@ export function BatchProcess() {
                 ? '黑白简洁，无特殊颜色'
                 : templateType === 'word_card'
                 ? 'AI输出JSON数据，程序套用模板生成精确排版的Word'
+                : templateType === 'writing_material'
+                ? 'AI输出JSON数据，程序套用写作素材模板生成Word'
                 : 'AI返回的Markdown内容直接保存为.md文件'
               }
             </p>
