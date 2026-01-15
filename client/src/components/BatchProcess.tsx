@@ -44,7 +44,7 @@ interface BatchState {
 
 export function BatchProcess() {
   // 基本设置
-  const [templateType, setTemplateType] = useState<'default' | 'wordCard'>('default');
+  const [templateType, setTemplateType] = useState<'default' | 'wordCard' | 'markdown_file'>('default');
   const [startNumber, setStartNumber] = useState("");
   const [endNumber, setEndNumber] = useState("");
   const [concurrency, setConcurrency] = useState("5");
@@ -383,7 +383,7 @@ export function BatchProcess() {
               id="templateType"
               value={templateType}
               onChange={(e) => {
-                const value = e.target.value as 'default' | 'wordCard';
+                const value = e.target.value as 'default' | 'wordCard' | 'markdown_file';
                 setTemplateType(value);
                 console.log('模板类型已切换:', value);
               }}
@@ -392,11 +392,14 @@ export function BatchProcess() {
             >
               <option value="default">通用文档（Markdown转Word）</option>
               <option value="wordCard">词汇卡片（精确排版）</option>
+              <option value="markdown_file">生成MD文件（不转换）</option>
             </select>
             <p className="text-xs text-gray-500">
               {templateType === 'default' 
                 ? '将AI生成的Markdown转换为Word文档' 
-                : 'AI输出JSON数据，程序套用模板生成精确排版的Word'
+                : templateType === 'wordCard'
+                ? 'AI输出JSON数据，程序套用模板生成精确排版的Word'
+                : 'AI返回的Markdown内容直接保存为.md文件'
               }
             </p>
           </div>

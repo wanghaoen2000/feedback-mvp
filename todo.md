@@ -741,3 +741,12 @@
 - [x] 检查后端 batchRoutes.ts 是否有 Math.min(concurrency, 10) 限制（找到！第131行）
 - [x] 检查 concurrencyPool.ts 是否有并发数限制（无限制）
 - [x] 修复找到的限制，从 10 改为 40
+
+
+
+## V48 Step 1: 新增「生成MD文件」选项
+
+- [x] 前端：模板类型下拉菜单新增「生成MD文件」选项（值：markdown_file）
+- [x] 后端：判断 templateType === 'markdown_file' 时跳过转换，直接保存 .md 文件
+- [x] 文件命名：使用现有逻辑，后缀改为 .md
+- [x] TypeScript 编译无报错

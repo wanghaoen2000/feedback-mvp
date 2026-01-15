@@ -323,6 +323,13 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
         console.error(`[BatchRoutes] 任务 ${taskNumber} JSON 解析失败:`, parseError.message);
         throw new Error(`AI返回的内容不是有效的JSON格式: ${parseError.message}`);
       }
+    } else if (templateType === 'markdown_file') {
+      // 生成 MD 文件：直接保存原始 Markdown 内容
+      const taskNumStr = taskNumber.toString().padStart(2, '0');
+      const prefix = filePrefix.trim() || '任务';
+      filename = `${prefix}${taskNumStr}.md`;
+      buffer = Buffer.from(content, 'utf-8');
+      console.log(`[BatchRoutes] 任务 ${taskNumber} MD 文件生成完成: ${filename}`);
     } else {
       // 默认模板：Markdown 转 Word
       const result = await generateBatchDocument(content, taskNumber, filePrefix);
