@@ -5,7 +5,60 @@
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
 
 /**
- * 清理 Markdown 和 HTML 标记
+ * 解析行内格式（粗体、斜体），返回 TextRun 数组
+ */
+function parseInlineFormatting(text: string, baseSize: number = 22): TextRun[] {
+  const runs: TextRun[] = [];
+  
+  // 正则匹配粗斜体、粗体、斜体
+  // 顺序很重要：先匹配 ***，再匹配 **，最后匹配 *
+  const pattern = /(\*\*\*|___)(.+?)(\*\*\*|___)|(\*\*|__)(.+?)(\*\*|__)|(\*|_)(.+?)(\*|_)/g;
+  
+  let lastIndex = 0;
+  let match;
+  
+  while ((match = pattern.exec(text)) !== null) {
+    // 添加匹配前的普通文本
+    if (match.index > lastIndex) {
+      const beforeText = text.substring(lastIndex, match.index);
+      if (beforeText) {
+        runs.push(new TextRun({ text: beforeText, size: baseSize }));
+      }
+    }
+    
+    // 判断匹配类型
+    if (match[1] && match[2]) {
+      // 粗斜体 ***text*** 或 ___text___
+      runs.push(new TextRun({ text: match[2], bold: true, italics: true, size: baseSize }));
+    } else if (match[4] && match[5]) {
+      // 粗体 **text** 或 __text__
+      runs.push(new TextRun({ text: match[5], bold: true, size: baseSize }));
+    } else if (match[7] && match[8]) {
+      // 斜体 *text* 或 _text_
+      runs.push(new TextRun({ text: match[8], italics: true, size: baseSize }));
+    }
+    
+    lastIndex = pattern.lastIndex;
+  }
+  
+  // 添加剩余的普通文本
+  if (lastIndex < text.length) {
+    const remainingText = text.substring(lastIndex);
+    if (remainingText) {
+      runs.push(new TextRun({ text: remainingText, size: baseSize }));
+    }
+  }
+  
+  // 如果没有任何匹配，返回原始文本
+  if (runs.length === 0) {
+    runs.push(new TextRun({ text: text, size: baseSize }));
+  }
+  
+  return runs;
+}
+
+/**
+ * 清理 Markdown 和 HTML 标记（保留粗体/斜体标记用于后续解析）
  */
 function cleanMarkdownAndHtml(text: string): string {
   let cleaned = text;
@@ -13,11 +66,7 @@ function cleanMarkdownAndHtml(text: string): string {
   // 移除 HTML 标签
   cleaned = cleaned.replace(/<[^>]*>/g, '');
   
-  // 移除 Markdown 粗体/斜体
-  cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1');
-  cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');
-  cleaned = cleaned.replace(/__([^_]+)__/g, '$1');
-  cleaned = cleaned.replace(/_([^_]+)_/g, '$1');
+  // 注意：不再移除粗体/斜体标记，留给 parseInlineFormatting 处理
   
   // 移除 Markdown 标题符号
   cleaned = cleaned.replace(/^#{1,6}\s+/gm, '');
@@ -146,11 +195,11 @@ export async function generateBatchDocument(
       continue;
     }
     
-    // 普通段落
+    // 普通段落（解析粗体/斜体）
     if (trimmedLine) {
       children.push(
         new Paragraph({
-          children: [new TextRun({ text: trimmedLine, size: 22 })],
+          children: parseInlineFormatting(trimmedLine, 22),
           spacing: { after: 100 },
         })
       );

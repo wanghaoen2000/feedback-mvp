@@ -750,3 +750,13 @@
 - [x] 后端：判断 templateType === 'markdown_file' 时跳过转换，直接保存 .md 文件
 - [x] 文件命名：使用现有逻辑，后缀改为 .md
 - [x] TypeScript 编译无报错
+
+
+## V48 Step 2: Markdown解析器 - 修复粗体/斜体样式
+
+- [x] 创建 parseInlineFormatting 辅助函数
+- [x] 解析 **粗体** 和 __粗体__ 标记
+- [x] 解析 *斜体* 和 _斜体_ 标记
+- [x] 解析 ***粗斜体*** 标记
+- [x] 生成对应的 TextRun 数组
+- [x] TypeScript 编译无报错
