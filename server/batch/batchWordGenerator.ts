@@ -2,7 +2,22 @@
  * V46h: 批量任务 Word 文档生成器
  * 将 Markdown 文本转换为 Word 文档
  */
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
+import { 
+  Document, 
+  Packer, 
+  Paragraph, 
+  TextRun, 
+  HeadingLevel, 
+  PageBreak, 
+  AlignmentType,
+  Table,
+  TableRow,
+  TableCell,
+  WidthType,
+  BorderStyle,
+  VerticalAlign,
+  ShadingType
+} from "docx";
 
 /**
  * 解析行内格式（粗体、斜体），返回 TextRun 数组
@@ -91,6 +106,177 @@ function formatTaskNumber(taskNumber: number): string {
   return taskNumber.toString().padStart(2, '0');
 }
 
+/**
+ * 检查一行是否是 Markdown 表格行
+ */
+function isTableRow(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith('|') && trimmed.endsWith('|');
+}
+
+/**
+ * 检查一行是否是表格分隔行（|---|---|---|）
+ */
+function isTableSeparator(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) return false;
+  // 移除首尾的 | 后，检查是否只包含 -、:、| 和空格
+  const content = trimmed.slice(1, -1);
+  return /^[\s\-:|]+$/.test(content);
+}
+
+/**
+ * 解析表格单元格内容
+ */
+function parseTableCells(line: string): string[] {
+  const trimmed = line.trim();
+  // 移除首尾的 |
+  const content = trimmed.slice(1, -1);
+  // 按 | 分割
+  return content.split('|').map(cell => cell.trim());
+}
+
+/**
+ * 解析 Markdown 表格，返回 Word Table 和结束索引
+ */
+function parseMarkdownTable(
+  lines: string[], 
+  startIndex: number, 
+  styleConfig: typeof STYLE_CONFIG.styled
+): { table: Table; endIndex: number } {
+  const tableLines: string[] = [];
+  let endIndex = startIndex;
+  
+  // 收集所有表格行
+  for (let i = startIndex; i < lines.length; i++) {
+    if (isTableRow(lines[i])) {
+      tableLines.push(lines[i]);
+      endIndex = i;
+    } else {
+      break;
+    }
+  }
+  
+  // 解析表格内容
+  const rows: string[][] = [];
+  let headerRow: string[] | null = null;
+  
+  for (let i = 0; i < tableLines.length; i++) {
+    const line = tableLines[i];
+    if (isTableSeparator(line)) {
+      // 跳过分隔行
+      continue;
+    }
+    const cells = parseTableCells(line);
+    if (headerRow === null) {
+      headerRow = cells;
+    } else {
+      rows.push(cells);
+    }
+  }
+  
+  // 确定列数
+  const columnCount = headerRow ? headerRow.length : (rows[0]?.length || 1);
+  
+  // 边框样式
+  const borderStyle = {
+    style: BorderStyle.SINGLE,
+    size: 1,
+    color: styleConfig.tableBorder,
+  };
+  
+  // 创建表格行
+  const tableRows: TableRow[] = [];
+  
+  // 表头行
+  if (headerRow) {
+    const headerCells = headerRow.map(cellText => {
+      const cellOptions: any = {
+        children: [new Paragraph({
+          children: parseInlineFormatting(cellText, 22),
+          alignment: AlignmentType.CENTER,
+        })],
+        verticalAlign: VerticalAlign.CENTER,
+        borders: {
+          top: borderStyle,
+          bottom: borderStyle,
+          left: borderStyle,
+          right: borderStyle,
+        },
+        margins: {
+          top: 50,
+          bottom: 50,
+          left: 100,
+          right: 100,
+        },
+      };
+      
+      // 带样式模式添加背景色
+      if (styleConfig.tableHeaderBg) {
+        cellOptions.shading = {
+          type: ShadingType.SOLID,
+          color: styleConfig.tableHeaderBg,
+          fill: styleConfig.tableHeaderBg,
+        };
+      }
+      
+      return new TableCell(cellOptions);
+    });
+    
+    tableRows.push(new TableRow({ children: headerCells }));
+  }
+  
+  // 数据行
+  for (const row of rows) {
+    const dataCells = row.map(cellText => 
+      new TableCell({
+        children: [new Paragraph({
+          children: parseInlineFormatting(cellText, 22),
+        })],
+        verticalAlign: VerticalAlign.CENTER,
+        borders: {
+          top: borderStyle,
+          bottom: borderStyle,
+          left: borderStyle,
+          right: borderStyle,
+        },
+        margins: {
+          top: 50,
+          bottom: 50,
+          left: 100,
+          right: 100,
+        },
+      })
+    );
+    
+    // 确保每行单元格数一致
+    while (dataCells.length < columnCount) {
+      dataCells.push(new TableCell({
+        children: [new Paragraph({ children: [] })],
+        borders: {
+          top: borderStyle,
+          bottom: borderStyle,
+          left: borderStyle,
+          right: borderStyle,
+        },
+      }));
+    }
+    
+    tableRows.push(new TableRow({ children: dataCells }));
+  }
+  
+  // 创建表格
+  const table = new Table({
+    rows: tableRows,
+    width: {
+      size: 100,
+      type: WidthType.PERCENTAGE,
+    },
+  });
+  
+  return { table, endIndex };
+}
+
 // 样式配置
 const STYLE_CONFIG = {
   // 教学材料（带样式）
@@ -98,12 +284,16 @@ const STYLE_CONFIG = {
     titleColor: '6A1B9A',  // 紫色
     headingColor: '6A1B9A',
     accentColor: 'FF6F00',  // 橙色
+    tableHeaderBg: 'E8D5F0',  // 浅紫色表头背景
+    tableBorder: 'CCCCCC',  // 浅灰色边框
   },
   // 通用文档（无样式）
   plain: {
     titleColor: '000000',  // 黑色
     headingColor: '000000',
     accentColor: '000000',
+    tableHeaderBg: '',  // 无背景
+    tableBorder: 'CCCCCC',  // 浅灰色边框
   }
 };
 
@@ -131,8 +321,8 @@ export async function generateBatchDocument(
   const prefix = filePrefix.trim() || '任务';
   const filename = `${prefix}${taskNumStr}.docx`;
   
-  // 构建文档内容
-  const children: Paragraph[] = [];
+  // 构建文档内容（支持 Paragraph 和 Table 混合）
+  const children: (Paragraph | Table)[] = [];
   
   // 添加标题
   const title = `${prefix} ${taskNumber}`;
@@ -147,8 +337,20 @@ export async function generateBatchDocument(
   
   let inAnswerSection = false;
   
-  for (const line of lines) {
+  // 使用索引遍历以支持表格跳过多行
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimmedLine = line.trim();
+    
+    // 检测 Markdown 表格
+    if (isTableRow(trimmedLine)) {
+      const { table, endIndex } = parseMarkdownTable(lines, i, styleConfig);
+      children.push(table);
+      // 表格后添加空行
+      children.push(new Paragraph({ children: [], spacing: { after: 100 } }));
+      i = endIndex;  // 跳过表格行
+      continue;
+    }
     
     // 检测答案分隔符
     if (trimmedLine.includes('===== 答案部分 =====') || trimmedLine.includes('答案部分')) {

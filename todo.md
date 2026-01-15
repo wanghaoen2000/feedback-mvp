@@ -769,3 +769,14 @@
 - [x] 后端：markdown_plain 使用黑白简洁样式（标题颜色 #000000）
 - [x] 后端：markdown_styled 使用紫色标题（#6A1B9A）
 - [x] TypeScript 编译无报错
+
+
+## V48 Step 4: Markdown解析器 - 新增表格支持
+
+- [x] 导入 docx 库的 Table、TableRow、TableCell 等组件
+- [x] 创建 parseMarkdownTable 辅助函数
+- [x] 识别以 | 开头的连续行为表格
+- [x] 表头背景色：带样式模式 #E8D5F0（浅紫色），无样式模式无背景
+- [x] 表格边框：浅灰色细线 #CCCCCC
+- [x] 单元格内容支持粗体/斜体（复用 parseInlineFormatting）
+- [x] TypeScript 编译无报错
