@@ -94,11 +94,17 @@ export function BatchProcess() {
   // 路书内容
   const [roadmap, setRoadmap] = useState("");
 
-  // 文件上传
+  // 独立文件上传（每个任务对应不同文件）
   const [uploadedFiles, setUploadedFiles] = useState<Map<number, UploadedFile>>(new Map());
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // 共享文件上传（发送给所有任务）
+  const [sharedFiles, setSharedFiles] = useState<UploadedFile[]>([]);
+  const [isUploadingShared, setIsUploadingShared] = useState(false);
+  const [sharedUploadError, setSharedUploadError] = useState<string | null>(null);
+  const sharedFileInputRef = React.useRef<HTMLInputElement>(null);
 
   // 生成状态
   const [isGenerating, setIsGenerating] = useState(false);
@@ -167,12 +173,61 @@ export function BatchProcess() {
     }
   }, [startNumber, endNumber]);
 
-  // 清空上传文件
+  // 清空独立文件
   const handleClearFiles = useCallback(() => {
     setUploadedFiles(new Map());
     setUploadError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  }, []);
+
+  // 处理共享文件上传
+  const handleSharedFileUpload = useCallback(async (files: FileList) => {
+    setIsUploadingShared(true);
+    setSharedUploadError(null);
+    
+    try {
+      const formData = new FormData();
+      Array.from(files).forEach(file => formData.append('files', file));
+      
+      const response = await fetch('/api/batch/upload-files', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        setSharedUploadError(result.error || '上传失败');
+        return;
+      }
+      
+      // 过滤掉有错误的文件
+      const successFiles = result.files.filter((f: UploadedFile) => !f.error);
+      
+      // 追加到现有共享文件列表
+      setSharedFiles(prev => [...prev, ...successFiles]);
+      
+      // 检查是否有上传失败的文件
+      const errorFiles = result.files.filter((f: UploadedFile) => f.error);
+      if (errorFiles.length > 0) {
+        setSharedUploadError(`${errorFiles.length} 个文件上传失败`);
+      }
+    } catch (error: any) {
+      console.error('共享文件上传错误:', error);
+      setSharedUploadError(error.message || '上传失败');
+    } finally {
+      setIsUploadingShared(false);
+    }
+  }, []);
+
+  // 清空共享文件
+  const handleClearSharedFiles = useCallback(() => {
+    setSharedFiles([]);
+    setSharedUploadError(null);
+    if (sharedFileInputRef.current) {
+      sharedFileInputRef.current.value = '';
     }
   }, []);
 
@@ -264,7 +319,7 @@ export function BatchProcess() {
           templateType: templateType,
           // 如果使用自定义命名，传递 customFileNames
           customFileNames: namingMethod === 'custom' ? Object.fromEntries(parsedNames) : undefined,
-          // 传递上传的文件信息
+          // 传递上传的独立文件信息
           files: uploadedFiles.size > 0 ? Object.fromEntries(
             Array.from(uploadedFiles.entries()).map(([taskNum, file]) => [
               taskNum,
@@ -276,6 +331,13 @@ export function BatchProcess() {
               }
             ])
           ) : undefined,
+          // 传递共享文件信息
+          sharedFiles: sharedFiles.length > 0 ? sharedFiles.map(file => ({
+            type: file.type,
+            url: file.url,
+            base64DataUri: file.base64DataUri,
+            mimeType: file.mimeType,
+          })) : undefined,
         }),
       });
 
@@ -401,7 +463,7 @@ export function BatchProcess() {
       setIsGenerating(false);
       setIsStopping(false);
     }
-  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix, templateType, namingMethod, parsedNames, uploadedFiles]);
+  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix, templateType, namingMethod, parsedNames, uploadedFiles, sharedFiles]);
 
   // 渲染单个任务卡片
   const renderTaskCard = (task: TaskState) => {
@@ -757,108 +819,192 @@ export function BatchProcess() {
         </div>
 
         {/* 配套文件上传 */}
-        <div className="space-y-3">
+        <div className="space-y-4">
           <Label className="flex items-center gap-2">
             <Upload className="w-4 h-4" />
             配套文件上传（可选）
           </Label>
-          
-          {/* 隐藏的文件输入 */}
-          <input
-            type="file"
-            multiple
-            accept=".docx,.md,.txt,.pdf,.png,.jpg,.jpeg,.webp"
-            onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
-            style={{ display: 'none' }}
-            ref={fileInputRef}
-          />
-          
-          {/* 上传区域 */}
-          <div
-            className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-              isUploading ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-            }`}
-            onClick={() => !isUploading && !isGenerating && fileInputRef.current?.click()}
-          >
-            {isUploading ? (
-              <div className="flex flex-col items-center gap-2">
-                <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-                <p className="text-sm text-blue-600">正在上传...</p>
+
+          {/* 共享文件区域 */}
+          <div className="border rounded-lg p-4 space-y-3 bg-purple-50/30">
+            <Label className="flex items-center gap-2 text-purple-700">
+              <FolderOpen className="w-4 h-4" />
+              共享文件（发送给所有任务）
+            </Label>
+            
+            {/* 隐藏的文件输入 */}
+            <input
+              type="file"
+              multiple
+              accept=".docx,.md,.txt,.pdf,.png,.jpg,.jpeg,.webp"
+              onChange={(e) => e.target.files && handleSharedFileUpload(e.target.files)}
+              style={{ display: 'none' }}
+              ref={sharedFileInputRef}
+            />
+            
+            {/* 上传按钮 */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => !isUploadingShared && !isGenerating && sharedFileInputRef.current?.click()}
+                disabled={isUploadingShared || isGenerating}
+                className="flex items-center gap-1"
+              >
+                {isUploadingShared ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
+                选择文件
+              </Button>
+              
+              {sharedFiles.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClearSharedFiles}
+                  disabled={isGenerating || isUploadingShared}
+                  className="flex items-center gap-1 text-red-600 hover:text-red-700"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  清空
+                </Button>
+              )}
+            </div>
+            
+            {/* 错误提示 */}
+            {sharedUploadError && (
+              <div className="text-sm text-red-600 flex items-center gap-1">
+                <XCircle className="w-4 h-4" />
+                {sharedUploadError}
               </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2">
-                <Upload className="w-8 h-8 text-gray-400" />
-                <p className="text-sm text-gray-600">点击选择文件</p>
-                <p className="text-xs text-gray-400">
-                  支持：docx/md/txt/pdf/png/jpg/webp
-                </p>
-                <p className="text-xs text-gray-400">
-                  文档最大30MB，图片最大20MB
-                </p>
+            )}
+            
+            {/* 已上传文件列表 */}
+            {sharedFiles.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-gray-500">已上传 {sharedFiles.length} 个文件：</p>
+                <div className="flex flex-wrap gap-2">
+                  {sharedFiles.map((file, index) => (
+                    <span
+                      key={index}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-white rounded border text-sm"
+                    >
+                      {file.type === 'image' ? (
+                        <Image className="w-3 h-3 text-green-500" />
+                      ) : (
+                        <File className="w-3 h-3 text-blue-500" />
+                      )}
+                      {file.originalName}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </div>
-          
-          {/* 错误提示 */}
-          {uploadError && (
-            <div className="text-sm text-red-600 flex items-center gap-1">
-              <XCircle className="w-4 h-4" />
-              {uploadError}
-            </div>
-          )}
-          
-          {/* 清空按钮 */}
-          {uploadedFiles.size > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleClearFiles}
-              disabled={isGenerating || isUploading}
-              className="flex items-center gap-1"
+
+          {/* 独立文件区域 */}
+          <div className="border rounded-lg p-4 space-y-3 bg-blue-50/30">
+            <Label className="flex items-center gap-2 text-blue-700">
+              <FolderOpen className="w-4 h-4" />
+              独立文件（每个任务对应不同文件，按文件名排序）
+            </Label>
+            
+            {/* 隐藏的文件输入 */}
+            <input
+              type="file"
+              multiple
+              accept=".docx,.md,.txt,.pdf,.png,.jpg,.jpeg,.webp"
+              onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
+              style={{ display: 'none' }}
+              ref={fileInputRef}
+            />
+            
+            {/* 上传区域 */}
+            <div
+              className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
+                isUploading ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+              }`}
+              onClick={() => !isUploading && !isGenerating && fileInputRef.current?.click()}
             >
-              <Trash2 className="w-4 h-4" />
-              清空重传
-            </Button>
-          )}
-          
-          {/* 上传预览 */}
-          {(uploadedFiles.size > 0 || (startNumber && endNumber)) && (
-            <div className="space-y-2">
-              <Label>上传预览</Label>
-              <div className="bg-gray-100 rounded-md p-3 max-h-40 overflow-y-auto">
-                {(() => {
-                  const start = parseInt(startNumber) || 1;
-                  const end = parseInt(endNumber) || start;
-                  const previews: React.ReactNode[] = [];
-                  
-                  for (let i = start; i <= end; i++) {
-                    const file = uploadedFiles.get(i);
-                    
-                    previews.push(
-                      <div key={i} className="text-sm font-mono flex items-center gap-2">
-                        <span className="text-gray-500 w-16">任务{i}</span>
-                        <span className="text-gray-400">→</span>
-                        {file ? (
-                          <span className="flex items-center gap-1 text-gray-700">
-                            {file.type === 'image' ? (
-                              <Image className="w-4 h-4 text-green-500" />
-                            ) : (
-                              <File className="w-4 h-4 text-blue-500" />
-                            )}
-                            {file.originalName}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">（未上传）</span>
-                        )}
-                      </div>
-                    );
-                  }
-                  
-                  return previews;
-                })()}
-              </div>
+              {isUploading ? (
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                  <p className="text-sm text-blue-600">正在上传...</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-1">
+                  <Upload className="w-6 h-6 text-gray-400" />
+                  <p className="text-sm text-gray-600">点击选择文件</p>
+                  <p className="text-xs text-gray-400">
+                    支持：docx/md/txt/pdf/png/jpg/webp
+                  </p>
+                </div>
+              )}
             </div>
-          )}
+            
+            {/* 错误提示 */}
+            {uploadError && (
+              <div className="text-sm text-red-600 flex items-center gap-1">
+                <XCircle className="w-4 h-4" />
+                {uploadError}
+              </div>
+            )}
+            
+            {/* 清空按钮 */}
+            {uploadedFiles.size > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleClearFiles}
+                disabled={isGenerating || isUploading}
+                className="flex items-center gap-1 text-red-600 hover:text-red-700"
+              >
+                <Trash2 className="w-4 h-4" />
+                清空
+              </Button>
+            )}
+            
+            {/* 上传预览 */}
+            {(uploadedFiles.size > 0 || (startNumber && endNumber)) && (
+              <div className="space-y-2">
+                <Label className="text-sm">上传预览</Label>
+                <div className="bg-white rounded-md p-3 max-h-32 overflow-y-auto border">
+                  {(() => {
+                    const start = parseInt(startNumber) || 1;
+                    const end = parseInt(endNumber) || start;
+                    const previews: React.ReactNode[] = [];
+                    
+                    for (let i = start; i <= end; i++) {
+                      const file = uploadedFiles.get(i);
+                      
+                      previews.push(
+                        <div key={i} className="text-sm font-mono flex items-center gap-2">
+                          <span className="text-gray-500 w-16">任务{i}</span>
+                          <span className="text-gray-400">→</span>
+                          {file ? (
+                            <span className="flex items-center gap-1 text-gray-700">
+                              {file.type === 'image' ? (
+                                <Image className="w-4 h-4 text-green-500" />
+                              ) : (
+                                <File className="w-4 h-4 text-blue-500" />
+                              )}
+                              {file.originalName}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">（未上传）</span>
+                          )}
+                        </div>
+                      );
+                    }
+                    
+                    return previews;
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* 批次状态概览 */}
