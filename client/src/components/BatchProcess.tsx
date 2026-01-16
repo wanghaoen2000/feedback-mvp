@@ -34,6 +34,7 @@ interface TaskState {
   filename?: string;
   url?: string;
   error?: string;
+  truncated?: boolean;
 }
 
 // 上传文件类型
@@ -512,6 +513,7 @@ export function BatchProcess() {
                       chars: data.chars || task.chars,
                       filename: data.filename,
                       url: data.url,
+                      truncated: data.truncated,
                     });
                   }
                   return newTasks;
@@ -583,6 +585,11 @@ export function BatchProcess() {
             {task.status === 'completed' && (
               <span className="text-sm text-green-600">
                 完成 ({task.chars} 字)
+              </span>
+            )}
+            {task.truncated && (
+              <span className="text-sm text-orange-500 font-medium">
+                ⚠️ 已截断
               </span>
             )}
             {task.status === 'error' && (
