@@ -350,6 +350,17 @@ export default function Home() {
       setModelTokenLimitsLoaded(true);
     }
   }, [modelTokenLimitsQuery.data, modelTokenLimitsLoaded]);
+  
+  // 当Token配置更新后，检查当前模型是否仍在列表中
+  useEffect(() => {
+    if (modelTokenLimits.length > 0 && apiModel) {
+      const modelNames = modelTokenLimits.map(item => item.model);
+      if (!modelNames.includes(apiModel)) {
+        // 当前模型不在列表中，自动切换到第一个
+        setApiModel(modelTokenLimits[0].model);
+      }
+    }
+  }, [modelTokenLimits]);
 
   // 保存配置
   const handleSaveConfig = async () => {
@@ -2016,15 +2027,20 @@ export default function Home() {
                     
                     <div className="space-y-2">
                       <Label htmlFor="apiModel">模型名称</Label>
-                      <Input
-                        id="apiModel"
-                        placeholder="例如：claude-sonnet-4-5-20250929"
-                        value={apiModel}
-                        onChange={(e) => setApiModel(e.target.value)}
-                        disabled={isGenerating}
-                      />
+                      <Select value={apiModel} onValueChange={setApiModel} disabled={isGenerating}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择模型" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {modelTokenLimits.map((item) => (
+                            <SelectItem key={item.model} value={item.model}>
+                              {item.model}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <p className="text-xs text-gray-500">
-                        直接复制API供应商提供的模型名称，不需要做任何修改
+                        从下方「模型Token上限配置」中选择已配置的模型
                       </p>
                     </div>
                     
