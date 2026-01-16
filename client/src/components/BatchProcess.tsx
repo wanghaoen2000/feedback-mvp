@@ -141,6 +141,22 @@ export function BatchProcess() {
   const [namingMethod, setNamingMethod] = useState<'prefix' | 'custom'>('prefix');
   const [customNames, setCustomNames] = useState<string>('');
   const [parsedNames, setParsedNames] = useState<Map<number, string>>(new Map());
+  
+  // 格式说明复制状态
+  const [copied, setCopied] = useState(false);
+  
+  // 复制格式说明函数
+  const handleCopyFormatHint = async () => {
+    if (templateType && TEMPLATE_FORMAT_HINTS[templateType]) {
+      try {
+        await navigator.clipboard.writeText(TEMPLATE_FORMAT_HINTS[templateType]);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000); // 2秒后恢复
+      } catch (err) {
+        console.error('复制失败:', err);
+      }
+    }
+  };
 
   // 从数据库加载配置
   const { data: config } = trpc.config.getAll.useQuery();
@@ -159,6 +175,11 @@ export function BatchProcess() {
       setStoragePath(config.batchStoragePath);
     }
   }, [config?.batchStoragePath]);
+  
+  // 切换模板类型时重置复制状态
+  useEffect(() => {
+    setCopied(false);
+  }, [templateType]);
   
   // 路书内容
   const [roadmap, setRoadmap] = useState("");
@@ -648,7 +669,18 @@ export function BatchProcess() {
           {/* 格式说明 */}
           {templateType && TEMPLATE_FORMAT_HINTS[templateType] && (
             <div className="space-y-2">
-              <Label>格式说明（写路书时参考）</Label>
+              <div className="flex justify-between items-center">
+                <Label>格式说明（写路书时参考）</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyFormatHint}
+                  className="h-7 text-xs"
+                >
+                  {copied ? "已复制 ✓" : "📋 复制"}
+                </Button>
+              </div>
               <textarea
                 readOnly
                 value={TEMPLATE_FORMAT_HINTS[templateType]}
