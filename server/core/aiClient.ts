@@ -106,7 +106,8 @@ export async function invokeAIStream(
     temperature?: number;
     timeout?: number;
     retries?: number;
-    fileInfo?: FileInfo;  // 新增：文件信息
+    fileInfo?: FileInfo;  // 单文件信息（向后兼容）
+    fileInfos?: FileInfo[];  // 多文件信息（新增）
   }
 ): Promise<string> {
   // 获取配置
@@ -115,36 +116,43 @@ export async function invokeAIStream(
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
   const maxRetries = options?.retries ?? 2;
-  const fileInfo = options?.fileInfo;
+  
+  // 兼容单文件和多文件
+  const fileInfos = options?.fileInfos || (options?.fileInfo ? [options.fileInfo] : []);
 
   // 构建用户消息内容
   let userContent: any;
   
-  if (fileInfo) {
+  if (fileInfos.length > 0) {
     // 带文件的消息，使用数组格式
     const contentParts: any[] = [];
     
-    if (fileInfo.type === 'image' && fileInfo.base64DataUri) {
-      // 图片使用 image_url 类型
-      contentParts.push({
-        type: "image_url",
-        image_url: {
-          url: fileInfo.base64DataUri,
-          detail: "high"
-        }
-      });
-      console.log(`[AIClient] 添加图片内容 (Base64)`);
-    } else if (fileInfo.type === 'document' && fileInfo.url) {
-      // 文档使用 file_url 类型
-      contentParts.push({
-        type: "file_url",
-        file_url: {
-          url: fileInfo.url,
-          mime_type: fileInfo.mimeType
-        }
-      });
-      console.log(`[AIClient] 添加文档内容: ${fileInfo.url}`);
+    // 添加所有文件
+    for (const fileInfo of fileInfos) {
+      if (fileInfo.type === 'image' && fileInfo.base64DataUri) {
+        // 图片使用 image_url 类型
+        contentParts.push({
+          type: "image_url",
+          image_url: {
+            url: fileInfo.base64DataUri,
+            detail: "high"
+          }
+        });
+        console.log(`[AIClient] 添加图片内容 (Base64)`);
+      } else if (fileInfo.type === 'document' && fileInfo.url) {
+        // 文档使用 file_url 类型
+        contentParts.push({
+          type: "file_url",
+          file_url: {
+            url: fileInfo.url,
+            mime_type: fileInfo.mimeType
+          }
+        });
+        console.log(`[AIClient] 添加文档内容: ${fileInfo.url}`);
+      }
     }
+    
+    console.log(`[AIClient] 共添加 ${contentParts.length} 个文件`);
     
     // 添加文本消息
     contentParts.push({

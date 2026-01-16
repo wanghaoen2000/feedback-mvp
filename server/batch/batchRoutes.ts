@@ -113,7 +113,8 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     filePrefix = '任务',
     templateType = 'markdown_styled',
     customFileNames,  // 可选：自定义文件名映射 Record<number, string>
-    files  // 可选：上传的文件信息 Record<number, FileInfo>
+    files,  // 可选：独立文件信息 Record<number, FileInfo>
+    sharedFiles  // 可选：共享文件信息 FileInfo[]
   } = req.body;
 
   // 参数验证
@@ -249,21 +250,39 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     taskNumber: number,
     onProgress: (chars: number) => void
   ): Promise<BatchTaskResult> => {
-    // 获取当前任务的文件信息
-    const taskFiles = files as Record<number, FileInfo> | undefined;
-    const fileInfo = taskFiles?.[taskNumber];
+    // 获取当前任务的所有文件（共享文件 + 独立文件）
+    const taskFileInfos: FileInfo[] = [];
+    
+    // 先添加共享文件（所有任务都有）
+    const sharedFileList = sharedFiles as FileInfo[] | undefined;
+    if (sharedFileList && sharedFileList.length > 0) {
+      taskFileInfos.push(...sharedFileList);
+    }
+    
+    // 再添加独立文件（特定任务才有）
+    const independentFiles = files as Record<number, FileInfo> | undefined;
+    const independentFile = independentFiles?.[taskNumber];
+    if (independentFile) {
+      taskFileInfos.push(independentFile);
+    }
+    
+    // 日志输出
+    console.log(`[BatchRoutes] 任务${taskNumber}：共享文件${sharedFileList?.length || 0}个，独立文件${independentFile ? 1 : 0}个，共${taskFileInfos.length}个`);
     
     // 构建用户消息
     let userMessage = `这是任务编号 ${taskNumber}，请按照路书要求生成内容。`;
     
     // 如果有文件，添加提示
-    if (fileInfo) {
-      if (fileInfo.type === 'image') {
-        userMessage += `\n\n【附件】请分析上面的图片内容。`;
-        console.log(`[BatchRoutes] 任务 ${taskNumber} 附带图片`);
-      } else if (fileInfo.type === 'document') {
-        userMessage += `\n\n【附件】请分析上面的文档内容。`;
-        console.log(`[BatchRoutes] 任务 ${taskNumber} 附带文档: ${fileInfo.url}`);
+    if (taskFileInfos.length > 0) {
+      const imageCount = taskFileInfos.filter(f => f.type === 'image').length;
+      const docCount = taskFileInfos.filter(f => f.type === 'document').length;
+      
+      if (imageCount > 0 && docCount > 0) {
+        userMessage += `\n\n【附件】请分析上面的 ${imageCount} 张图片和 ${docCount} 份文档内容。`;
+      } else if (imageCount > 0) {
+        userMessage += `\n\n【附件】请分析上面的 ${imageCount} 张图片内容。`;
+      } else if (docCount > 0) {
+        userMessage += `\n\n【附件】请分析上面的 ${docCount} 份文档内容。`;
       }
     }
 
@@ -289,7 +308,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
           lastReportedChars = chars;
         }
       },
-      { config, fileInfo }  // 传递文件信息
+      { config, fileInfos: taskFileInfos.length > 0 ? taskFileInfos : undefined }  // 传递多文件信息
     );
 
     // 检查内容是否有效
