@@ -74,6 +74,46 @@ export async function getAPIConfig(): Promise<APIConfig> {
 }
 
 /**
+ * 模型Token上限映射表
+ * 不同模型的 max_tokens 上限不同，需要根据模型自动设置
+ */
+const MODEL_MAX_TOKENS: Record<string, number> = {
+  // Claude 系列
+  "claude-sonnet-4-5-20250929": 64000,
+  "claude-opus-4-5-20251101": 64000,
+  "claude-3-5-sonnet": 8192,
+  "claude-3-opus": 4096,
+  // OpenAI 系列
+  "gpt-4o": 16384,
+  "gpt-4o-mini": 16384,
+  "gpt-4-turbo": 4096,
+  "gpt-4": 8192,
+};
+
+// 保守默认值（用于未知模型）
+const DEFAULT_MAX_TOKENS = 4096;
+
+/**
+ * 根据模型名称获取 max_tokens 上限
+ * @param model 模型名称
+ * @returns 该模型的 max_tokens 上限
+ */
+function getMaxTokensForModel(model: string): number {
+  // 精确匹配
+  if (MODEL_MAX_TOKENS[model]) {
+    return MODEL_MAX_TOKENS[model];
+  }
+  // 模糊匹配（处理版本号后缀）
+  for (const [key, value] of Object.entries(MODEL_MAX_TOKENS)) {
+    if (model.includes(key) || key.includes(model)) {
+      return value;
+    }
+  }
+  console.log(`[AIClient] 未知模型 ${model}，使用默认 max_tokens: ${DEFAULT_MAX_TOKENS}`);
+  return DEFAULT_MAX_TOKENS;
+}
+
+/**
  * 延迟函数
  */
 function delay(ms: number): Promise<void> {
@@ -112,7 +152,9 @@ export async function invokeAIStream(
 ): Promise<string> {
   // 获取配置
   const config = options?.config || await getAPIConfig();
-  const maxTokens = options?.maxTokens || 32000;
+  // 根据模型动态获取 max_tokens 上限
+  const modelMaxTokens = getMaxTokensForModel(config.apiModel);
+  const maxTokens = options?.maxTokens ? Math.min(options.maxTokens, modelMaxTokens) : modelMaxTokens;
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
   const maxRetries = options?.retries ?? 2;
@@ -173,6 +215,7 @@ export async function invokeAIStream(
 
   console.log(`[AIClient] 调用模型: ${config.apiModel}`);
   console.log(`[AIClient] API地址: ${config.apiUrl}`);
+  console.log(`[AIClient] max_tokens: ${maxTokens} (模型上限: ${modelMaxTokens})`);
   console.log(`[AIClient] System prompt长度: ${systemPrompt.length}`);
   console.log(`[AIClient] User message长度: ${userMessage.length}`);
 
