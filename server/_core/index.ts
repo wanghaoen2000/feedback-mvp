@@ -9,6 +9,7 @@ import batchRoutes from "../batch/batchRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { initModelTokenLimits } from "../core/aiClient";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -32,6 +33,9 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  
+  // 初始化模型Token上限配置
+  await initModelTokenLimits();
   
   // 设置服务器超时为15分钟（用于长时间运行的API调用）
   server.timeout = 15 * 60 * 1000; // 15 minutes

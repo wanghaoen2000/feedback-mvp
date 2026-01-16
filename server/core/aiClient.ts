@@ -74,10 +74,10 @@ export async function getAPIConfig(): Promise<APIConfig> {
 }
 
 /**
- * 模型Token上限映射表
+ * 模型Token上限映射表（硬编码默认值，作为兆底）
  * 不同模型的 max_tokens 上限不同，需要根据模型自动设置
  */
-const MODEL_MAX_TOKENS: Record<string, number> = {
+const DEFAULT_MODEL_MAX_TOKENS: Record<string, number> = {
   // Claude 系列
   "claude-sonnet-4-5-20250929": 64000,
   "claude-opus-4-5-20251101": 64000,
@@ -93,24 +93,109 @@ const MODEL_MAX_TOKENS: Record<string, number> = {
 // 保守默认值（用于未知模型）
 const DEFAULT_MAX_TOKENS = 4096;
 
+// 缓存数据库配置（避免每次调用都查询数据库）
+let cachedModelTokenLimits: Record<string, number> | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 60000; // 缓存 60 秒
+
 /**
- * 根据模型名称获取 max_tokens 上限
+ * 从数据库获取模型Token上限配置
+ */
+async function getModelTokenLimitsFromDb(): Promise<Record<string, number> | null> {
+  // 检查缓存是否有效
+  if (cachedModelTokenLimits && Date.now() - cacheTimestamp < CACHE_TTL) {
+    return cachedModelTokenLimits;
+  }
+  
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    
+    const result = await db.select().from(systemConfig).where(eq(systemConfig.key, "modelTokenLimits")).limit(1);
+    if (result.length > 0 && result[0].value) {
+      const parsed = JSON.parse(result[0].value);
+      cachedModelTokenLimits = parsed;
+      cacheTimestamp = Date.now();
+      return parsed;
+    }
+  } catch (e) {
+    console.error(`[AIClient] 获取 modelTokenLimits 配置失败:`, e);
+  }
+  return null;
+}
+
+/**
+ * 根据模型名称获取 max_tokens 上限（同步版本，使用缓存）
  * @param model 模型名称
  * @returns 该模型的 max_tokens 上限
  */
 function getMaxTokensForModel(model: string): number {
+  // 优先使用缓存的数据库配置
+  const dbConfig = cachedModelTokenLimits || {};
+  const allConfig = { ...DEFAULT_MODEL_MAX_TOKENS, ...dbConfig };
+  
   // 精确匹配
-  if (MODEL_MAX_TOKENS[model]) {
-    return MODEL_MAX_TOKENS[model];
+  if (allConfig[model]) {
+    return allConfig[model];
   }
   // 模糊匹配（处理版本号后缀）
-  for (const [key, value] of Object.entries(MODEL_MAX_TOKENS)) {
+  for (const [key, value] of Object.entries(allConfig)) {
     if (model.includes(key) || key.includes(model)) {
       return value;
     }
   }
   console.log(`[AIClient] 未知模型 ${model}，使用默认 max_tokens: ${DEFAULT_MAX_TOKENS}`);
   return DEFAULT_MAX_TOKENS;
+}
+
+/**
+ * 初始化模型Token上限配置（在系统启动时调用）
+ * 如果数据库中没有配置，自动插入默认值
+ */
+export async function initModelTokenLimits(): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) {
+      console.log(`[AIClient] 数据库未连接，跳过 modelTokenLimits 初始化`);
+      return;
+    }
+    
+    // 检查是否已有配置
+    const existing = await db.select().from(systemConfig).where(eq(systemConfig.key, "modelTokenLimits")).limit(1);
+    if (existing.length > 0) {
+      console.log(`[AIClient] modelTokenLimits 配置已存在，跳过初始化`);
+      // 加载到缓存
+      if (existing[0].value) {
+        cachedModelTokenLimits = JSON.parse(existing[0].value);
+        cacheTimestamp = Date.now();
+      }
+      return;
+    }
+    
+    // 插入默认配置
+    const defaultConfig = JSON.stringify(DEFAULT_MODEL_MAX_TOKENS);
+    await db.insert(systemConfig).values({
+      key: "modelTokenLimits",
+      value: defaultConfig,
+    });
+    console.log(`[AIClient] 已初始化 modelTokenLimits 配置`);
+    
+    // 加载到缓存
+    cachedModelTokenLimits = DEFAULT_MODEL_MAX_TOKENS;
+    cacheTimestamp = Date.now();
+  } catch (e) {
+    console.error(`[AIClient] 初始化 modelTokenLimits 失败:`, e);
+  }
+}
+
+/**
+ * 刷新模型Token上限缓存（在配置更新后调用）
+ */
+export async function refreshModelTokenLimitsCache(): Promise<void> {
+  cachedModelTokenLimits = null;
+  cacheTimestamp = 0;
+  await getModelTokenLimitsFromDb();
+  console.log(`[AIClient] modelTokenLimits 缓存已刷新`);
 }
 
 /**
