@@ -1053,6 +1053,15 @@ export function BatchProcess() {
                 </div>
               </div>
             )}
+            
+            {/* 文件处理说明 */}
+            <div className="text-sm text-muted-foreground mt-3 p-3 bg-gray-50 rounded-md border border-gray-200">
+              <p className="font-semibold text-gray-700 mb-2">📋 文件处理说明：</p>
+              <ul className="list-disc list-inside space-y-1 text-xs text-gray-600">
+                <li>图片（png/jpg/webp）：直接传给AI分析</li>
+                <li>文档（docx/pdf）：提取纯文字后传给AI，排版和图片可能丢失</li>
+              </ul>
+            </div>
           </div>
 
           {/* 独立文件区域 */}

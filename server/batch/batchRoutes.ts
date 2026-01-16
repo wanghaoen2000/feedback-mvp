@@ -9,7 +9,7 @@ import multer from "multer";
 import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
 import { setupSSEHeaders, sendSSEEvent, sendChunkedContent } from "../core/sseHelper";
-import { invokeAIStream, getAPIConfig, FileInfo } from "../core/aiClient";
+import { invokeAIStream, FileInfo } from "../core/aiClient";
 import { generateBatchDocument } from "./batchWordGenerator";
 import { generateWordListDocx, WordListData } from "../templates/wordCardTemplate";
 import { generateWritingMaterialDocx, WritingMaterialData } from "./writingMaterialGenerator";

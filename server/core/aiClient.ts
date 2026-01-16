@@ -7,6 +7,7 @@ import { systemConfig } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import * as fs from 'fs';
 import * as path from 'path';
+import { extractTextFromDocument, isImageType, isDocumentType } from '../documentParser';
 
 // ========== 调试日志函数 ==========
 function writeDebugLog(message: string) {
@@ -28,215 +29,94 @@ const DEFAULT_CONFIG = {
   currentYear: "2026",
   roadmap: "",
   roadmapClass: "",
-  driveBasePath: "Mac/Documents/XDF/学生档案",
+  firstLessonTemplate: "",
+  classFirstLessonTemplate: "",
+  apiFormat: "openai"
 };
 
-/**
- * AI 流式响应结果
- */
-export interface AIStreamResult {
-  content: string;
-  truncated: boolean;
-}
-
-/**
- * API 配置接口
- */
 export interface APIConfig {
   apiModel: string;
   apiKey: string;
   apiUrl: string;
-  roadmap?: string;
-  roadmapClass?: string;
-  driveBasePath?: string;
-  currentYear?: string;
+  currentYear: string;
+  roadmap: string;
+  roadmapClass: string;
+  firstLessonTemplate: string;
+  classFirstLessonTemplate: string;
+  apiFormat: string;
 }
 
-/**
- * 从数据库读取单个配置值
- */
-async function getConfigValue(key: string): Promise<string> {
+export interface FileInfo {
+  type: 'image' | 'document';
+  mimeType: string;
+  base64DataUri?: string;  // data:image/png;base64,xxxxx 格式
+  url?: string;
+  fileName?: string;  // 文件名，用于标记
+  source?: 'shared' | 'independent';  // 文件来源
+}
+
+export interface AIStreamResult {
+  content: string;
+  tokensUsed: number;
+}
+
+// ========== 获取系统配置 ==========
+async function getSystemConfig(key: string): Promise<string | null> {
   try {
-    const db = await getDb();
-    if (!db) return DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] || "";
-    const result = await db.select().from(systemConfig).where(eq(systemConfig.key, key)).limit(1);
-    if (result.length > 0 && result[0].value) {
-      return result[0].value;
-    }
-  } catch (e) {
-    console.error(`获取配置 ${key} 失败:`, e);
+    const db = getDb();
+    const result = await db
+      .select()
+      .from(systemConfig)
+      .where(eq(systemConfig.key, key))
+      .limit(1);
+    
+    return result.length > 0 ? result[0].value : null;
+  } catch (error) {
+    console.error(`获取配置失败 [${key}]:`, error);
+    return null;
   }
-  return DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] || "";
 }
 
-/**
- * 获取完整的 API 配置
- * 从数据库读取所有 API 相关配置
- */
-export async function getAPIConfig(): Promise<APIConfig> {
-  const [apiModel, apiKey, apiUrl, roadmap, roadmapClass, driveBasePath, currentYear, apiFormat] = await Promise.all([
-    getConfigValue("apiModel"),
-    getConfigValue("apiKey"),
-    getConfigValue("apiUrl"),
-    getConfigValue("roadmap"),
-    getConfigValue("roadmapClass"),
-    getConfigValue("driveBasePath"),
-    getConfigValue("currentYear"),
-    getConfigValue("apiFormat"),
-  ]);
-
-  // ========== 测试日志：验证 apiFormat 配置 ==========
-  console.log('[CONFIG] apiFormat:', apiFormat || 'openai');
-
-  return {
-    apiModel: apiModel || DEFAULT_CONFIG.apiModel,
-    apiKey: apiKey || DEFAULT_CONFIG.apiKey,
-    apiUrl: apiUrl || DEFAULT_CONFIG.apiUrl,
-    roadmap,
-    roadmapClass,
-    driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
-    currentYear: currentYear || DEFAULT_CONFIG.currentYear,
-  };
+// ========== 获取 API 配置 ==========
+async function getAPIConfig(): Promise<APIConfig> {
+  try {
+    const db = getDb();
+    const configs = await db.select().from(systemConfig);
+    
+    const config: APIConfig = { ...DEFAULT_CONFIG };
+    
+    for (const item of configs) {
+      if (item.key === 'apiModel') config.apiModel = item.value;
+      else if (item.key === 'apiKey') config.apiKey = item.value;
+      else if (item.key === 'apiUrl') config.apiUrl = item.value;
+      else if (item.key === 'currentYear') config.currentYear = item.value;
+      else if (item.key === 'roadmap') config.roadmap = item.value;
+      else if (item.key === 'roadmapClass') config.roadmapClass = item.value;
+      else if (item.key === 'firstLessonTemplate') config.firstLessonTemplate = item.value;
+      else if (item.key === 'classFirstLessonTemplate') config.classFirstLessonTemplate = item.value;
+      else if (item.key === 'apiFormat') config.apiFormat = item.value;
+    }
+    
+    writeDebugLog(`[CONFIG] apiFormat: ${config.apiFormat}`);
+    return config;
+  } catch (error) {
+    console.error('获取API配置失败:', error);
+    return DEFAULT_CONFIG;
+  }
 }
 
-/**
- * 模型Token上限映射表（硬编码默认值，作为兆底）
- * 不同模型的 max_tokens 上限不同，需要根据模型自动设置
- */
-const DEFAULT_MODEL_MAX_TOKENS: Record<string, number> = {
-  // Claude 系列
-  "claude-sonnet-4-5-20250929": 64000,
-  "claude-opus-4-5-20251101": 64000,
-  "claude-3-5-sonnet": 8192,
-  "claude-3-opus": 4096,
-  // OpenAI 系列
-  "gpt-4o": 16384,
-  "gpt-4o-mini": 16384,
-  "gpt-4-turbo": 4096,
-  "gpt-4": 8192,
+// ========== 获取模型 token 上限 ==========
+const modelTokenLimits: Record<string, number> = {
+  "claude-opus-4-5-20251101": 200000,
+  "claude-sonnet-4-5-20250929": 200000,
+  "claude-3-5-sonnet-20241022": 200000,
+  "claude-3-opus-20240229": 200000,
+  "gpt-4o": 128000,
+  "gpt-4-turbo": 128000,
 };
 
-// 保守默认值（用于未知模型）
-const DEFAULT_MAX_TOKENS = 4096;
-
-// 缓存数据库配置（避免每次调用都查询数据库）
-let cachedModelTokenLimits: Record<string, number> | null = null;
-let cacheTimestamp = 0;
-const CACHE_TTL = 60000; // 缓存 60 秒
-
-/**
- * 从数据库获取模型Token上限配置
- */
-async function getModelTokenLimitsFromDb(): Promise<Record<string, number> | null> {
-  // 检查缓存是否有效
-  if (cachedModelTokenLimits && Date.now() - cacheTimestamp < CACHE_TTL) {
-    return cachedModelTokenLimits;
-  }
-  
-  try {
-    const db = await getDb();
-    if (!db) return null;
-    
-    const result = await db.select().from(systemConfig).where(eq(systemConfig.key, "modelTokenLimits")).limit(1);
-    if (result.length > 0 && result[0].value) {
-      const parsed = JSON.parse(result[0].value);
-      cachedModelTokenLimits = parsed;
-      cacheTimestamp = Date.now();
-      return parsed;
-    }
-  } catch (e) {
-    console.error(`[AIClient] 获取 modelTokenLimits 配置失败:`, e);
-  }
-  return null;
-}
-
-/**
- * 根据模型名称获取 max_tokens 上限（同步版本，使用缓存）
- * @param model 模型名称
- * @returns 该模型的 max_tokens 上限
- */
 function getMaxTokensForModel(model: string): number {
-  // 优先使用缓存的数据库配置
-  const dbConfig = cachedModelTokenLimits || {};
-  const allConfig = { ...DEFAULT_MODEL_MAX_TOKENS, ...dbConfig };
-  
-  // 精确匹配
-  if (allConfig[model]) {
-    return allConfig[model];
-  }
-  // 模糊匹配（处理版本号后缀）
-  for (const [key, value] of Object.entries(allConfig)) {
-    if (model.includes(key) || key.includes(model)) {
-      return value;
-    }
-  }
-  console.log(`[AIClient] 未知模型 ${model}，使用默认 max_tokens: ${DEFAULT_MAX_TOKENS}`);
-  return DEFAULT_MAX_TOKENS;
-}
-
-/**
- * 初始化模型Token上限配置（在系统启动时调用）
- * 如果数据库中没有配置，自动插入默认值
- */
-export async function initModelTokenLimits(): Promise<void> {
-  try {
-    const db = await getDb();
-    if (!db) {
-      console.log(`[AIClient] 数据库未连接，跳过 modelTokenLimits 初始化`);
-      return;
-    }
-    
-    // 检查是否已有配置
-    const existing = await db.select().from(systemConfig).where(eq(systemConfig.key, "modelTokenLimits")).limit(1);
-    if (existing.length > 0) {
-      console.log(`[AIClient] modelTokenLimits 配置已存在，跳过初始化`);
-      // 加载到缓存
-      if (existing[0].value) {
-        cachedModelTokenLimits = JSON.parse(existing[0].value);
-        cacheTimestamp = Date.now();
-      }
-      return;
-    }
-    
-    // 插入默认配置
-    const defaultConfig = JSON.stringify(DEFAULT_MODEL_MAX_TOKENS);
-    await db.insert(systemConfig).values({
-      key: "modelTokenLimits",
-      value: defaultConfig,
-    });
-    console.log(`[AIClient] 已初始化 modelTokenLimits 配置`);
-    
-    // 加载到缓存
-    cachedModelTokenLimits = DEFAULT_MODEL_MAX_TOKENS;
-    cacheTimestamp = Date.now();
-  } catch (e) {
-    console.error(`[AIClient] 初始化 modelTokenLimits 失败:`, e);
-  }
-}
-
-/**
- * 刷新模型Token上限缓存（在配置更新后调用）
- */
-export async function refreshModelTokenLimitsCache(): Promise<void> {
-  cachedModelTokenLimits = null;
-  cacheTimestamp = 0;
-  await getModelTokenLimitsFromDb();
-  console.log(`[AIClient] modelTokenLimits 缓存已刷新`);
-}
-
-/**
- * 延迟函数
- */
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// 文件信息类型
-export interface FileInfo {
-  type: 'document' | 'image';
-  url?: string;
-  base64DataUri?: string;
-  mimeType: string;
+  return modelTokenLimits[model] || 100000;
 }
 
 /**
@@ -281,11 +161,11 @@ export async function invokeAIStream(
       console.log(`[DEBUG-FILE] 文件${index}:`, {
         type: file.type,
         mimeType: file.mimeType,
+        fileName: file.fileName,
+        source: file.source,
         hasUrl: !!file.url,
         hasBase64: !!file.base64DataUri,
-        // 如果是base64，打印前100个字符看看内容
         base64Preview: file.base64DataUri?.substring(0, 100),
-        urlValue: file.url,
       });
     });
   }
@@ -304,7 +184,20 @@ export async function invokeAIStream(
     
     // 添加所有文件
     for (const fileInfo of fileInfos) {
-      if (fileInfo.type === 'image' && fileInfo.base64DataUri) {
+      const mimeType = fileInfo.mimeType || '';
+      const fileName = fileInfo.fileName || '文件';
+      const sourceLabel = fileInfo.source === 'shared' ? '共享文件' : '任务专属文件';
+      
+      writeDebugLog(`[文件处理] 类型: ${mimeType}, 文件名: ${fileName}, 来源: ${sourceLabel}, 处理方式: ${isImageType(mimeType) ? '图片' : isDocumentType(mimeType) ? '文档提取文字' : '未知'}`);
+      
+      // 图片处理
+      if (isImageType(mimeType) && fileInfo.base64DataUri) {
+        // 添加图片标记
+        contentParts.push({
+          type: "text",
+          text: `【${sourceLabel}】${fileName}`
+        });
+        
         // 图片消息格式根据 apiFormat 切换
         if (apiFormat === 'openai') {
           // OpenAI 格式
@@ -314,70 +207,50 @@ export async function invokeAIStream(
               url: fileInfo.base64DataUri  // 完整的 data:image/png;base64,...
             }
           });
-          writeDebugLog(`[AIClient] 添加图片内容 (OpenAI格式)`);
+          writeDebugLog(`[AIClient] 添加图片内容 (OpenAI格式) - 【${sourceLabel}】${fileName}`);
         } else {
           // Claude 原生格式
           const base64Parts = fileInfo.base64DataUri.split(',');
           const base64Data = base64Parts.length > 1 ? base64Parts[1] : fileInfo.base64DataUri;
-          const mediaType = fileInfo.mimeType || 'image/png';
           
           contentParts.push({
             type: "image",
             source: {
               type: "base64",
-              media_type: mediaType,
+              media_type: mimeType,
               data: base64Data
             }
           });
-          writeDebugLog(`[AIClient] 添加图片内容 (Claude格式): media_type=${mediaType}`);
+          writeDebugLog(`[AIClient] 添加图片内容 (Claude格式) - 【${sourceLabel}】${fileName}`);
         }
-      } else if (fileInfo.type === 'document') {
-        // 文档消息格式根据 apiFormat 切换
-        if (apiFormat === 'openai') {
-          // OpenAI 格式（使用 file_url）
-          if (fileInfo.url) {
-            contentParts.push({
-              type: "file_url",
-              file_url: {
-                url: fileInfo.url,
-                mime_type: fileInfo.mimeType
-              }
-            });
-            writeDebugLog(`[AIClient] 添加文档内容 (OpenAI格式/URL): ${fileInfo.url}`);
-          }
-        } else {
-          // Claude 原生格式
-          if (fileInfo.base64DataUri) {
-            // 如果有 base64 数据，使用 base64 方式
-            const base64Parts = fileInfo.base64DataUri.split(',');
-            const base64Data = base64Parts.length > 1 ? base64Parts[1] : fileInfo.base64DataUri;
-            const mediaType = fileInfo.mimeType || 'application/pdf';
+      } 
+      // 文档处理：提取文字
+      else if (isDocumentType(mimeType) && fileInfo.base64DataUri) {
+        const base64Parts = fileInfo.base64DataUri.split(',');
+        const base64Data = base64Parts.length > 1 ? base64Parts[1] : fileInfo.base64DataUri;
+        
+        // 同步提取文档文字
+        try {
+          const extractedText = await extractTextFromDocument(base64Data, mimeType);
+          if (extractedText) {
+            // 添加来源标记
+            const markedText = `【${sourceLabel}】${fileName}\n${extractedText}\n【/${sourceLabel}】`;
             
             contentParts.push({
-              type: "document",
-              source: {
-                type: "base64",
-                media_type: mediaType,
-                data: base64Data
-              }
+              type: "text",
+              text: markedText
             });
-            writeDebugLog(`[AIClient] 添加文档内容 (Claude格式/base64): media_type=${mediaType}`);
-          } else if (fileInfo.url) {
-            // 如果只有 URL，使用 URL 方式
-            contentParts.push({
-              type: "document",
-              source: {
-                type: "url",
-                url: fileInfo.url
-              }
-            });
-            writeDebugLog(`[AIClient] 添加文档内容 (Claude格式/URL): ${fileInfo.url}`);
+            writeDebugLog(`[AIClient] 文档文字提取成功 - 【${sourceLabel}】${fileName}，字符数: ${extractedText.length}`);
+          } else {
+            writeDebugLog(`[AIClient] 文档文字提取失败: ${mimeType}`);
           }
+        } catch (error) {
+          writeDebugLog(`[AIClient] 文档提取异常: ${error}`);
         }
       }
     }
     
-    writeDebugLog(`[AIClient] 共添加 ${contentParts.length} 个文件`);
+    writeDebugLog(`[AIClient] 共添加 ${contentParts.length} 个内容部分`);
     
     // 添加文本消息
     contentParts.push({
@@ -391,162 +264,86 @@ export async function invokeAIStream(
     userContent = userMessage;
   }
 
+  // ========== 构建 API 请求 ==========
   const messages = [
-    { role: "system" as const, content: systemPrompt },
-    { role: "user" as const, content: userContent },
+    {
+      role: "user",
+      content: userContent
+    }
   ];
 
-  // ========== 调试日志：打印完整的 messages 结构 ==========
-  writeDebugLog('[DEBUG-FILE] ========== AI请求 messages 结构 ==========');
-  writeDebugLog(`[DEBUG-FILE] messages数量: ${messages.length}`);
-  writeDebugLog(`[DEBUG-FILE] userContent类型: ${typeof userContent}`);
-  writeDebugLog(`[DEBUG-FILE] userContent是否为数组: ${Array.isArray(userContent)}`);
-  if (Array.isArray(userContent)) {
-    writeDebugLog(`[DEBUG-FILE] userContent元素数量: ${userContent.length}`);
-    userContent.forEach((part: any, index: number) => {
-      writeDebugLog(`[DEBUG-FILE] userContent[${index}]: ${JSON.stringify(part)}`);
-    });
-  }
-  writeDebugLog('[DEBUG-FILE] ========================================');
+  console.log('[DEBUG-API] ========== 发送给DMXapi的请求 ==========');
+  console.log('[DEBUG-API] URL:', config.apiUrl);
+  console.log('[DEBUG-API] messages:', JSON.stringify(messages, null, 2));
 
-  console.log(`[AIClient] 调用模型: ${config.apiModel}`);
-  console.log(`[AIClient] API地址: ${config.apiUrl}`);
-  console.log(`[AIClient] max_tokens: ${maxTokens} (模型上限: ${modelMaxTokens})`);
-  console.log(`[AIClient] System prompt长度: ${systemPrompt.length}`);
-  console.log(`[AIClient] User message长度: ${userMessage.length}`);
-
+  // ========== 调用 API ==========
   let lastError: Error | null = null;
-
+  
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (attempt > 0) {
-      console.log(`[AIClient] 第${attempt}次重试...`);
-      await delay(2000 * attempt);
-    }
-
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-      // ========== 调试日志：打印完整的API请求体 ==========
-      const requestBody = {
-        model: config.apiModel,
-        messages,
-        max_tokens: maxTokens,
-        temperature,
-        stream: true,
-      };
-      writeDebugLog('[DEBUG-API] ========== 发送给DMXapi的请求 ==========');
-      writeDebugLog(`[DEBUG-API] URL: ${config.apiUrl}/chat/completions`);
-      writeDebugLog(`[DEBUG-API] model: ${config.apiModel}`);
-      writeDebugLog(`[DEBUG-API] messages数量: ${messages.length}`);
-      // 打印user消息的内容结构（不打印完整base64以避免日志过大）
-      const userMsg = messages.find(m => m.role === 'user');
-      if (userMsg && Array.isArray(userMsg.content)) {
-        writeDebugLog(`[DEBUG-API] user消息内容类型: 数组，元素数: ${userMsg.content.length}`);
-        userMsg.content.forEach((part: any, idx: number) => {
-          if (part.type === 'text') {
-            writeDebugLog(`[DEBUG-API] content[${idx}]: type=text, text长度=${part.text?.length || 0}`);
-          } else if (part.type === 'image') {
-            writeDebugLog(`[DEBUG-API] content[${idx}]: type=image, source.type=${part.source?.type}, media_type=${part.source?.media_type}, data长度=${part.source?.data?.length || 0}`);
-          } else if (part.type === 'document') {
-            writeDebugLog(`[DEBUG-API] content[${idx}]: type=document, source.type=${part.source?.type}, media_type=${part.source?.media_type}, url=${part.source?.url || 'N/A'}, data长度=${part.source?.data?.length || 0}`);
-          } else {
-            writeDebugLog(`[DEBUG-API] content[${idx}]: type=${part.type}, 完整内容=${JSON.stringify(part)}`);
-          }
-        });
-      } else if (userMsg) {
-        writeDebugLog(`[DEBUG-API] user消息内容类型: 字符串，长度=${typeof userMsg.content === 'string' ? userMsg.content.length : 'unknown'}`);
-      }
-      writeDebugLog('[DEBUG-API] ========================================');
-
-      const response = await fetch(`${config.apiUrl}/chat/completions`, {
-        method: "POST",
+      const response = await fetch(`${config.apiUrl}/messages`, {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey}`,
+          'anthropic-version': '2023-06-01'
         },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
+        body: JSON.stringify({
+          model: config.apiModel,
+          max_tokens: maxTokens,
+          temperature: temperature,
+          system: systemPrompt,
+          messages: messages
+        }),
+        signal: AbortSignal.timeout(timeout)
       });
-
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[AIClient] API错误: ${response.status} - ${errorText}`);
-
-        if (response.status === 403 || response.status === 401) {
-          throw new Error(`AI API错误: ${response.status} - ${errorText}`);
-        }
-
-        lastError = new Error(`AI API错误: ${response.status} - ${errorText}`);
-        continue;
+        throw new Error(`API 返回错误: ${response.status} ${errorText}`);
       }
 
-      // 读取流式响应
       const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("无法获取响应流");
-      }
+      if (!reader) throw new Error('无法读取响应流');
 
-      const decoder = new TextDecoder();
-      let fullContent = "";
-      let buffer = "";
-      let truncated = false;
+      let fullContent = '';
+      let totalChars = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-
-        // 处理 SSE 格式的数据
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+        const chunk = new TextDecoder().decode(value);
+        const lines = chunk.split('\n');
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") continue;
-
+          if (line.startsWith('data: ')) {
             try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content || "";
-              if (content) {
-                fullContent += content;
-                if (onProgress) {
-                  onProgress(fullContent.length);
-                }
-              }
-              // 检测是否被截断
-              if (parsed.choices?.[0]?.finish_reason === 'length') {
-                truncated = true;
-                console.log('[AIClient] 检测到输出被截断 (finish_reason=length)');
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'content_block_delta' && data.delta?.type === 'text_delta') {
+                fullContent += data.delta.text;
+                totalChars += data.delta.text.length;
+                onProgress?.(totalChars);
               }
             } catch (e) {
-              // 忽u7565解析错误
+              // 忽略 JSON 解析错误
             }
           }
         }
       }
 
-      console.log(`[AIClient] 响应完成，内容长度: ${fullContent.length}字符，被截断: ${truncated}`);
-      return { content: fullContent, truncated };
-
-    } catch (error: any) {
-      console.error(`[AIClient] 请求失败 (尝试 ${attempt + 1}/${maxRetries + 1}):`, error.message);
-
-      if (error.name === "AbortError") {
-        lastError = new Error(`请求超时（${timeout / 1000}秒）`);
-      } else {
-        lastError = error;
-      }
-
-      if (error.message?.includes("403") || error.message?.includes("401")) {
-        throw error;
+      return {
+        content: fullContent,
+        tokensUsed: totalChars
+      };
+    } catch (error) {
+      lastError = error as Error;
+      if (attempt < maxRetries) {
+        console.warn(`API 调用失败 (尝试 ${attempt + 1}/${maxRetries + 1}):`, error);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
       }
     }
   }
 
-  throw lastError || new Error("AI API调用失败");
+  throw lastError || new Error('API 调用失败');
 }
