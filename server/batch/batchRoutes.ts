@@ -621,6 +621,21 @@ const upload = multer({
   },
 });
 
+/**
+ * 解码文件名（处理 multer 的 latin1 编码问题）
+ * multer 默认使用 latin1 编码处理文件名，导致中文文件名乱码
+ * 需要将 latin1 编码的字符串转换为 UTF-8
+ */
+function decodeFilename(filename: string): string {
+  try {
+    // 将 latin1 编码的字符串转换为 Buffer，然后以 UTF-8 解码
+    return Buffer.from(filename, 'latin1').toString('utf8');
+  } catch (e) {
+    // 如果转换失败，返回原始文件名
+    return filename;
+  }
+}
+
 // 上传文件的返回类型
 interface UploadedFile {
   originalName: string;
@@ -681,63 +696,65 @@ router.post("/upload-files", upload.array("files", 20), async (req: Request, res
     const results: UploadedFile[] = [];
     
     for (const file of files) {
-      console.log(`[BatchRoutes] 处理文件: ${file.originalname}, 类型: ${file.mimetype}, 大小: ${file.size}`);
+      // 解码文件名（处理中文乱码问题）
+      const decodedFilename = decodeFilename(file.originalname);
+      console.log(`[BatchRoutes] 处理文件: ${decodedFilename}, 类型: ${file.mimetype}, 大小: ${file.size}`);
       
       const result: UploadedFile = {
-        originalName: file.originalname,
+        originalName: decodedFilename,
         mimeType: file.mimetype,
         size: file.size,
         type: 'document', // 默认值，后续会修改
       };
       
       // 检查文件类型
-      if (!isDocument(file.mimetype, file.originalname) && !isImage(file.mimetype, file.originalname)) {
+      if (!isDocument(file.mimetype, decodedFilename) && !isImage(file.mimetype, decodedFilename)) {
         result.error = `不支持的文件类型: ${file.mimetype}`;
         results.push(result);
-        console.log(`[BatchRoutes] 文件类型不支持: ${file.originalname}`);
+        console.log(`[BatchRoutes] 文件类型不支持: ${decodedFilename}`);
         continue;
       }
       
       // 检查文件大小
-      if (isDocument(file.mimetype, file.originalname) && file.size > MAX_DOCUMENT_SIZE) {
+      if (isDocument(file.mimetype, decodedFilename) && file.size > MAX_DOCUMENT_SIZE) {
         result.error = `文档文件超过大小限制 (${MAX_DOCUMENT_SIZE / 1024 / 1024}MB)`;
         results.push(result);
-        console.log(`[BatchRoutes] 文档文件过大: ${file.originalname}`);
+        console.log(`[BatchRoutes] 文档文件过大: ${decodedFilename}`);
         continue;
       }
       
-      if (isImage(file.mimetype, file.originalname) && file.size > MAX_IMAGE_SIZE) {
+      if (isImage(file.mimetype, decodedFilename) && file.size > MAX_IMAGE_SIZE) {
         result.error = `图片文件超过大小限制 (${MAX_IMAGE_SIZE / 1024 / 1024}MB)`;
         results.push(result);
-        console.log(`[BatchRoutes] 图片文件过大: ${file.originalname}`);
+        console.log(`[BatchRoutes] 图片文件过大: ${decodedFilename}`);
         continue;
       }
       
       try {
-        if (isDocument(file.mimetype, file.originalname)) {
+        if (isDocument(file.mimetype, decodedFilename)) {
           // 文档：上传到 S3
           result.type = 'document';
           
           // 生成唯一文件名
-          const ext = file.originalname.split('.').pop() || 'bin';
+          const ext = decodedFilename.split('.').pop() || 'bin';
           const uniqueKey = `batch-uploads/${nanoid()}.${ext}`;
           
           const uploadResult = await storagePut(uniqueKey, file.buffer, file.mimetype);
           result.url = uploadResult.url;
           
-          console.log(`[BatchRoutes] 文档上传成功: ${file.originalname} -> ${uploadResult.url}`);
-        } else if (isImage(file.mimetype, file.originalname)) {
+          console.log(`[BatchRoutes] 文档上传成功: ${decodedFilename} -> ${uploadResult.url}`);
+        } else if (isImage(file.mimetype, decodedFilename)) {
           // 图片：转为 Base64
           result.type = 'image';
           
           const base64 = file.buffer.toString('base64');
           result.base64DataUri = `data:${file.mimetype};base64,${base64}`;
           
-          console.log(`[BatchRoutes] 图片转换成功: ${file.originalname} (${base64.length} chars)`);
+          console.log(`[BatchRoutes] 图片转换成功: ${decodedFilename} (${base64.length} chars)`);
         }
       } catch (error: any) {
         result.error = `处理失败: ${error.message}`;
-        console.error(`[BatchRoutes] 文件处理失败: ${file.originalname}`, error.message);
+        console.error(`[BatchRoutes] 文件处理失败: ${decodedFilename}`, error.message);
       }
       
       results.push(result);
