@@ -118,6 +118,33 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     sharedFiles  // 可选：共享文件信息 FileInfo[]
   } = req.body;
 
+  // ========== 调试日志：文件上传排查 ==========
+  console.log('[DEBUG-FILE] ========== 文件上传调试 ==========');
+  console.log('[DEBUG-FILE] 收到的独立文件数量:', Object.keys(files || {}).length);
+  console.log('[DEBUG-FILE] 收到的共享文件数量:', (sharedFiles || []).length);
+  if (files) {
+    Object.entries(files).forEach(([taskNum, fileInfo]: [string, any]) => {
+      console.log(`[DEBUG-FILE] 任务${taskNum}文件:`, {
+        type: fileInfo.type,
+        mimeType: fileInfo.mimeType,
+        hasUrl: !!fileInfo.url,
+        hasBase64: !!fileInfo.base64DataUri,
+        urlPrefix: fileInfo.url?.substring(0, 50) + '...',
+      });
+    });
+  }
+  if (sharedFiles) {
+    (sharedFiles as any[]).forEach((fileInfo: any, index: number) => {
+      console.log(`[DEBUG-FILE] 共享文件${index}:`, {
+        type: fileInfo.type,
+        mimeType: fileInfo.mimeType,
+        hasUrl: !!fileInfo.url,
+        hasBase64: !!fileInfo.base64DataUri,
+      });
+    });
+  }
+  console.log('[DEBUG-FILE] ========================================');
+
   // 参数验证
   if (startNumber === undefined || startNumber === null) {
     res.status(400).json({ error: "缺少 startNumber 参数" });

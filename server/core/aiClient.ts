@@ -255,6 +255,24 @@ export async function invokeAIStream(
   // 兼容单文件和多文件
   const fileInfos = options?.fileInfos || (options?.fileInfo ? [options.fileInfo] : []);
 
+  // ========== 调试日志：传给AI的文件 ==========
+  console.log('[DEBUG-FILE] ========== 传给AI的文件 ==========');
+  console.log('[DEBUG-FILE] fileInfos数量:', fileInfos?.length || 0);
+  if (fileInfos && fileInfos.length > 0) {
+    fileInfos.forEach((file, index) => {
+      console.log(`[DEBUG-FILE] 文件${index}:`, {
+        type: file.type,
+        mimeType: file.mimeType,
+        hasUrl: !!file.url,
+        hasBase64: !!file.base64DataUri,
+        // 如果是base64，打印前100个字符看看内容
+        base64Preview: file.base64DataUri?.substring(0, 100),
+        urlValue: file.url,
+      });
+    });
+  }
+  console.log('[DEBUG-FILE] ========================================');
+
   // 构建用户消息内容
   let userContent: any;
   
