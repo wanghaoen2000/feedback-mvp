@@ -333,16 +333,8 @@ export async function generateBatchDocument(
   // 构建文档内容（支持 Paragraph 和 Table 混合）
   const children: (Paragraph | Table)[] = [];
   
-  // 添加标题
-  const title = `${prefix} ${taskNumber}`;
-  children.push(
-    new Paragraph({
-      children: [new TextRun({ text: title, bold: true, size: 32, color: styleConfig.titleColor })],
-      heading: HeadingLevel.HEADING_1,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 400 },
-    })
-  );
+  // 注意：不再添加固定标题，让文档内容从AI生成的Markdown自然开始
+  // AI输出的 # 标题 会被Markdown解析器正确处理为Word的H1标题
   
   let inAnswerSection = false;
   
