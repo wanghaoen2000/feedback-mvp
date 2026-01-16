@@ -35,7 +35,7 @@ function App() {
           <Toaster />
           <Router />
           {/* 版本号显示 */}
-          <div className="fixed bottom-2 right-2 text-xs text-gray-400 select-none pointer-events-none">
+          <div className="fixed top-2 right-2 text-xs text-gray-400 select-none pointer-events-none">
             {APP_VERSION} ({BUILD_TIME})
           </div>
         </TooltipProvider>
