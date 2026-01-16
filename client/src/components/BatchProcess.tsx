@@ -34,7 +34,6 @@ interface TaskState {
   filename?: string;
   url?: string;
   error?: string;
-  truncated?: boolean;
 }
 
 // 上传文件类型
@@ -58,75 +57,6 @@ interface BatchState {
   stopped?: boolean;
 }
 
-// 模板格式说明常量
-const TEMPLATE_FORMAT_HINTS: Record<string, string> = {
-  word_card: `请按以下JSON格式输出，不要输出任何其他内容，不要加\`\`\`json标记：
-
-{
-  "listNumber": 1,
-  "sceneName": "场景名称",
-  "wordCount": 10,
-  "words": [
-    {
-      "num": 1,
-      "word": "单词",
-      "phonetic": "/音标/",
-      "pos": "n.",
-      "meaning": "中文释义",
-      "example": "English example sentence.",
-      "translation": "例句中文翻译"
-    }
-  ]
-}`,
-
-  writing_material: `请按以下JSON格式输出，不要输出任何其他内容，不要加\`\`\`json标记：
-
-{
-  "partNum": 1,
-  "partTitle": "Part标题",
-  "listNum": 1,
-  "listTitle": "List标题",
-  "bookmarkId": "书签ID",
-  "categories": [
-    {
-      "id": "分类ID",
-      "name": "分类名称",
-      "sections": [
-        {
-          "code": "小节代码",
-          "name": "小节名称",
-          "items": [
-            { "num": 1, "en": "English expression", "cn": "中文释义" }
-          ]
-        }
-      ]
-    }
-  ]
-}`,
-
-  markdown_styled: `请使用Markdown格式输出，可以使用：
-- # 一级标题、## 二级标题、### 三级标题
-- **粗体**、*斜体*
-- 表格、列表、引用块
-- 分隔线 ---
-
-直接输出内容，不需要说明或解释。`,
-
-  markdown_plain: `请使用Markdown格式输出，可以使用：
-- # 一级标题、## 二级标题、### 三级标题
-- **粗体**、*斜体*
-- 表格、列表、引用块
-
-直接输出内容，不需要说明或解释。`,
-
-  markdown_file: `请使用Markdown格式输出，可以使用：
-- # 一级标题、## 二级标题、### 三级标题
-- **粗体**、*斜体*
-- 表格、列表、引用块
-
-直接输出内容，不需要说明或解释。`,
-};
-
 export function BatchProcess() {
   // 基本设置
   const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material'>('markdown_styled');
@@ -142,22 +72,6 @@ export function BatchProcess() {
   const [namingMethod, setNamingMethod] = useState<'prefix' | 'custom'>('prefix');
   const [customNames, setCustomNames] = useState<string>('');
   const [parsedNames, setParsedNames] = useState<Map<number, string>>(new Map());
-  
-  // 格式说明复制状态
-  const [copied, setCopied] = useState(false);
-  
-  // 复制格式说明函数
-  const handleCopyFormatHint = async () => {
-    if (templateType && TEMPLATE_FORMAT_HINTS[templateType]) {
-      try {
-        await navigator.clipboard.writeText(TEMPLATE_FORMAT_HINTS[templateType]);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000); // 2秒后恢复
-      } catch (err) {
-        console.error('复制失败:', err);
-      }
-    }
-  };
 
   // 从数据库加载配置
   const { data: config } = trpc.config.getAll.useQuery();
@@ -176,11 +90,6 @@ export function BatchProcess() {
       setStoragePath(config.batchStoragePath);
     }
   }, [config?.batchStoragePath]);
-  
-  // 切换模板类型时重置复制状态
-  useEffect(() => {
-    setCopied(false);
-  }, [templateType]);
   
   // 路书内容
   const [roadmap, setRoadmap] = useState("");
@@ -379,7 +288,7 @@ export function BatchProcess() {
       return;
     }
 
-// 初始化任务列表
+    // 初始化任务列表
     const initialTasks = new Map<number, TaskState>();
     for (let i = start; i <= end; i++) {
       initialTasks.set(i, {
@@ -513,7 +422,6 @@ export function BatchProcess() {
                       chars: data.chars || task.chars,
                       filename: data.filename,
                       url: data.url,
-                      truncated: data.truncated,
                     });
                   }
                   return newTasks;
@@ -585,11 +493,6 @@ export function BatchProcess() {
             {task.status === 'completed' && (
               <span className="text-sm text-green-600">
                 完成 ({task.chars} 字)
-              </span>
-            )}
-            {task.truncated && (
-              <span className="text-sm text-orange-500 font-medium">
-                ⚠️ 已截断
               </span>
             )}
             {task.status === 'error' && (
@@ -672,32 +575,6 @@ export function BatchProcess() {
               }
             </p>
           </div>
-          
-          {/* 格式说明 */}
-          {templateType && TEMPLATE_FORMAT_HINTS[templateType] && (
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <Label>格式说明（写路书时参考）</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopyFormatHint}
-                  className="h-7 text-xs"
-                >
-                  {copied ? "已复制 ✓" : "📋 复制"}
-                </Button>
-              </div>
-              <textarea
-                readOnly
-                value={TEMPLATE_FORMAT_HINTS[templateType]}
-                className="w-full h-40 p-3 text-sm font-mono bg-gray-50 border rounded-md resize-none"
-              />
-              <p className="text-xs text-gray-500">
-                请将以上格式说明复制到路书末尾，或发给帮你写路书的AI参考
-              </p>
-            </div>
-          )}
 
           {/* 任务编号范围 */}
           <div className="grid grid-cols-2 gap-4">
@@ -1025,15 +902,6 @@ export function BatchProcess() {
                 </div>
               </div>
             )}
-            
-            {/* 文件处理说明 */}
-            <div className="text-sm text-muted-foreground mt-3 p-3 bg-gray-50 rounded-md border border-gray-200">
-              <p className="font-semibold text-gray-700 mb-2">📋 文件处理说明：</p>
-              <ul className="list-disc list-inside space-y-1 text-xs text-gray-600">
-                <li>图片（png/jpg/webp）：直接传给AI分析</li>
-                <li>文档（docx/pdf）：提取纯文字后传给AI，排版和图片可能丢失</li>
-              </ul>
-            </div>
           </div>
 
           {/* 独立文件区域 */}

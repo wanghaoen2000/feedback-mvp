@@ -232,7 +232,6 @@ export default function Home() {
   const [apiModel, setApiModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiUrl, setApiUrl] = useState("");
-  const [apiFormat, setApiFormat] = useState("openai"); // API消息格式：openai 或 claude
   const [roadmap, setRoadmap] = useState(""); // V9路书内容（一对一）
   const [firstLessonTemplate, setFirstLessonTemplate] = useState(""); // 一对一首次课范例
   const [roadmapClass, setRoadmapClass] = useState(""); // 小班课路书内容
@@ -240,11 +239,6 @@ export default function Home() {
   const [driveBasePath, setDriveBasePath] = useState(""); // Google Drive存储根路径
   const [configLoaded, setConfigLoaded] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
-  
-  // 模型Token上限配置
-  const [modelTokenLimits, setModelTokenLimits] = useState<{model: string; maxTokens: number}[]>([]);
-  const [modelTokenLimitsLoaded, setModelTokenLimitsLoaded] = useState(false);
-  const [savingModelTokenLimits, setSavingModelTokenLimits] = useState(false);
 
   // 生成状态
   const [isGenerating, setIsGenerating] = useState(false);
@@ -317,11 +311,6 @@ export default function Home() {
   const gdriveAuthUrlQuery = trpc.feedback.googleAuthUrl.useQuery();
   const gdriveDisconnectMutation = trpc.feedback.googleAuthDisconnect.useMutation();
   const gdriveCallbackMutation = trpc.feedback.googleAuthCallback.useMutation();
-  
-  // 模型Token上限配置
-  const modelTokenLimitsQuery = trpc.config.getModelTokenLimits.useQuery();
-  const updateModelTokenLimitsMutation = trpc.config.updateModelTokenLimits.useMutation();
-  const resetModelTokenLimitsMutation = trpc.config.resetModelTokenLimits.useMutation();
 
   // 加载配置
   useEffect(() => {
@@ -329,7 +318,6 @@ export default function Home() {
       setApiModel(configQuery.data.apiModel);
       setApiKey(configQuery.data.apiKey);
       setApiUrl(configQuery.data.apiUrl);
-      setApiFormat(configQuery.data.apiFormat || "openai");
       setCurrentYear(configQuery.data.currentYear || "2026");
       setRoadmap(configQuery.data.roadmap || "");
       setFirstLessonTemplate(configQuery.data.firstLessonTemplate || "");
@@ -339,30 +327,6 @@ export default function Home() {
       setConfigLoaded(true);
     }
   }, [configQuery.data, configLoaded]);
-  
-  // 加载模型Token上限配置
-  useEffect(() => {
-    if (modelTokenLimitsQuery.data && !modelTokenLimitsLoaded) {
-      const data = modelTokenLimitsQuery.data;
-      const items = Object.entries(data).map(([model, maxTokens]) => ({
-        model,
-        maxTokens: maxTokens as number,
-      }));
-      setModelTokenLimits(items);
-      setModelTokenLimitsLoaded(true);
-    }
-  }, [modelTokenLimitsQuery.data, modelTokenLimitsLoaded]);
-  
-  // 当Token配置更新后，检查当前模型是否仍在列表中
-  useEffect(() => {
-    if (modelTokenLimits.length > 0 && apiModel) {
-      const modelNames = modelTokenLimits.map(item => item.model);
-      if (!modelNames.includes(apiModel)) {
-        // 当前模型不在列表中，自动切换到第一个
-        setApiModel(modelTokenLimits[0].model);
-      }
-    }
-  }, [modelTokenLimits]);
 
   // 保存配置
   const handleSaveConfig = async () => {
@@ -372,7 +336,6 @@ export default function Home() {
         apiModel: apiModel.trim() || undefined,
         apiKey: apiKey.trim() || undefined,
         apiUrl: apiUrl.trim() || undefined,
-        apiFormat: apiFormat || "openai",
         currentYear: currentYear.trim() || undefined,
         roadmap: roadmap || undefined,
         firstLessonTemplate: firstLessonTemplate || undefined,
@@ -387,81 +350,6 @@ export default function Home() {
       alert("保存失败：" + (error instanceof Error ? error.message : "未知错误"));
     } finally {
       setSavingConfig(false);
-    }
-  };
-
-  // 模型Token上限配置操作函数
-  const handleAddModelTokenLimit = () => {
-    if (modelTokenLimits.length >= 10) {
-      alert("最多配置10个模型");
-      return;
-    }
-    setModelTokenLimits([...modelTokenLimits, { model: "", maxTokens: 4096 }]);
-  };
-  
-  const handleRemoveModelTokenLimit = (index: number) => {
-    if (modelTokenLimits.length <= 1) {
-      alert("至少保留1个模型配置");
-      return;
-    }
-    setModelTokenLimits(modelTokenLimits.filter((_, i) => i !== index));
-  };
-  
-  const handleUpdateModelTokenLimit = (index: number, field: 'model' | 'maxTokens', value: string | number) => {
-    setModelTokenLimits(modelTokenLimits.map((item, i) => 
-      i === index ? { ...item, [field]: value } : item
-    ));
-  };
-  
-  const handleSaveModelTokenLimits = async () => {
-    // 验证
-    for (const item of modelTokenLimits) {
-      if (!item.model.trim()) {
-        alert("模型名称不能为空");
-        return;
-      }
-      if (item.maxTokens < 1 || item.maxTokens > 500000) {
-        alert("Token数必须在 1-500000 之间");
-        return;
-      }
-    }
-    // 检查重复
-    const models = modelTokenLimits.map(item => item.model.trim());
-    if (new Set(models).size !== models.length) {
-      alert("模型名称不能重复");
-      return;
-    }
-    
-    setSavingModelTokenLimits(true);
-    try {
-      const data: Record<string, number> = {};
-      for (const item of modelTokenLimits) {
-        data[item.model.trim()] = item.maxTokens;
-      }
-      await updateModelTokenLimitsMutation.mutateAsync(data);
-      await modelTokenLimitsQuery.refetch();
-      alert("模型Token上限配置已保存！");
-    } catch (error) {
-      alert("保存失败：" + (error instanceof Error ? error.message : "未知错误"));
-    } finally {
-      setSavingModelTokenLimits(false);
-    }
-  };
-  
-  const handleResetModelTokenLimits = async () => {
-    if (!confirm("确定要恢复默认配置吗？这将清除所有自定义配置。")) {
-      return;
-    }
-    setSavingModelTokenLimits(true);
-    try {
-      await resetModelTokenLimitsMutation.mutateAsync();
-      setModelTokenLimitsLoaded(false); // 重新加载
-      await modelTokenLimitsQuery.refetch();
-      alert("已恢复默认配置！");
-    } catch (error) {
-      alert("重置失败：" + (error instanceof Error ? error.message : "未知错误"));
-    } finally {
-      setSavingModelTokenLimits(false);
     }
   };
 
@@ -2030,20 +1918,15 @@ export default function Home() {
                     
                     <div className="space-y-2">
                       <Label htmlFor="apiModel">模型名称</Label>
-                      <Select value={apiModel} onValueChange={setApiModel} disabled={isGenerating}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="选择模型" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {modelTokenLimits.map((item) => (
-                            <SelectItem key={item.model} value={item.model}>
-                              {item.model}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Input
+                        id="apiModel"
+                        placeholder="例如：claude-sonnet-4-5-20250929"
+                        value={apiModel}
+                        onChange={(e) => setApiModel(e.target.value)}
+                        disabled={isGenerating}
+                      />
                       <p className="text-xs text-gray-500">
-                        从下方「模型Token上限配置」中选择已配置的模型
+                        直接复制API供应商提供的模型名称，不需要做任何修改
                       </p>
                     </div>
                     
@@ -2073,22 +1956,6 @@ export default function Home() {
                       />
                       <p className="text-xs text-gray-500">
                         留空则使用默认地址
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="apiFormat">API消息格式</Label>
-                      <Select value={apiFormat} onValueChange={setApiFormat} disabled={isGenerating}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="选择API格式" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="openai">OpenAI格式</SelectItem>
-                          <SelectItem value="claude">Claude原生格式</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-gray-500">
-                        选择API消息格式。OpenAI格式用于兼容OpenAI API，Claude格式用于DMXapi等Claude代理服务。
                       </p>
                     </div>
 
@@ -2200,7 +2067,7 @@ export default function Home() {
                         disabled={isGenerating}
                       />
                       <p className="text-xs text-gray-500">
-                        小班课首次课时使用的范例内容。勾选“首次课”后会自动填入“上次反馈”输入框。
+                        小班课首次课时使用的范例内容。勾选"首次课"后会自动填入"上次反馈"输入框。
                       </p>
                       <Button
                         type="button"
@@ -2211,110 +2078,6 @@ export default function Home() {
                       >
                         清空范例
                       </Button>
-                    </div>
-                    
-                    {/* 模型Token上限配置 */}
-                    <div className="border-t pt-4 mt-4 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <Label>模型 Token 上限配置</Label>
-                        <span className="text-xs text-gray-500">最多配置10个模型</span>
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        不同模型的最大输出 Token 数不同。调用 AI 时会根据模型名称自动匹配对应的上限。
-                      </p>
-                      
-                      {/* 配置表格 */}
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-100">
-                            <tr>
-                              <th className="px-3 py-2 text-left font-medium">模型名称</th>
-                              <th className="px-3 py-2 text-left font-medium w-32">最大Token数</th>
-                              <th className="px-3 py-2 text-center font-medium w-16">操作</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {modelTokenLimits.map((item, index) => (
-                              <tr key={index} className="hover:bg-gray-50">
-                                <td className="px-3 py-2">
-                                  <Input
-                                    value={item.model}
-                                    onChange={(e) => handleUpdateModelTokenLimit(index, 'model', e.target.value)}
-                                    placeholder="例如：claude-sonnet-4-5-20250929"
-                                    className="h-8 text-sm"
-                                    disabled={isGenerating || savingModelTokenLimits}
-                                  />
-                                </td>
-                                <td className="px-3 py-2">
-                                  <Input
-                                    type="number"
-                                    value={item.maxTokens}
-                                    onChange={(e) => handleUpdateModelTokenLimit(index, 'maxTokens', parseInt(e.target.value) || 0)}
-                                    min={1}
-                                    max={500000}
-                                    className="h-8 text-sm w-full"
-                                    disabled={isGenerating || savingModelTokenLimits}
-                                  />
-                                </td>
-                                <td className="px-3 py-2 text-center">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleRemoveModelTokenLimit(index)}
-                                    disabled={isGenerating || savingModelTokenLimits || modelTokenLimits.length <= 1}
-                                    className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                  >
-                                    删除
-                                  </Button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      
-                      {/* 操作按钮 */}
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleAddModelTokenLimit}
-                          disabled={isGenerating || savingModelTokenLimits || modelTokenLimits.length >= 10}
-                        >
-                          + 添加模型
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleResetModelTokenLimits}
-                          disabled={isGenerating || savingModelTokenLimits}
-                        >
-                          恢复默认值
-                        </Button>
-                        <div className="flex-1" />
-                        <Button
-                          type="button"
-                          variant="default"
-                          size="sm"
-                          onClick={handleSaveModelTokenLimits}
-                          disabled={isGenerating || savingModelTokenLimits}
-                        >
-                          {savingModelTokenLimits ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              保存中...
-                            </>
-                          ) : (
-                            <>
-                              <Save className="mr-2 h-4 w-4" />
-                              保存Token配置
-                            </>
-                          )}
-                        </Button>
-                      </div>
                     </div>
                     
                     <Button 

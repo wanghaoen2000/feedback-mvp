@@ -3,13 +3,11 @@
  * 提供批量生成文档的 SSE 端点，支持并发控制、错误重试和停止功能
  */
 import { Router, Request, Response } from "express";
-import * as fs from 'fs';
-import * as path from 'path';
 import multer from "multer";
 import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
 import { setupSSEHeaders, sendSSEEvent, sendChunkedContent } from "../core/sseHelper";
-import { invokeAIStream, FileInfo } from "../core/aiClient";
+import { invokeAIStream, getAPIConfig, FileInfo } from "../core/aiClient";
 import { generateBatchDocument } from "./batchWordGenerator";
 import { generateWordListDocx, WordListData } from "../templates/wordCardTemplate";
 import { generateWritingMaterialDocx, WritingMaterialData } from "./writingMaterialGenerator";
@@ -17,19 +15,6 @@ import { uploadBinaryToGoogleDrive, ensureFolderExists } from "../gdrive";
 import { ConcurrencyPool, TaskResult } from "../core/concurrencyPool";
 
 const router = Router();
-
-// ========== 调试日志函数 ==========
-function writeDebugLog(message: string) {
-  console.log(message);
-  try {
-    // 日志文件放在项目根目录
-    const logPath = path.join(process.cwd(), 'batch-debug.log');
-    const timestamp = new Date().toISOString();
-    fs.appendFileSync(logPath, `[${timestamp}] ${message}\n`);
-  } catch (e) {
-    console.error('写入日志文件失败:', e);
-  }
-}
 
 // 最大重试次数
 const MAX_RETRIES = 1;
@@ -71,7 +56,6 @@ interface BatchTaskResult {
   filename: string;
   url?: string;
   path?: string;
-  truncated: boolean;
 }
 
 /**
@@ -132,8 +116,6 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     files,  // 可选：独立文件信息 Record<number, FileInfo>
     sharedFiles  // 可选：共享文件信息 FileInfo[]
   } = req.body;
-
-
 
   // 参数验证
   if (startNumber === undefined || startNumber === null) {
@@ -285,12 +267,6 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     }
     
     // 日志输出
-    writeDebugLog(`[DEBUG-FILE] ========== 任务${taskNumber} 传给AI的文件 ==========`);
-    writeDebugLog(`[DEBUG-FILE] 共享文件数量: ${sharedFileList?.length || 0}`);
-    writeDebugLog(`[DEBUG-FILE] 独立文件: ${independentFile ? 1 : 0}`);
-    writeDebugLog(`[DEBUG-FILE] taskFileInfos总数: ${taskFileInfos.length}`);
-    writeDebugLog(`[DEBUG-FILE] taskFileInfos完整内容: ${JSON.stringify(taskFileInfos, null, 2)}`);
-    writeDebugLog('[DEBUG-FILE] ========================================');
     console.log(`[BatchRoutes] 任务${taskNumber}：共享文件${sharedFileList?.length || 0}个，独立文件${independentFile ? 1 : 0}个，共${taskFileInfos.length}个`);
     
     // 构建用户消息
@@ -315,7 +291,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
 
     let lastReportedChars = 0;
 
-    const aiResult = await invokeAIStream(
+    const content = await invokeAIStream(
       systemPrompt,
       userMessage,
       (chars) => {
@@ -335,10 +311,6 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       { config, fileInfos: taskFileInfos.length > 0 ? taskFileInfos : undefined }  // 传递多文件信息
     );
 
-    // 解构 AI 响应结果
-    const content = aiResult.content;
-    const truncated = aiResult.truncated;
-
     // 检查内容是否有效
     if (!content || content.length === 0) {
       throw new Error("AI 返回内容为空");
@@ -353,7 +325,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       });
     }
 
-    console.log(`[BatchRoutes] 任务 ${taskNumber} AI 生成完成，内容长度: ${content.length} 字符，被截断: ${truncated}`);
+    console.log(`[BatchRoutes] 任务 ${taskNumber} AI 生成完成，内容长度: ${content.length} 字符`);
 
     // 生成 Word 文档
     sendSSEEvent(res, "task-progress", {
@@ -516,7 +488,6 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       filename,
       url: uploadUrl,
       path: uploadPath,
-      truncated,
     };
   };
 
@@ -557,7 +528,6 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
         filename: result.result.filename,
         url: result.result.url,
         path: result.result.path,
-        truncated: result.result.truncated,
         timestamp: Date.now(),
       });
 

@@ -5,7 +5,6 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
-import { APP_VERSION, BUILD_TIME } from "./version";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -34,10 +33,6 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Router />
-          {/* 版本号显示 */}
-          <div className="fixed bottom-2 right-2 text-xs text-gray-400 select-none pointer-events-none">
-            {APP_VERSION} ({BUILD_TIME})
-          </div>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
