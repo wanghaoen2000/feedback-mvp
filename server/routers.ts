@@ -295,6 +295,57 @@ export const appRouter = router({
           message: `已重置: ${input.keys.join(", ")}`,
         };
       }),
+
+    // 获取模型Token上限配置
+    getModelTokenLimits: publicProcedure.query(async () => {
+      const value = await getConfig("modelTokenLimits");
+      if (value) {
+        try {
+          return JSON.parse(value) as Record<string, number>;
+        } catch (e) {
+          console.error("解析 modelTokenLimits 失败:", e);
+        }
+      }
+      // 返回默认值
+      return {
+        "claude-sonnet-4-5-20250929": 64000,
+        "claude-opus-4-5-20251101": 64000,
+        "claude-3-5-sonnet": 8192,
+        "claude-3-opus": 4096,
+        "gpt-4o": 16384,
+        "gpt-4o-mini": 16384,
+        "gpt-4-turbo": 4096,
+        "gpt-4": 8192,
+      };
+    }),
+
+    // 更新模型Token上限配置
+    updateModelTokenLimits: publicProcedure
+      .input(z.record(z.string(), z.number().int().min(1).max(500000)))
+      .mutation(async ({ input }) => {
+        await setConfig("modelTokenLimits", JSON.stringify(input), "模型Token上限配置");
+        // 刷新缓存
+        const { refreshModelTokenLimitsCache } = await import("./core/aiClient");
+        await refreshModelTokenLimitsCache();
+        return {
+          success: true,
+          message: "模型Token上限配置已更新",
+        };
+      }),
+
+    // 重置模型Token上限配置为默认值
+    resetModelTokenLimits: publicProcedure.mutation(async () => {
+      const db = await getDb();
+      if (!db) throw new Error("数据库不可用");
+      await db.delete(systemConfig).where(eq(systemConfig.key, "modelTokenLimits"));
+      // 刷新缓存
+      const { refreshModelTokenLimitsCache } = await import("./core/aiClient");
+      await refreshModelTokenLimitsCache();
+      return {
+        success: true,
+        message: "模型Token上限配置已重置为默认值",
+      };
+    }),
   }),
 
   // 学情反馈生成 - 拆分为5个独立端点
