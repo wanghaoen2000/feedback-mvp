@@ -56,6 +56,7 @@ interface BatchTaskResult {
   filename: string;
   url?: string;
   path?: string;
+  truncated: boolean;
 }
 
 /**
@@ -291,7 +292,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
 
     let lastReportedChars = 0;
 
-    const content = await invokeAIStream(
+    const aiResult = await invokeAIStream(
       systemPrompt,
       userMessage,
       (chars) => {
@@ -311,6 +312,10 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       { config, fileInfos: taskFileInfos.length > 0 ? taskFileInfos : undefined }  // 传递多文件信息
     );
 
+    // 解构 AI 响应结果
+    const content = aiResult.content;
+    const truncated = aiResult.truncated;
+
     // 检查内容是否有效
     if (!content || content.length === 0) {
       throw new Error("AI 返回内容为空");
@@ -325,7 +330,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       });
     }
 
-    console.log(`[BatchRoutes] 任务 ${taskNumber} AI 生成完成，内容长度: ${content.length} 字符`);
+    console.log(`[BatchRoutes] 任务 ${taskNumber} AI 生成完成，内容长度: ${content.length} 字符，被截断: ${truncated}`);
 
     // 生成 Word 文档
     sendSSEEvent(res, "task-progress", {
@@ -488,6 +493,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       filename,
       url: uploadUrl,
       path: uploadPath,
+      truncated,
     };
   };
 
@@ -528,6 +534,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
         filename: result.result.filename,
         url: result.result.url,
         path: result.result.path,
+        truncated: result.result.truncated,
         timestamp: Date.now(),
       });
 

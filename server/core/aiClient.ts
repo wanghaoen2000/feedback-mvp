@@ -18,6 +18,14 @@ const DEFAULT_CONFIG = {
 };
 
 /**
+ * AI 流式响应结果
+ */
+export interface AIStreamResult {
+  content: string;
+  truncated: boolean;
+}
+
+/**
  * API 配置接口
  */
 export interface APIConfig {
@@ -234,7 +242,7 @@ export async function invokeAIStream(
     fileInfo?: FileInfo;  // 单文件信息（向后兼容）
     fileInfos?: FileInfo[];  // 多文件信息（新增）
   }
-): Promise<string> {
+): Promise<AIStreamResult> {
   // 获取配置
   const config = options?.config || await getAPIConfig();
   // 根据模型动态获取 max_tokens 上限
@@ -355,6 +363,7 @@ export async function invokeAIStream(
       const decoder = new TextDecoder();
       let fullContent = "";
       let buffer = "";
+      let truncated = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -380,15 +389,20 @@ export async function invokeAIStream(
                   onProgress(fullContent.length);
                 }
               }
+              // 检测是否被截断
+              if (parsed.choices?.[0]?.finish_reason === 'length') {
+                truncated = true;
+                console.log('[AIClient] 检测到输出被截断 (finish_reason=length)');
+              }
             } catch (e) {
-              // 忽略解析错误
+              // 忽u7565解析错误
             }
           }
         }
       }
 
-      console.log(`[AIClient] 响应完成，内容长度: ${fullContent.length}字符`);
-      return fullContent;
+      console.log(`[AIClient] 响应完成，内容长度: ${fullContent.length}字符，被截断: ${truncated}`);
+      return { content: fullContent, truncated };
 
     } catch (error: any) {
       console.error(`[AIClient] 请求失败 (尝试 ${attempt + 1}/${maxRetries + 1}):`, error.message);
