@@ -379,35 +379,7 @@ export function BatchProcess() {
       return;
     }
 
-    // ========== 调试日志：前端文件上传排查 ==========
-    console.log('[DEBUG-FILE-FRONTEND] ========== 前端文件上传调试 ==========');
-    console.log('[DEBUG-FILE-FRONTEND] uploadedFiles.size:', uploadedFiles.size);
-    console.log('[DEBUG-FILE-FRONTEND] sharedFiles.length:', sharedFiles.length);
-    if (uploadedFiles.size > 0) {
-      uploadedFiles.forEach((file, taskNum) => {
-        console.log(`[DEBUG-FILE-FRONTEND] 独立文件 任务${taskNum}:`, {
-          type: file.type,
-          mimeType: file.mimeType,
-          hasUrl: !!file.url,
-          hasBase64: !!file.base64DataUri,
-          urlPrefix: file.url?.substring(0, 80),
-        });
-      });
-    }
-    if (sharedFiles.length > 0) {
-      sharedFiles.forEach((file, index) => {
-        console.log(`[DEBUG-FILE-FRONTEND] 共享文件${index}:`, {
-          type: file.type,
-          mimeType: file.mimeType,
-          hasUrl: !!file.url,
-          hasBase64: !!file.base64DataUri,
-          urlPrefix: file.url?.substring(0, 80),
-        });
-      });
-    }
-    console.log('[DEBUG-FILE-FRONTEND] ========================================');
-
-    // 初始化任务列表
+// 初始化任务列表
     const initialTasks = new Map<number, TaskState>();
     for (let i = start; i <= end; i++) {
       initialTasks.set(i, {

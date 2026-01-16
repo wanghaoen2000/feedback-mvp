@@ -133,23 +133,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     sharedFiles  // 可选：共享文件信息 FileInfo[]
   } = req.body;
 
-  // ========== 调试日志：文件上传排查 ==========
-  writeDebugLog('[DEBUG-FILE] ========== 文件上传调试 ==========');
-  writeDebugLog(`[DEBUG-FILE] 收到的独立文件数量: ${Object.keys(files || {}).length}`);
-  writeDebugLog(`[DEBUG-FILE] 收到的共享文件数量: ${(sharedFiles || []).length}`);
-  writeDebugLog(`[DEBUG-FILE] 共享文件完整内容: ${JSON.stringify(sharedFiles, null, 2)}`);
-  if (files) {
-    Object.entries(files).forEach(([taskNum, fileInfo]: [string, any]) => {
-      writeDebugLog(`[DEBUG-FILE] 任务${taskNum}文件: ${JSON.stringify({
-        type: fileInfo.type,
-        mimeType: fileInfo.mimeType,
-        hasUrl: !!fileInfo.url,
-        hasBase64: !!fileInfo.base64DataUri,
-        url: fileInfo.url,
-      })}`);
-    });
-  }
-  writeDebugLog('[DEBUG-FILE] ========================================');
+
 
   // 参数验证
   if (startNumber === undefined || startNumber === null) {

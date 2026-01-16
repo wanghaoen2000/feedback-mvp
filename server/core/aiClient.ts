@@ -9,18 +9,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { extractTextFromDocument, isImageType, isDocumentType } from '../documentParser';
 
-// ========== 调试日志函数 ==========
-function writeDebugLog(message: string) {
-  console.log(message);
-  try {
-    const logPath = path.join(process.cwd(), 'batch-debug.log');
-    const timestamp = new Date().toISOString();
-    fs.appendFileSync(logPath, `[${timestamp}] ${message}\n`);
-  } catch (e) {
-    console.error('写入日志文件失败:', e);
-  }
-}
-
 // 默认配置值
 const DEFAULT_CONFIG = {
   apiModel: "claude-sonnet-4-5-20250929",
@@ -221,7 +209,7 @@ export async function invokeAIStream(
               data: base64Data
             }
           });
-          writeDebugLog(`[AIClient] 添加图片内容 (Claude格式) - 【${sourceLabel}】${fileName}`);
+
         }
       } 
       // 文档处理：提取文字
@@ -240,17 +228,14 @@ export async function invokeAIStream(
               type: "text",
               text: markedText
             });
-            writeDebugLog(`[AIClient] 文档文字提取成功 - 【${sourceLabel}】${fileName}，字符数: ${extractedText.length}`);
-          } else {
-            writeDebugLog(`[AIClient] 文档文字提取失败: ${mimeType}`);
           }
         } catch (error) {
-          writeDebugLog(`[AIClient] 文档提取异常: ${error}`);
+          // 文档提取失败，继续处理其他文件
         }
       }
     }
     
-    writeDebugLog(`[AIClient] 共添加 ${contentParts.length} 个内容部分`);
+
     
     // 添加文本消息
     contentParts.push({
@@ -272,9 +257,7 @@ export async function invokeAIStream(
     }
   ];
 
-  console.log('[DEBUG-API] ========== 发送给DMXapi的请求 ==========');
-  console.log('[DEBUG-API] URL:', config.apiUrl);
-  console.log('[DEBUG-API] messages:', JSON.stringify(messages, null, 2));
+
 
   // ========== 调用 API ==========
   let lastError: Error | null = null;
