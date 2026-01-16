@@ -94,7 +94,7 @@ async function getAPIConfig(): Promise<APIConfig> {
 }
 
 // ========== 获取模型 token 上限 ==========
-const modelTokenLimits: Record<string, number> = {
+let modelTokenLimits: Record<string, number> = {
   "claude-opus-4-5-20251101": 200000,
   "claude-sonnet-4-5-20250929": 200000,
   "claude-3-5-sonnet-20241022": 200000,
@@ -105,6 +105,30 @@ const modelTokenLimits: Record<string, number> = {
 
 function getMaxTokensForModel(model: string): number {
   return modelTokenLimits[model] || 100000;
+}
+
+/**
+ * 初始化模型 Token 上限配置
+ * 从数据库加载用户自定义的配置
+ */
+export async function initModelTokenLimits(): Promise<void> {
+  try {
+    const savedLimits = await getSystemConfig('modelTokenLimits');
+    if (savedLimits) {
+      const parsed = JSON.parse(savedLimits);
+      modelTokenLimits = { ...modelTokenLimits, ...parsed };
+      console.log('[AIClient] 模型Token上限配置已加载');
+    }
+  } catch (error) {
+    console.error('[AIClient] 加载模型Token上限配置失败:', error);
+  }
+}
+
+/**
+ * 刷新模型 Token 上限缓存
+ */
+export async function refreshModelTokenLimitsCache(): Promise<void> {
+  await initModelTokenLimits();
 }
 
 /**
