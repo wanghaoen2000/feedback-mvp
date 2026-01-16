@@ -3,6 +3,8 @@
  * 提供批量生成文档的 SSE 端点，支持并发控制、错误重试和停止功能
  */
 import { Router, Request, Response } from "express";
+import * as fs from 'fs';
+import * as path from 'path';
 import multer from "multer";
 import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
@@ -15,6 +17,19 @@ import { uploadBinaryToGoogleDrive, ensureFolderExists } from "../gdrive";
 import { ConcurrencyPool, TaskResult } from "../core/concurrencyPool";
 
 const router = Router();
+
+// ========== 调试日志函数 ==========
+function writeDebugLog(message: string) {
+  console.log(message);
+  try {
+    // 日志文件放在项目根目录
+    const logPath = path.join(process.cwd(), 'batch-debug.log');
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logPath, `[${timestamp}] ${message}\n`);
+  } catch (e) {
+    console.error('写入日志文件失败:', e);
+  }
+}
 
 // 最大重试次数
 const MAX_RETRIES = 1;
@@ -119,31 +134,22 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   } = req.body;
 
   // ========== 调试日志：文件上传排查 ==========
-  console.log('[DEBUG-FILE] ========== 文件上传调试 ==========');
-  console.log('[DEBUG-FILE] 收到的独立文件数量:', Object.keys(files || {}).length);
-  console.log('[DEBUG-FILE] 收到的共享文件数量:', (sharedFiles || []).length);
+  writeDebugLog('[DEBUG-FILE] ========== 文件上传调试 ==========');
+  writeDebugLog(`[DEBUG-FILE] 收到的独立文件数量: ${Object.keys(files || {}).length}`);
+  writeDebugLog(`[DEBUG-FILE] 收到的共享文件数量: ${(sharedFiles || []).length}`);
+  writeDebugLog(`[DEBUG-FILE] 共享文件完整内容: ${JSON.stringify(sharedFiles, null, 2)}`);
   if (files) {
     Object.entries(files).forEach(([taskNum, fileInfo]: [string, any]) => {
-      console.log(`[DEBUG-FILE] 任务${taskNum}文件:`, {
+      writeDebugLog(`[DEBUG-FILE] 任务${taskNum}文件: ${JSON.stringify({
         type: fileInfo.type,
         mimeType: fileInfo.mimeType,
         hasUrl: !!fileInfo.url,
         hasBase64: !!fileInfo.base64DataUri,
-        urlPrefix: fileInfo.url?.substring(0, 50) + '...',
-      });
+        url: fileInfo.url,
+      })}`);
     });
   }
-  if (sharedFiles) {
-    (sharedFiles as any[]).forEach((fileInfo: any, index: number) => {
-      console.log(`[DEBUG-FILE] 共享文件${index}:`, {
-        type: fileInfo.type,
-        mimeType: fileInfo.mimeType,
-        hasUrl: !!fileInfo.url,
-        hasBase64: !!fileInfo.base64DataUri,
-      });
-    });
-  }
-  console.log('[DEBUG-FILE] ========================================');
+  writeDebugLog('[DEBUG-FILE] ========================================');
 
   // 参数验证
   if (startNumber === undefined || startNumber === null) {
@@ -295,6 +301,12 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     }
     
     // 日志输出
+    writeDebugLog(`[DEBUG-FILE] ========== 任务${taskNumber} 传给AI的文件 ==========`);
+    writeDebugLog(`[DEBUG-FILE] 共享文件数量: ${sharedFileList?.length || 0}`);
+    writeDebugLog(`[DEBUG-FILE] 独立文件: ${independentFile ? 1 : 0}`);
+    writeDebugLog(`[DEBUG-FILE] taskFileInfos总数: ${taskFileInfos.length}`);
+    writeDebugLog(`[DEBUG-FILE] taskFileInfos完整内容: ${JSON.stringify(taskFileInfos, null, 2)}`);
+    writeDebugLog('[DEBUG-FILE] ========================================');
     console.log(`[BatchRoutes] 任务${taskNumber}：共享文件${sharedFileList?.length || 0}个，独立文件${independentFile ? 1 : 0}个，共${taskFileInfos.length}个`);
     
     // 构建用户消息

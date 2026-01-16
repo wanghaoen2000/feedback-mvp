@@ -5,6 +5,20 @@
 import { getDb } from "../db";
 import { systemConfig } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
+import * as fs from 'fs';
+import * as path from 'path';
+
+// ========== 调试日志函数 ==========
+function writeDebugLog(message: string) {
+  console.log(message);
+  try {
+    const logPath = path.join(process.cwd(), 'batch-debug.log');
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logPath, `[${timestamp}] ${message}\n`);
+  } catch (e) {
+    console.error('写入日志文件失败:', e);
+  }
+}
 
 // 默认配置值
 const DEFAULT_CONFIG = {
@@ -60,7 +74,7 @@ async function getConfigValue(key: string): Promise<string> {
  * 从数据库读取所有 API 相关配置
  */
 export async function getAPIConfig(): Promise<APIConfig> {
-  const [apiModel, apiKey, apiUrl, roadmap, roadmapClass, driveBasePath, currentYear] = await Promise.all([
+  const [apiModel, apiKey, apiUrl, roadmap, roadmapClass, driveBasePath, currentYear, apiFormat] = await Promise.all([
     getConfigValue("apiModel"),
     getConfigValue("apiKey"),
     getConfigValue("apiUrl"),
@@ -68,7 +82,11 @@ export async function getAPIConfig(): Promise<APIConfig> {
     getConfigValue("roadmapClass"),
     getConfigValue("driveBasePath"),
     getConfigValue("currentYear"),
+    getConfigValue("apiFormat"),
   ]);
+
+  // ========== 测试日志：验证 apiFormat 配置 ==========
+  console.log('[CONFIG] apiFormat:', apiFormat || 'openai');
 
   return {
     apiModel: apiModel || DEFAULT_CONFIG.apiModel,
@@ -273,6 +291,10 @@ export async function invokeAIStream(
   }
   console.log('[DEBUG-FILE] ========================================');
 
+  // 获取 apiFormat 配置
+  const apiFormat = config.apiFormat || 'openai';
+  writeDebugLog(`[AIClient] 使用API格式: ${apiFormat}`);
+
   // 构建用户消息内容
   let userContent: any;
   
@@ -283,29 +305,79 @@ export async function invokeAIStream(
     // 添加所有文件
     for (const fileInfo of fileInfos) {
       if (fileInfo.type === 'image' && fileInfo.base64DataUri) {
-        // 图片使用 image_url 类型
-        contentParts.push({
-          type: "image_url",
-          image_url: {
-            url: fileInfo.base64DataUri,
-            detail: "high"
+        // 图片消息格式根据 apiFormat 切换
+        if (apiFormat === 'openai') {
+          // OpenAI 格式
+          contentParts.push({
+            type: "image_url",
+            image_url: {
+              url: fileInfo.base64DataUri  // 完整的 data:image/png;base64,...
+            }
+          });
+          writeDebugLog(`[AIClient] 添加图片内容 (OpenAI格式)`);
+        } else {
+          // Claude 原生格式
+          const base64Parts = fileInfo.base64DataUri.split(',');
+          const base64Data = base64Parts.length > 1 ? base64Parts[1] : fileInfo.base64DataUri;
+          const mediaType = fileInfo.mimeType || 'image/png';
+          
+          contentParts.push({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: mediaType,
+              data: base64Data
+            }
+          });
+          writeDebugLog(`[AIClient] 添加图片内容 (Claude格式): media_type=${mediaType}`);
+        }
+      } else if (fileInfo.type === 'document') {
+        // 文档消息格式根据 apiFormat 切换
+        if (apiFormat === 'openai') {
+          // OpenAI 格式（使用 file_url）
+          if (fileInfo.url) {
+            contentParts.push({
+              type: "file_url",
+              file_url: {
+                url: fileInfo.url,
+                mime_type: fileInfo.mimeType
+              }
+            });
+            writeDebugLog(`[AIClient] 添加文档内容 (OpenAI格式/URL): ${fileInfo.url}`);
           }
-        });
-        console.log(`[AIClient] 添加图片内容 (Base64)`);
-      } else if (fileInfo.type === 'document' && fileInfo.url) {
-        // 文档使用 file_url 类型
-        contentParts.push({
-          type: "file_url",
-          file_url: {
-            url: fileInfo.url,
-            mime_type: fileInfo.mimeType
+        } else {
+          // Claude 原生格式
+          if (fileInfo.base64DataUri) {
+            // 如果有 base64 数据，使用 base64 方式
+            const base64Parts = fileInfo.base64DataUri.split(',');
+            const base64Data = base64Parts.length > 1 ? base64Parts[1] : fileInfo.base64DataUri;
+            const mediaType = fileInfo.mimeType || 'application/pdf';
+            
+            contentParts.push({
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: mediaType,
+                data: base64Data
+              }
+            });
+            writeDebugLog(`[AIClient] 添加文档内容 (Claude格式/base64): media_type=${mediaType}`);
+          } else if (fileInfo.url) {
+            // 如果只有 URL，使用 URL 方式
+            contentParts.push({
+              type: "document",
+              source: {
+                type: "url",
+                url: fileInfo.url
+              }
+            });
+            writeDebugLog(`[AIClient] 添加文档内容 (Claude格式/URL): ${fileInfo.url}`);
           }
-        });
-        console.log(`[AIClient] 添加文档内容: ${fileInfo.url}`);
+        }
       }
     }
     
-    console.log(`[AIClient] 共添加 ${contentParts.length} 个文件`);
+    writeDebugLog(`[AIClient] 共添加 ${contentParts.length} 个文件`);
     
     // 添加文本消息
     contentParts.push({
@@ -323,6 +395,19 @@ export async function invokeAIStream(
     { role: "system" as const, content: systemPrompt },
     { role: "user" as const, content: userContent },
   ];
+
+  // ========== 调试日志：打印完整的 messages 结构 ==========
+  writeDebugLog('[DEBUG-FILE] ========== AI请求 messages 结构 ==========');
+  writeDebugLog(`[DEBUG-FILE] messages数量: ${messages.length}`);
+  writeDebugLog(`[DEBUG-FILE] userContent类型: ${typeof userContent}`);
+  writeDebugLog(`[DEBUG-FILE] userContent是否为数组: ${Array.isArray(userContent)}`);
+  if (Array.isArray(userContent)) {
+    writeDebugLog(`[DEBUG-FILE] userContent元素数量: ${userContent.length}`);
+    userContent.forEach((part: any, index: number) => {
+      writeDebugLog(`[DEBUG-FILE] userContent[${index}]: ${JSON.stringify(part)}`);
+    });
+  }
+  writeDebugLog('[DEBUG-FILE] ========================================');
 
   console.log(`[AIClient] 调用模型: ${config.apiModel}`);
   console.log(`[AIClient] API地址: ${config.apiUrl}`);
@@ -342,19 +427,45 @@ export async function invokeAIStream(
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+      // ========== 调试日志：打印完整的API请求体 ==========
+      const requestBody = {
+        model: config.apiModel,
+        messages,
+        max_tokens: maxTokens,
+        temperature,
+        stream: true,
+      };
+      writeDebugLog('[DEBUG-API] ========== 发送给DMXapi的请求 ==========');
+      writeDebugLog(`[DEBUG-API] URL: ${config.apiUrl}/chat/completions`);
+      writeDebugLog(`[DEBUG-API] model: ${config.apiModel}`);
+      writeDebugLog(`[DEBUG-API] messages数量: ${messages.length}`);
+      // 打印user消息的内容结构（不打印完整base64以避免日志过大）
+      const userMsg = messages.find(m => m.role === 'user');
+      if (userMsg && Array.isArray(userMsg.content)) {
+        writeDebugLog(`[DEBUG-API] user消息内容类型: 数组，元素数: ${userMsg.content.length}`);
+        userMsg.content.forEach((part: any, idx: number) => {
+          if (part.type === 'text') {
+            writeDebugLog(`[DEBUG-API] content[${idx}]: type=text, text长度=${part.text?.length || 0}`);
+          } else if (part.type === 'image') {
+            writeDebugLog(`[DEBUG-API] content[${idx}]: type=image, source.type=${part.source?.type}, media_type=${part.source?.media_type}, data长度=${part.source?.data?.length || 0}`);
+          } else if (part.type === 'document') {
+            writeDebugLog(`[DEBUG-API] content[${idx}]: type=document, source.type=${part.source?.type}, media_type=${part.source?.media_type}, url=${part.source?.url || 'N/A'}, data长度=${part.source?.data?.length || 0}`);
+          } else {
+            writeDebugLog(`[DEBUG-API] content[${idx}]: type=${part.type}, 完整内容=${JSON.stringify(part)}`);
+          }
+        });
+      } else if (userMsg) {
+        writeDebugLog(`[DEBUG-API] user消息内容类型: 字符串，长度=${typeof userMsg.content === 'string' ? userMsg.content.length : 'unknown'}`);
+      }
+      writeDebugLog('[DEBUG-API] ========================================');
+
       const response = await fetch(`${config.apiUrl}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${config.apiKey}`,
         },
-        body: JSON.stringify({
-          model: config.apiModel,
-          messages,
-          max_tokens: maxTokens,
-          temperature,
-          stream: true,
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
 

@@ -232,6 +232,7 @@ export default function Home() {
   const [apiModel, setApiModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiUrl, setApiUrl] = useState("");
+  const [apiFormat, setApiFormat] = useState("openai"); // API消息格式：openai 或 claude
   const [roadmap, setRoadmap] = useState(""); // V9路书内容（一对一）
   const [firstLessonTemplate, setFirstLessonTemplate] = useState(""); // 一对一首次课范例
   const [roadmapClass, setRoadmapClass] = useState(""); // 小班课路书内容
@@ -328,6 +329,7 @@ export default function Home() {
       setApiModel(configQuery.data.apiModel);
       setApiKey(configQuery.data.apiKey);
       setApiUrl(configQuery.data.apiUrl);
+      setApiFormat(configQuery.data.apiFormat || "openai");
       setCurrentYear(configQuery.data.currentYear || "2026");
       setRoadmap(configQuery.data.roadmap || "");
       setFirstLessonTemplate(configQuery.data.firstLessonTemplate || "");
@@ -370,6 +372,7 @@ export default function Home() {
         apiModel: apiModel.trim() || undefined,
         apiKey: apiKey.trim() || undefined,
         apiUrl: apiUrl.trim() || undefined,
+        apiFormat: apiFormat || "openai",
         currentYear: currentYear.trim() || undefined,
         roadmap: roadmap || undefined,
         firstLessonTemplate: firstLessonTemplate || undefined,
@@ -2070,6 +2073,22 @@ export default function Home() {
                       />
                       <p className="text-xs text-gray-500">
                         留空则使用默认地址
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="apiFormat">API消息格式</Label>
+                      <Select value={apiFormat} onValueChange={setApiFormat} disabled={isGenerating}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择API格式" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="openai">OpenAI格式</SelectItem>
+                          <SelectItem value="claude">Claude原生格式</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500">
+                        选择API消息格式。OpenAI格式用于兼容OpenAI API，Claude格式用于DMXapi等Claude代理服务。
                       </p>
                     </div>
 
