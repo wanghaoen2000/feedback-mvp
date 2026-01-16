@@ -57,6 +57,75 @@ interface BatchState {
   stopped?: boolean;
 }
 
+// 模板格式说明常量
+const TEMPLATE_FORMAT_HINTS: Record<string, string> = {
+  word_card: `请按以下JSON格式输出，不要输出任何其他内容，不要加\`\`\`json标记：
+
+{
+  "listNumber": 1,
+  "sceneName": "场景名称",
+  "wordCount": 10,
+  "words": [
+    {
+      "num": 1,
+      "word": "单词",
+      "phonetic": "/音标/",
+      "pos": "n.",
+      "meaning": "中文释义",
+      "example": "English example sentence.",
+      "translation": "例句中文翻译"
+    }
+  ]
+}`,
+
+  writing_material: `请按以下JSON格式输出，不要输出任何其他内容，不要加\`\`\`json标记：
+
+{
+  "partNum": 1,
+  "partTitle": "Part标题",
+  "listNum": 1,
+  "listTitle": "List标题",
+  "bookmarkId": "书签ID",
+  "categories": [
+    {
+      "id": "分类ID",
+      "name": "分类名称",
+      "sections": [
+        {
+          "code": "小节代码",
+          "name": "小节名称",
+          "items": [
+            { "num": 1, "en": "English expression", "cn": "中文释义" }
+          ]
+        }
+      ]
+    }
+  ]
+}`,
+
+  markdown_styled: `请使用Markdown格式输出，可以使用：
+- # 一级标题、## 二级标题、### 三级标题
+- **粗体**、*斜体*
+- 表格、列表、引用块
+- 分隔线 ---
+
+直接输出内容，不需要说明或解释。`,
+
+  markdown_plain: `请使用Markdown格式输出，可以使用：
+- # 一级标题、## 二级标题、### 三级标题
+- **粗体**、*斜体*
+- 表格、列表、引用块
+
+直接输出内容，不需要说明或解释。`,
+
+  markdown_file: `请使用Markdown格式输出，可以使用：
+- # 一级标题、## 二级标题、### 三级标题
+- **粗体**、*斜体*
+- 表格、列表、引用块
+
+直接输出内容，不需要说明或解释。`,
+};
+
 export function BatchProcess() {
   // 基本设置
   const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material'>('markdown_styled');
@@ -575,6 +644,21 @@ export function BatchProcess() {
               }
             </p>
           </div>
+          
+          {/* 格式说明 */}
+          {templateType && TEMPLATE_FORMAT_HINTS[templateType] && (
+            <div className="space-y-2">
+              <Label>格式说明（写路书时参考）</Label>
+              <textarea
+                readOnly
+                value={TEMPLATE_FORMAT_HINTS[templateType]}
+                className="w-full h-40 p-3 text-sm font-mono bg-gray-50 border rounded-md resize-none"
+              />
+              <p className="text-xs text-gray-500">
+                请将以上格式说明复制到路书末尾，或发给帮你写路书的AI参考
+              </p>
+            </div>
+          )}
 
           {/* 任务编号范围 */}
           <div className="grid grid-cols-2 gap-4">
