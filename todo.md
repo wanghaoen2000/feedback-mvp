@@ -923,3 +923,14 @@
 - [x] 现有 5 种模板类型功能不受影响
 - [x] pnpm build 无报错
 - [x] 原有 121 个测试仍然通过
+
+
+### Step 5.2: 后端整合完整流程
+- [x] 创建 server/core/aiCodeProcessor.ts 文件
+- [x] 实现 processAICodeGeneration 函数整合所有模块
+- [x] 在 batchRoutes.ts 的 ai_code 分支调用处理器
+- [x] 处理流程：AI生成 → 沙箱执行 → 重试 → 验证 → 返回结果
+- [x] 进度回调正常工作
+- [x] 错误情况正确处理和返回
+- [x] pnpm build 无报错
+- [x] 原有 121 个测试仍然通过

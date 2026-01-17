@@ -14,6 +14,7 @@ import { generateWritingMaterialDocx, WritingMaterialData } from "./writingMater
 import { uploadBinaryToGoogleDrive, ensureFolderExists } from "../gdrive";
 import { ConcurrencyPool, TaskResult } from "../core/concurrencyPool";
 import { parseDocumentToText, isParseableDocument } from "../utils/documentParser";
+import { processAICodeGeneration } from "../core/aiCodeProcessor";
 
 const router = Router();
 
@@ -517,9 +518,70 @@ ${roadmapContent}
       console.log(`[BatchRoutes] 任务 ${taskNumber} 通用文档生成完成: ${filename}`);
     } else if (templateType === 'ai_code') {
       // AI代码生成模式：AI生成 docx-js 代码，沙箱执行生成 Word
-      // TODO: Step 5.2 实现完整流程
       console.log(`[BatchRoutes] 任务 ${taskNumber} 进入 ai_code 模式`);
-      throw new Error('AI代码生成模式尚未实现，请等待 Step 5.2 完成');
+      
+      // 构建用户提示词（包含任务编号和原始内容）
+      const aiCodePrompt = `任务编号: ${taskNumber}\n\n${content}`;
+      
+      // 创建独立的输出目录
+      const outputDir = `/tmp/docx-output-${batchId}-${taskNumber}`;
+      
+      // 发送进度：开始AI代码生成
+      sendSSEEvent(res, "task-progress", {
+        taskNumber,
+        chars: content.length,
+        message: "AI正在生成代码...",
+        timestamp: Date.now(),
+      });
+      
+      // 调用AI代码处理器
+      const aiCodeResult = await processAICodeGeneration(
+        aiCodePrompt,
+        {
+          aiConfig: {
+            apiUrl: config.apiUrl,
+            apiKey: config.apiKey,
+            model: config.apiModel,
+            maxTokens: config.maxTokens,
+          },
+          outputDir,
+          maxAttempts: 3,
+          validateStructure: true,
+        },
+        (message) => {
+          // 进度回调
+          sendSSEEvent(res, "task-progress", {
+            taskNumber,
+            chars: content.length,
+            message,
+            timestamp: Date.now(),
+          });
+        }
+      );
+      
+      // 检查结果
+      if (!aiCodeResult.success || !aiCodeResult.outputPath) {
+        const errorMsg = aiCodeResult.errors.join('; ');
+        console.error(`[BatchRoutes] 任务 ${taskNumber} AI代码生成失败:`, errorMsg);
+        throw new Error(`AI代码生成失败 (尝试${aiCodeResult.totalAttempts}次): ${errorMsg}`);
+      }
+      
+      console.log(`[BatchRoutes] 任务 ${taskNumber} AI代码生成成功，尝试次数: ${aiCodeResult.totalAttempts}`);
+      
+      // 读取生成的文件
+      const fs = await import('fs');
+      buffer = fs.readFileSync(aiCodeResult.outputPath);
+      
+      // 设置文件名
+      if (customName) {
+        filename = `${customName}.docx`;
+      } else {
+        const taskNumStr = taskNumber.toString().padStart(2, '0');
+        const prefix = filePrefix.trim() || '任务';
+        filename = `${prefix}${taskNumStr}.docx`;
+      }
+      
+      console.log(`[BatchRoutes] 任务 ${taskNumber} AI代码模式完成: ${filename}, 耗时: ${aiCodeResult.executionTime}ms`);
     } else {
       // 默认模板（markdown_styled）：教学材料（带样式）
       const result = await generateBatchDocument(content, taskNumber, filePrefix, true, customName);
