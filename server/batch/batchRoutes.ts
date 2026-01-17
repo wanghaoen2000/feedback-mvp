@@ -570,15 +570,21 @@ ${roadmapContent}
       
       // 读取生成的文件
       const fs = await import('fs');
+      const pathModule = await import('path');
       buffer = fs.readFileSync(aiCodeResult.outputPath);
       
-      // 设置文件名
-      if (customName) {
-        filename = `${customName}.docx`;
-      } else {
+      // AI代码模式：使用 AI 生成的实际文件名
+      // 从输出路径中提取文件名（AI 在代码中自己决定的）
+      filename = pathModule.basename(aiCodeResult.outputPath);
+      
+      // 如果文件名是默认的 output.docx，说明 AI 没有自定义文件名，使用回退命名
+      if (filename === 'output.docx') {
         const taskNumStr = taskNumber.toString().padStart(2, '0');
         const prefix = filePrefix.trim() || '任务';
         filename = `${prefix}${taskNumStr}.docx`;
+        console.log(`[BatchRoutes] 任务 ${taskNumber} AI未自定义文件名，使用回退命名: ${filename}`);
+      } else {
+        console.log(`[BatchRoutes] 任务 ${taskNumber} 使用AI生成的文件名: ${filename}`);
       }
       
       console.log(`[BatchRoutes] 任务 ${taskNumber} AI代码模式完成: ${filename}, 耗时: ${aiCodeResult.executionTime}ms`);
