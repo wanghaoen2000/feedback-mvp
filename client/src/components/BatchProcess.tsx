@@ -34,6 +34,7 @@ interface TaskState {
   filename?: string;
   url?: string;
   error?: string;
+  truncated?: boolean;  // 内容是否因token上限被截断
 }
 
 // 上传文件类型
@@ -117,6 +118,7 @@ export function BatchProcess() {
   const completedTasks = Array.from(tasks.values()).filter(t => t.status === 'completed');
   const errorTasks = Array.from(tasks.values()).filter(t => t.status === 'error');
   const waitingTasks = Array.from(tasks.values()).filter(t => t.status === 'waiting');
+  const truncatedTasks = Array.from(tasks.values()).filter(t => t.truncated === true);
 
   // 文件上传处理
   const handleFileUpload = useCallback(async (files: FileList) => {
@@ -422,6 +424,7 @@ export function BatchProcess() {
                       chars: data.chars || task.chars,
                       filename: data.filename,
                       url: data.url,
+                      truncated: data.truncated || false,  // 记录截断状态
                     });
                   }
                   return newTasks;
@@ -491,8 +494,8 @@ export function BatchProcess() {
               </span>
             )}
             {task.status === 'completed' && (
-              <span className="text-sm text-green-600">
-                完成 ({task.chars} 字)
+              <span className={`text-sm ${task.truncated ? 'text-yellow-600' : 'text-green-600'}`}>
+                {task.truncated ? '⚠️ 完成但被截断' : '完成'} ({task.chars} 字)
               </span>
             )}
             {task.status === 'error' && (
@@ -1067,6 +1070,22 @@ export function BatchProcess() {
                       #{task.taskNumber}
                     </span>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* 截断警告提示 */}
+            {truncatedTasks.length > 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg mb-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-lg">⚠️</span>
+                  <div>
+                    <p className="font-medium">部分任务内容被截断</p>
+                    <p className="text-sm mt-1">
+                      有 {truncatedTasks.length} 个任务因超出Token上限被截断。
+                      请在「高级设置」中增加「最大Token数」后重试。
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
