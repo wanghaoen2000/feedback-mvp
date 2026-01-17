@@ -904,3 +904,13 @@
 - [x] 添加单元测试 (17 个新测试)
 - [x] 原有 96 个测试仍然通过 (共 113 个测试全部通过)
 - [x] pnpm build 无报错
+
+
+### Step 4.2: 验证docx结构完整性
+- [x] 安装 adm-zip 依赖
+- [x] 实现 validateDocxStructure 函数（检查必要的内部文件）
+- [x] 修改 validateDocx 函数支持 checkStructure 选项
+- [x] 实现 listDocxContents 函数（列出 docx 内部文件）
+- [x] 添加单元测试 (25 个测试，新增 8 个结构验证测试)
+- [x] 原有 113 个测试仍然通过 (共 121 个测试全部通过)
+- [x] pnpm build 无报错

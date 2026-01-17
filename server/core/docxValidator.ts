@@ -4,6 +4,7 @@
  */
 
 import * as fs from 'fs';
+import AdmZip from 'adm-zip';
 
 // 验证结果
 export interface ValidationResult {
@@ -13,14 +14,92 @@ export interface ValidationResult {
     exists: boolean;
     size?: number;
     sizeOK?: boolean;
-    structureOK?: boolean;  // Step 4.2 会用到
+    structureOK?: boolean;
   };
 }
 
 // 验证配置
 export interface ValidationConfig {
   minSize?: number;        // 最小文件大小（字节），默认 1000 (1KB)
-  checkStructure?: boolean; // 是否检查docx结构，默认 false（Step 4.2实现）
+  checkStructure?: boolean; // 是否检查docx结构，默认 false
+}
+
+// docx 必须包含的文件
+const REQUIRED_DOCX_FILES = [
+  '[Content_Types].xml',
+  'word/document.xml',
+];
+
+/**
+ * 验证 docx 文件结构
+ * @param filePath - 文件路径
+ * @returns 验证结果
+ */
+export function validateDocxStructure(filePath: string): ValidationResult {
+  const details: ValidationResult['details'] = {
+    exists: true,
+    structureOK: false,
+  };
+
+  try {
+    // 尝试作为 zip 打开
+    const zip = new AdmZip(filePath);
+    const entries = zip.getEntries().map(e => e.entryName);
+    
+    // 检查必要文件
+    const missingFiles: string[] = [];
+    for (const required of REQUIRED_DOCX_FILES) {
+      if (!entries.includes(required)) {
+        missingFiles.push(required);
+      }
+    }
+    
+    if (missingFiles.length > 0) {
+      return {
+        valid: false,
+        error: `docx 结构不完整，缺少必要文件: ${missingFiles.join(', ')}`,
+        details: {
+          ...details,
+          structureOK: false,
+        }
+      };
+    }
+    
+    // 尝试读取 document.xml 验证内容
+    const documentEntry = zip.getEntry('word/document.xml');
+    if (documentEntry) {
+      const content = documentEntry.getData().toString('utf8');
+      
+      // 检查是否包含基本的 XML 结构
+      if (!content.includes('<?xml') && !content.includes('<w:document')) {
+        return {
+          valid: false,
+          error: 'word/document.xml 内容无效，不是有效的 XML',
+          details: {
+            ...details,
+            structureOK: false,
+          }
+        };
+      }
+    }
+    
+    details.structureOK = true;
+    return {
+      valid: true,
+      details
+    };
+    
+  } catch (err: any) {
+    // zip 解析失败，说明文件损坏
+    return {
+      valid: false,
+      error: `无法解析 docx 文件结构: ${err.message}`,
+      details: {
+        ...details,
+        structureOK: false,
+      }
+    };
+  }
 }
 
 /**
@@ -69,10 +148,20 @@ export function validateDocx(
     };
   }
 
-  // 3. 结构检查（Step 4.2 实现，这里先跳过）
+  // 3. 结构检查（如果启用）
   if (config.checkStructure) {
-    // TODO: Step 4.2 实现
-    details.structureOK = true;  // 暂时默认为 true
+    const structureResult = validateDocxStructure(filePath);
+    if (!structureResult.valid) {
+      return {
+        valid: false,
+        error: structureResult.error,
+        details: {
+          ...details,
+          structureOK: false,
+        }
+      };
+    }
+    details.structureOK = true;
   }
 
   return {
@@ -120,4 +209,16 @@ export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+/**
+ * 获取 docx 内部文件列表（用于调试）
+ */
+export function listDocxContents(filePath: string): string[] | null {
+  try {
+    const zip = new AdmZip(filePath);
+    return zip.getEntries().map(e => e.entryName);
+  } catch {
+    return null;
+  }
 }

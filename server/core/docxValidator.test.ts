@@ -3,19 +3,63 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { validateDocx, quickCheck, getFileSize, formatFileSize } from './docxValidator';
+import { validateDocx, validateDocxStructure, quickCheck, getFileSize, formatFileSize, listDocxContents } from './docxValidator';
 import * as fs from 'fs';
 import * as path from 'path';
+import AdmZip from 'adm-zip';
 
 const testDir = '/tmp/docx-validator-test';
+const structureTestDir = '/tmp/docx-structure-test';
+
+// 创建一个有效的 docx 文件（最小结构）
+function createValidDocx(filePath: string) {
+  const zip = new AdmZip();
+  
+  // [Content_Types].xml
+  zip.addFile('[Content_Types].xml', Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`));
+  
+  // word/document.xml
+  zip.addFile('word/document.xml', Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Test</w:t></w:r></w:p>
+  </w:body>
+</w:document>`));
+  
+  // _rels/.rels
+  zip.addFile('_rels/.rels', Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`));
+  
+  zip.writeZip(filePath);
+}
+
+// 创建一个损坏的 docx（缺少必要文件）
+function createInvalidDocx(filePath: string) {
+  const zip = new AdmZip();
+  zip.addFile('random.txt', Buffer.from('not a valid docx'));
+  zip.writeZip(filePath);
+}
+
+// 创建一个不是 zip 的文件
+function createNotZipFile(filePath: string) {
+  fs.writeFileSync(filePath, 'This is not a zip file, just plain text.');
+}
 
 // 测试前准备测试文件
 beforeAll(() => {
+  // 基础测试目录
   if (!fs.existsSync(testDir)) {
     fs.mkdirSync(testDir, { recursive: true });
   }
   
-  // 创建一个正常大小的文件（模拟有效docx）
+  // 创建一个正常大小的文件（模拟有效docx，但不是真正的docx结构）
   const normalFile = path.join(testDir, 'normal.docx');
   fs.writeFileSync(normalFile, Buffer.alloc(5000, 'x'));  // 5KB
   
@@ -26,15 +70,30 @@ beforeAll(() => {
   // 创建一个很小的文件
   const tinyFile = path.join(testDir, 'tiny.docx');
   fs.writeFileSync(tinyFile, 'abc');  // 3 bytes
+
+  // 结构测试目录
+  if (!fs.existsSync(structureTestDir)) {
+    fs.mkdirSync(structureTestDir, { recursive: true });
+  }
+  
+  // 创建有效的 docx
+  createValidDocx(path.join(structureTestDir, 'valid.docx'));
+  
+  // 创建无效的 docx（缺少必要文件）
+  createInvalidDocx(path.join(structureTestDir, 'invalid.docx'));
+  
+  // 创建不是 zip 的文件
+  createNotZipFile(path.join(structureTestDir, 'notzip.docx'));
 });
 
 // 测试后清理
 afterAll(() => {
   fs.rmSync(testDir, { recursive: true, force: true });
+  fs.rmSync(structureTestDir, { recursive: true, force: true });
 });
 
 describe('docxValidator', () => {
-  describe('validateDocx', () => {
+  describe('validateDocx (size validation)', () => {
     it('should validate normal file successfully', () => {
       const normalFile = path.join(testDir, 'normal.docx');
       const result = validateDocx(normalFile);
@@ -93,13 +152,81 @@ describe('docxValidator', () => {
       
       expect(result.valid).toBe(true);
     });
+  });
 
-    it('should handle checkStructure flag (placeholder)', () => {
-      const normalFile = path.join(testDir, 'normal.docx');
-      const result = validateDocx(normalFile, { checkStructure: true });
+  describe('validateDocxStructure', () => {
+    it('should validate valid docx structure', () => {
+      const validDocx = path.join(structureTestDir, 'valid.docx');
+      const result = validateDocxStructure(validDocx);
       
       expect(result.valid).toBe(true);
-      expect(result.details?.structureOK).toBe(true);  // 暂时默认为 true
+      expect(result.details?.structureOK).toBe(true);
+    });
+
+    it('should fail for invalid docx (missing files)', () => {
+      const invalidDocx = path.join(structureTestDir, 'invalid.docx');
+      const result = validateDocxStructure(invalidDocx);
+      
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('缺少必要文件');
+    });
+
+    it('should fail for non-zip file', () => {
+      const notZip = path.join(structureTestDir, 'notzip.docx');
+      const result = validateDocxStructure(notZip);
+      
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('无法解析');
+    });
+  });
+
+  describe('validateDocx with checkStructure', () => {
+    it('should pass valid docx with structure check', () => {
+      const validDocx = path.join(structureTestDir, 'valid.docx');
+      const result = validateDocx(validDocx, { checkStructure: true, minSize: 100 });
+      
+      expect(result.valid).toBe(true);
+      expect(result.details?.structureOK).toBe(true);
+    });
+
+    it('should fail invalid docx with structure check', () => {
+      const invalidDocx = path.join(structureTestDir, 'invalid.docx');
+      const result = validateDocx(invalidDocx, { checkStructure: true, minSize: 10 });
+      
+      expect(result.valid).toBe(false);
+      expect(result.details?.structureOK).toBe(false);
+    });
+
+    it('should fail non-zip file with structure check', () => {
+      const notZip = path.join(structureTestDir, 'notzip.docx');
+      const result = validateDocx(notZip, { checkStructure: true, minSize: 10 });
+      
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('无法解析');
+    });
+  });
+
+  describe('listDocxContents', () => {
+    it('should list contents of valid docx', () => {
+      const validDocx = path.join(structureTestDir, 'valid.docx');
+      const contents = listDocxContents(validDocx);
+      
+      expect(contents).not.toBeNull();
+      expect(contents).toContain('[Content_Types].xml');
+      expect(contents).toContain('word/document.xml');
+    });
+
+    it('should return null for non-zip file', () => {
+      const notZip = path.join(structureTestDir, 'notzip.docx');
+      const contents = listDocxContents(notZip);
+      
+      expect(contents).toBeNull();
+    });
+
+    it('should return null for non-existent file', () => {
+      const contents = listDocxContents('/tmp/nope-12345.docx');
+      
+      expect(contents).toBeNull();
     });
   });
 
