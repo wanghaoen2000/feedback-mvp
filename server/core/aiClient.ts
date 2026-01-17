@@ -90,6 +90,7 @@ export interface FileInfo {
   url?: string;
   base64DataUri?: string;
   mimeType: string;
+  extractedText?: string;  // 文档提取的纯文本内容
 }
 
 // AI响应结果类型
@@ -142,7 +143,7 @@ export async function invokeAIStream(
     // 添加所有文件
     for (const fileInfo of fileInfos) {
       if (fileInfo.type === 'image' && fileInfo.base64DataUri) {
-        // 图片使用 image_url 类型
+        // 图片使用 image_url 类型（保持原有方式）
         contentParts.push({
           type: "image_url",
           image_url: {
@@ -150,21 +151,31 @@ export async function invokeAIStream(
             detail: "high"
           }
         });
-        console.log(`[AIClient] 添加图片内容 (Base64)`);
-      } else if (fileInfo.type === 'document' && fileInfo.url) {
-        // 文档使用 file_url 类型
-        contentParts.push({
-          type: "file_url",
-          file_url: {
-            url: fileInfo.url,
-            mime_type: fileInfo.mimeType
-          }
-        });
-        console.log(`[AIClient] 添加文档内容: ${fileInfo.url}`);
+        console.log(`[文件处理] 添加图片内容 (Base64)`);
+      } else if (fileInfo.type === 'document') {
+        // 文档：优先使用提取的纯文本，否则使用 file_url
+        if (fileInfo.extractedText) {
+          // 使用提取的纯文本（不需要添加到 contentParts，文本会在 userMessage 中处理）
+          console.log(`[文件处理] 文档使用提取文本 (${fileInfo.extractedText.length} 字符)`);
+        } else if (fileInfo.url) {
+          // 回退到 file_url 方式
+          contentParts.push({
+            type: "file_url",
+            file_url: {
+              url: fileInfo.url,
+              mime_type: fileInfo.mimeType
+            }
+          });
+          console.log(`[文件处理] 文档使用URL: ${fileInfo.url}`);
+        }
       }
     }
     
-    console.log(`[AIClient] 共添加 ${contentParts.length} 个文件`);
+    // 统计添加的文件数量
+    const imageCount = contentParts.filter(p => p.type === 'image_url').length;
+    const urlDocCount = contentParts.filter(p => p.type === 'file_url').length;
+    const textDocCount = fileInfos.filter(f => f.type === 'document' && f.extractedText).length;
+    console.log(`[文件处理] 图片: ${imageCount}, URL文档: ${urlDocCount}, 文本文档: ${textDocCount}`);
     
     // 添加文本消息
     contentParts.push({

@@ -13,6 +13,7 @@ import { generateWordListDocx, WordListData } from "../templates/wordCardTemplat
 import { generateWritingMaterialDocx, WritingMaterialData } from "./writingMaterialGenerator";
 import { uploadBinaryToGoogleDrive, ensureFolderExists } from "../gdrive";
 import { ConcurrencyPool, TaskResult } from "../core/concurrencyPool";
+import { parseDocumentToText, isParseableDocument } from "../utils/documentParser";
 
 const router = Router();
 
@@ -247,6 +248,74 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   /**
    * 执行单个任务（核心逻辑）
    */
+  /**
+   * 构建带来源标签的消息内容
+   * 使用 XML 标签区分不同来源的内容：
+   * - <路书提示词> 路书/提示词内容
+   * - <共享文档> 共享文档内容（多个文档用 --- 分隔）
+   * - <单独文档> 独立文档内容
+   */
+  const buildMessageContent = (
+    taskNumber: number,
+    roadmapContent: string,
+    sharedFileList: FileInfo[] | undefined,
+    independentFile: FileInfo | undefined
+  ): { systemPrompt: string; userMessage: string } => {
+    // 构建 system prompt（路书部分）
+    const systemPrompt = `<路书提示词>
+${roadmapContent}
+</路书提示词>
+
+【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`;
+    
+    // 构建 user message
+    let userMessage = `这是任务编号 ${taskNumber}，请按照路书要求生成内容。`;
+    
+    // 添加共享文档内容（如果有提取的文本）
+    const sharedDocTexts: string[] = [];
+    if (sharedFileList && sharedFileList.length > 0) {
+      for (const file of sharedFileList) {
+        if (file.type === 'document' && file.extractedText) {
+          sharedDocTexts.push(file.extractedText);
+        }
+      }
+    }
+    
+    if (sharedDocTexts.length > 0) {
+      userMessage += `\n\n<共享文档>\n${sharedDocTexts.join('\n---\n')}\n</共享文档>`;
+    }
+    
+    // 添加独立文档内容（如果有提取的文本）
+    if (independentFile?.type === 'document' && independentFile.extractedText) {
+      userMessage += `\n\n<单独文档>\n${independentFile.extractedText}\n</单独文档>`;
+    }
+    
+    // 统计文件数量并添加提示
+    const allFiles = [...(sharedFileList || []), ...(independentFile ? [independentFile] : [])];
+    const imageCount = allFiles.filter(f => f.type === 'image').length;
+    const docCount = allFiles.filter(f => f.type === 'document').length;
+    const textDocCount = allFiles.filter(f => f.type === 'document' && f.extractedText).length;
+    const urlDocCount = docCount - textDocCount;
+    
+    // 添加附件提示
+    const hints: string[] = [];
+    if (imageCount > 0) {
+      hints.push(`${imageCount} 张图片`);
+    }
+    if (textDocCount > 0) {
+      hints.push(`${textDocCount} 份文档（已提取文本，见上方标签）`);
+    }
+    if (urlDocCount > 0) {
+      hints.push(`${urlDocCount} 份文档（以URL形式提供）`);
+    }
+    
+    if (hints.length > 0) {
+      userMessage += `\n\n【附件】请分析以上 ${hints.join('、')}。`;
+    }
+    
+    return { systemPrompt, userMessage };
+  };
+
   const executeTask = async (
     taskNumber: number,
     onProgress: (chars: number) => void
@@ -270,25 +339,13 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     // 日志输出
     console.log(`[BatchRoutes] 任务${taskNumber}：共享文件${sharedFileList?.length || 0}个，独立文件${independentFile ? 1 : 0}个，共${taskFileInfos.length}个`);
     
-    // 构建用户消息
-    let userMessage = `这是任务编号 ${taskNumber}，请按照路书要求生成内容。`;
-    
-    // 如果有文件，添加提示
-    if (taskFileInfos.length > 0) {
-      const imageCount = taskFileInfos.filter(f => f.type === 'image').length;
-      const docCount = taskFileInfos.filter(f => f.type === 'document').length;
-      
-      if (imageCount > 0 && docCount > 0) {
-        userMessage += `\n\n【附件】请分析上面的 ${imageCount} 张图片和 ${docCount} 份文档内容。`;
-      } else if (imageCount > 0) {
-        userMessage += `\n\n【附件】请分析上面的 ${imageCount} 张图片内容。`;
-      } else if (docCount > 0) {
-        userMessage += `\n\n【附件】请分析上面的 ${docCount} 份文档内容。`;
-      }
-    }
-
-    // 调用 AI，透明转发路书作为 system prompt
-    const systemPrompt = roadmap + "\n\n【重要】请直接输出结果，不要与用户互动，不要询问任何问题。";
+    // 使用 buildMessageContent 构建带来源标签的消息
+    const { systemPrompt, userMessage } = buildMessageContent(
+      taskNumber,
+      roadmap,
+      sharedFileList,
+      independentFile
+    );
 
     let lastReportedChars = 0;
 
@@ -655,6 +712,7 @@ interface UploadedFile {
   type: 'document' | 'image';
   url?: string;
   base64DataUri?: string;
+  extractedText?: string;  // 文档提取的纯文本内容
   error?: string;
 }
 
@@ -752,6 +810,20 @@ router.post("/upload-files", upload.array("files", 20), async (req: Request, res
           
           const uploadResult = await storagePut(uniqueKey, file.buffer, file.mimetype);
           result.url = uploadResult.url;
+          
+          // 提取文档文字内容（PDF/DOCX）
+          if (isParseableDocument(file.mimetype)) {
+            try {
+              const extractedText = await parseDocumentToText(file.buffer, file.mimetype);
+              if (extractedText) {
+                result.extractedText = extractedText;
+                console.log(`[BatchRoutes] 文档文字提取成功: ${decodedFilename} (${extractedText.length} 字符)`);
+              }
+            } catch (parseError: any) {
+              console.warn(`[BatchRoutes] 文档文字提取失败: ${decodedFilename}`, parseError.message);
+              // 解析失败不影响上传，继续处理
+            }
+          }
           
           console.log(`[BatchRoutes] 文档上传成功: ${decodedFilename} -> ${uploadResult.url}`);
         } else if (isImage(file.mimetype, decodedFilename)) {

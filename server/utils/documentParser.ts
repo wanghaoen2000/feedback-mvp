@@ -3,7 +3,7 @@
  * 将 PDF/DOCX 文档转换为纯文本
  */
 
-import pdfParse from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
 
 /**
@@ -13,8 +13,19 @@ import mammoth from 'mammoth';
  */
 export async function parsePdfToText(buffer: Buffer): Promise<string> {
   try {
-    const data = await pdfParse(buffer);
-    return data.text || '';
+    const parser = new PDFParse();
+    const data = await parser.loadPDF(buffer);
+    // 提取所有页面的文本
+    let text = '';
+    for (let i = 1; i <= data.numPages; i++) {
+      const page = await data.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      text += pageText + '\n';
+    }
+    return text.trim();
   } catch (error) {
     console.warn('[DocumentParser] PDF 解析失败:', error);
     return '';
