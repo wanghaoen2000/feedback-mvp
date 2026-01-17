@@ -58,6 +58,111 @@ interface BatchState {
   stopped?: boolean;
 }
 
+// 模板格式说明
+const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
+  markdown_styled: `【适用场景】带紫色标题、表头背景色的教学文档
+
+【AI输出格式】普通Markdown文本
+
+【支持的语法】
+# 一级标题（紫色）  ## 二级标题  ### 三级标题
+**粗体**  *斜体*  ***粗斜体***
+- 无序列表   1. 有序列表
+> 引用块（橙色▸标记）
+| 表头1 | 表头2 |  ← 表头有浅紫背景
+| --- | --- |
+| 数据1 | 数据2 |
+---（分页符）
+
+【输出文件】.docx`,
+
+  markdown_plain: `【适用场景】黑白简洁的通用文档
+
+【AI输出格式】普通Markdown文本
+
+【支持的语法】
+# 一级标题  ## 二级标题  ### 三级标题
+**粗体**  *斜体*  ***粗斜体***
+- 无序列表   1. 有序列表
+> 引用块
+| 表头1 | 表头2 |
+| --- | --- |
+| 数据1 | 数据2 |
+---（分页符）
+
+【输出文件】.docx（无颜色样式）`,
+
+  markdown_file: `【适用场景】直接输出Markdown源文件，不转换为Word
+
+【AI输出格式】普通Markdown文本
+
+【支持的语法】所有标准Markdown语法
+# 标题  **粗体**  *斜体*
+- 列表   > 引用   \`代码\`
+[链接](url)   ![图片](url)
+
+【输出文件】.md
+
+【注意】文件内容即AI输出的原始文本，不做任何转换`,
+
+  word_card: `【适用场景】托福/雅思词汇表，双栏卡片布局，紫色主题
+
+【AI输出格式】⚠️ 纯JSON（禁止输出\`\`\`json标记！）
+
+【JSON结构】
+{
+  "listNumber": 1,
+  "sceneName": "场景名称",
+  "wordCount": 25,
+  "words": [{
+    "num": 1,
+    "word": "example",
+    "phonetic": "/ɪɡˈzæmpl/",
+    "pos": "n.",
+    "meaning": "例子",
+    "example": "This is an example.",
+    "translation": "这是一个例子。"
+  }]
+}
+
+【关键要求】
+⚠️ 只输出纯JSON，不要任何解释文字
+⚠️ 不要输出\`\`\`json代码块标记
+⚠️ JSON必须能被JSON.parse()直接解析
+
+【输出文件】.docx（双栏卡片布局）`,
+
+  writing_material: `【适用场景】托福写作邮件素材，分类层级结构
+
+【AI输出格式】⚠️ 纯JSON（禁止输出\`\`\`json标记！）
+
+【JSON结构】
+{
+  "partNum": 1,
+  "partTitle": "Part 标题",
+  "listNum": 1,
+  "listTitle": "List 标题",
+  "bookmarkId": "唯一书签ID",
+  "categories": [{
+    "categoryTitle": "分类标题",
+    "sections": [{
+      "sectionTitle": "小节标题",
+      "items": [{
+        "english": "English expression",
+        "chinese": "中文释义"
+      }]
+    }]
+  }]
+}
+
+【关键要求】
+⚠️ 只输出纯JSON，不要任何解释文字
+⚠️ 不要输出\`\`\`json代码块标记
+⚠️ JSON必须能被JSON.parse()直接解析
+
+【输出文件】.docx（层级结构文档）`,
+};
+
 export function BatchProcess() {
   // 基本设置
   const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material'>('markdown_styled');
@@ -565,18 +670,16 @@ export function BatchProcess() {
               <option value="word_card">词汇卡片（精确排版）</option>
               <option value="writing_material">写作素材模板</option>
             </select>
-            <p className="text-xs text-gray-500">
-              {templateType === 'markdown_styled' 
-                ? '紫色标题、表格高亮，适合教学材料' 
-                : templateType === 'markdown_plain'
-                ? '黑白简洁，无特殊颜色'
-                : templateType === 'word_card'
-                ? 'AI输出JSON数据，程序套用模板生成精确排版的Word'
-                : templateType === 'writing_material'
-                ? 'AI输出JSON数据，程序套用写作素材模板生成Word'
-                : 'AI返回的Markdown内容直接保存为.md文件'
-              }
-            </p>
+            {/* 模板格式说明 */}
+            <div className="mt-2">
+              <div className="text-sm text-gray-500 mb-1">格式说明：</div>
+              <div 
+                className="bg-gray-50 border rounded p-3 font-mono text-xs whitespace-pre-wrap overflow-y-auto"
+                style={{ height: '120px' }}
+              >
+                {TEMPLATE_DESCRIPTIONS[templateType] || '请选择模板类型'}
+              </div>
+            </div>
           </div>
 
           {/* 任务编号范围 */}
