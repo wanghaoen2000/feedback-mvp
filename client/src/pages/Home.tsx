@@ -1551,7 +1551,7 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
       {/* 版本号显示 */}
       <div className="fixed top-2 right-2 text-xs text-muted-foreground z-50">
-        V49
+        V50
       </div>
       <div className="max-w-4xl mx-auto">
         {/* 标题 */}
