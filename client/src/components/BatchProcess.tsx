@@ -240,6 +240,9 @@ export function BatchProcess() {
   const [batchState, setBatchState] = useState<BatchState | null>(null);
   const [tasks, setTasks] = useState<Map<number, TaskState>>(new Map());
 
+  // 判断是否是 AI 代码模式
+  const isAiCodeMode = templateType === 'ai_code';
+
   // 根据状态分类任务
   const runningTasks = Array.from(tasks.values()).filter(t => t.status === 'running');
   const completedTasks = Array.from(tasks.values()).filter(t => t.status === 'completed');
@@ -773,29 +776,34 @@ export function BatchProcess() {
               />
               <p className="text-xs text-gray-500">同时处理的任务数量，建议3-5</p>
             </div>
-            <div className="space-y-2">
+            <div className={`space-y-2 ${isAiCodeMode ? 'opacity-50' : ''}`}>
               <Label>文件命名方式</Label>
+              {isAiCodeMode && (
+                <div className="text-sm text-gray-500 mb-2">
+                  （AI代码模式：文件名由AI在代码中自动决定）
+                </div>
+              )}
               <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className={`flex items-center gap-2 ${isAiCodeMode ? '' : 'cursor-pointer'}`}>
                   <input
                     type="radio"
                     name="namingMethod"
                     value="prefix"
                     checked={namingMethod === 'prefix'}
                     onChange={() => setNamingMethod('prefix')}
-                    disabled={isGenerating}
+                    disabled={isGenerating || isAiCodeMode}
                     className="w-4 h-4 text-blue-600"
                   />
                   <span className="text-sm">前缀+编号</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className={`flex items-center gap-2 ${isAiCodeMode ? '' : 'cursor-pointer'}`}>
                   <input
                     type="radio"
                     name="namingMethod"
                     value="custom"
                     checked={namingMethod === 'custom'}
                     onChange={() => setNamingMethod('custom')}
-                    disabled={isGenerating}
+                    disabled={isGenerating || isAiCodeMode}
                     className="w-4 h-4 text-blue-600"
                   />
                   <span className="text-sm">从文本解析</span>
@@ -805,7 +813,7 @@ export function BatchProcess() {
           </div>
 
           {/* 前缀+编号方式 */}
-          {namingMethod === 'prefix' && (
+          {namingMethod === 'prefix' && !isAiCodeMode && (
             <div className="space-y-2">
               <Label htmlFor="filePrefix">文件名前缀</Label>
               <Input
@@ -835,7 +843,7 @@ export function BatchProcess() {
           )}
 
           {/* 从文本解析方式 */}
-          {namingMethod === 'custom' && (
+          {namingMethod === 'custom' && !isAiCodeMode && (
             <div className="space-y-3">
               <div className="space-y-2">
                 <Label htmlFor="customNames">文件名列表（一行一个）</Label>

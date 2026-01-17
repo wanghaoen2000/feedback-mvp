@@ -969,3 +969,14 @@
 - [x] 修复：sandbox 配置中使用 docx: docx 而非 require('docx')
 - [x] 沙箱测试通过：成功生成 Word 文档
 - [x] git push 并验证
+
+
+## V60.1 Step 1: 前端UI调整 - AI代码模式命名区域禁用
+
+- [ ] 添加 isAiCodeMode 判断变量
+- [ ] 命名规则区域添加禁用样式（opacity-50 + pointer-events-none）
+- [ ] 显示提示文字「AI代码模式：文件名由AI在代码中自动决定」
+- [ ] 命名相关的 select、input 添加 disabled 属性
+- [ ] 切换到其他模板时恢复正常
+- [ ] pnpm build 无报错
+- [ ] git push 并验证
