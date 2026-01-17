@@ -11,6 +11,7 @@
 import { NodeVM, VMScript } from 'vm2';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as docx from 'docx';
 
 // 错误详情类型（扩展版）
 export interface ErrorDetail {
@@ -216,7 +217,7 @@ export async function executeInSandbox(
       console: 'inherit',
       sandbox: {
         __outputDir: outputDir,
-        docx: require('docx'),      // docx 库作为全局变量
+        docx: docx,                  // docx 库作为全局变量（通过 import 导入）
         fs: restrictedFs,           // 受限的 fs 模块作为全局变量
         path: path,                 // path 模块作为全局变量
       },

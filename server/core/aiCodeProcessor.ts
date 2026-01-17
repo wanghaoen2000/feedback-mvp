@@ -102,6 +102,8 @@ export async function processAICodeGeneration(
     const response = await callAIForCode(config.aiConfig, userPrompt);
     initialCode = response;
     log(`AI返回代码，长度: ${initialCode.length} 字符`);
+    console.log('[DEBUG] AI 生成的代码前 500 字符:');
+    console.log(initialCode.substring(0, 500));
   } catch (err: any) {
     return {
       success: false,
