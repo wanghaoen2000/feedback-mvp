@@ -863,3 +863,13 @@
 - [x] 添加错误解析测试用例 (8 个新测试)
 - [x] 原有 14 个测试仍然通过 (共 22 个测试全部通过)
 - [x] pnpm build 无报错
+
+
+### Step 2.2: 格式化错误信息为AI可读格式
+- [x] 创建 server/core/errorFormatter.ts 文件
+- [x] 实现 formatErrorForAI 函数（输出格式化的错误文本）
+- [x] 实现 getFixGuidance 函数（根据错误类型给出修复提示）
+- [x] 实现 formatErrorSummary 函数（输出简短摘要）
+- [x] 添加测试用例验证格式化输出 (11 个新测试)
+- [x] 原有 22 个测试仍然通过 (共 72 个测试全部通过)
+- [x] pnpm build 无报错
