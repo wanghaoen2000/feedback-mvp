@@ -92,13 +92,20 @@ export interface FileInfo {
   mimeType: string;
 }
 
+// AI响应结果类型
+export interface AIStreamResult {
+  content: string;
+  truncated: boolean;
+  stopReason?: string;
+}
+
 /**
  * 流式调用 AI API
  * @param systemPrompt 系统提示词
  * @param userMessage 用户消息
  * @param onProgress 进度回调，参数为当前累计字符数
  * @param options 可选参数
- * @returns 完整的 AI 响应内容
+ * @returns AI响应结果，包含内容和截断状态
  */
 export async function invokeAIStream(
   systemPrompt: string,
@@ -113,7 +120,7 @@ export async function invokeAIStream(
     fileInfo?: FileInfo;  // 单文件信息（向后兼容）
     fileInfos?: FileInfo[];  // 多文件信息（新增）
   }
-): Promise<string> {
+): Promise<AIStreamResult> {
   // 获取配置
   const config = options?.config || await getAPIConfig();
   // 优先级：options.maxTokens > config.maxTokens > 默认值64000
@@ -232,6 +239,7 @@ export async function invokeAIStream(
       const decoder = new TextDecoder();
       let fullContent = "";
       let buffer = "";
+      let stopReason = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -257,6 +265,11 @@ export async function invokeAIStream(
                   onProgress(fullContent.length);
                 }
               }
+              // 检测停止原因（Claude格式: stop_reason, OpenAI格式: finish_reason）
+              const finishReason = parsed.choices?.[0]?.finish_reason || parsed.stop_reason;
+              if (finishReason) {
+                stopReason = finishReason;
+              }
             } catch (e) {
               // 忽略解析错误
             }
@@ -264,8 +277,19 @@ export async function invokeAIStream(
         }
       }
 
-      console.log(`[AIClient] 响应完成，内容长度: ${fullContent.length}字符`);
-      return fullContent;
+      // 判断是否因token上限被截断
+      const isTruncated = stopReason === 'max_tokens' || stopReason === 'length';
+      
+      console.log(`[AIClient] 响应完成，内容长度: ${fullContent.length}字符, stop_reason: ${stopReason || '无'}`);
+      if (isTruncated) {
+        console.log(`[AIClient] ⚠️ 警告: 内容因token上限被截断，stop_reason: ${stopReason}`);
+      }
+      
+      return {
+        content: fullContent,
+        truncated: isTruncated,
+        stopReason: stopReason || undefined
+      };
 
     } catch (error: any) {
       console.error(`[AIClient] 请求失败 (尝试 ${attempt + 1}/${maxRetries + 1}):`, error.message);

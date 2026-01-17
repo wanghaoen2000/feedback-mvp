@@ -56,6 +56,7 @@ interface BatchTaskResult {
   filename: string;
   url?: string;
   path?: string;
+  truncated?: boolean;  // 内容是否因token上限被截断
 }
 
 /**
@@ -291,7 +292,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
 
     let lastReportedChars = 0;
 
-    const content = await invokeAIStream(
+    const aiResult = await invokeAIStream(
       systemPrompt,
       userMessage,
       (chars) => {
@@ -310,10 +311,18 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       },
       { config, fileInfos: taskFileInfos.length > 0 ? taskFileInfos : undefined }  // 传递多文件信息
     );
+    
+    const content = aiResult.content;
+    const isTruncated = aiResult.truncated;
 
     // 检查内容是否有效
     if (!content || content.length === 0) {
       throw new Error("AI 返回内容为空");
+    }
+    
+    // 如果内容被截断，记录警告
+    if (isTruncated) {
+      console.log(`[BatchRoutes] ⚠️ 任务 ${taskNumber} 内容因token上限被截断，stop_reason: ${aiResult.stopReason}`);
     }
 
     // 发送最终进度
@@ -488,6 +497,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       filename,
       url: uploadUrl,
       path: uploadPath,
+      truncated: isTruncated,
     };
   };
 
@@ -528,6 +538,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
         filename: result.result.filename,
         url: result.result.url,
         path: result.result.path,
+        truncated: result.result.truncated || false,  // 内容是否被截断
         timestamp: Date.now(),
       });
 
