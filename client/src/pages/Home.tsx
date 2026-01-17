@@ -1546,6 +1546,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
+      {/* 版本号显示 */}
+      <div className="fixed top-2 right-2 text-xs text-muted-foreground z-50">
+        V49
+      </div>
       <div className="max-w-4xl mx-auto">
         {/* 标题 */}
         <div className="text-center mb-8">
