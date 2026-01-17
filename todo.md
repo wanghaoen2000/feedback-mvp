@@ -832,3 +832,14 @@
 - [x] 修复 BatchProcess.tsx 中 files (独立文件) 传递时缺少 extractedText
 - [x] 清理排查日志代码
 - [x] 测试验证文档内容能正确发送给 AI
+
+
+## V52: AI代码生成Word系统
+
+### Step 1.1: 创建沙箱执行模块
+- [x] 安装 vm2 依赖（或使用 Node.js 内置 vm 模块）
+- [x] 创建 server/core/codeSandbox.ts 文件
+- [x] 实现 executeInSandbox 函数
+- [x] 实现 cleanOutputDir 函数
+- [x] 测试沙箱能生成 docx 文件 (所有 6 个测试通过)
+- [x] pnpm build 无报错
