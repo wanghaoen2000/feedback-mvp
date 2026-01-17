@@ -515,6 +515,11 @@ ${roadmapContent}
       buffer = result.buffer;
       filename = result.filename;
       console.log(`[BatchRoutes] 任务 ${taskNumber} 通用文档生成完成: ${filename}`);
+    } else if (templateType === 'ai_code') {
+      // AI代码生成模式：AI生成 docx-js 代码，沙箱执行生成 Word
+      // TODO: Step 5.2 实现完整流程
+      console.log(`[BatchRoutes] 任务 ${taskNumber} 进入 ai_code 模式`);
+      throw new Error('AI代码生成模式尚未实现，请等待 Step 5.2 完成');
     } else {
       // 默认模板（markdown_styled）：教学材料（带样式）
       const result = await generateBatchDocument(content, taskNumber, filePrefix, true, customName);
