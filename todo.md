@@ -947,7 +947,7 @@
 
 ## V60 Bug修复：沙箱 require 不可用
 
-- [ ] 修改 codeSandbox.ts: VM 改为 NodeVM
-- [ ] pnpm build 无报错
-- [ ] 单元测试通过
-- [ ] git push 并验证
+- [x] 修改 codeSandbox.ts: VM 改为 NodeVM
+- [x] pnpm build 无报错
+- [x] 单元测试通过
+- [x] git push 并验证
