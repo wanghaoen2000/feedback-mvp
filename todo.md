@@ -893,3 +893,14 @@
 - [x] 添加单元测试验证 cleanAIResponse (14 个新测试)
 - [x] 原有 82 个测试仍然通过 (共 96 个测试全部通过)
 - [x] pnpm build 无报错
+
+
+### Step 4.1: 验证文件存在性和大小
+- [x] 创建 server/core/docxValidator.ts 文件
+- [x] 实现 validateDocx 函数（检测文件存在性和大小）
+- [x] 实现 quickCheck 函数（快速检查文件存在且非空）
+- [x] 实现 getFileSize 函数（获取文件大小）
+- [x] 实现 formatFileSize 函数（格式化文件大小）
+- [x] 添加单元测试 (17 个新测试)
+- [x] 原有 96 个测试仍然通过 (共 113 个测试全部通过)
+- [x] pnpm build 无报错
