@@ -951,3 +951,12 @@
 - [x] pnpm build 无报错
 - [x] 单元测试通过
 - [x] git push 并验证
+
+
+## V60 修复：沙箱 require 问题
+
+- [ ] 修改 aiCodeProcessor.ts 提示词，不再要求 AI 使用 require
+- [ ] 修改 codeSandbox.ts 沙箱配置，docx/fs/path 作为全局变量注入
+- [ ] 确认文件命名流程
+- [ ] pnpm build 无报错
+- [ ] git push 并验证

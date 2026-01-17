@@ -210,29 +210,29 @@ export async function executeInSandbox(
     const restrictedFs = createRestrictedFs(outputDir);
     
     // 创建 NodeVM 沙箱环境
+    // 将 docx、fs、path 作为全局变量注入，而不是通过 require
     const vm = new NodeVM({
       timeout: timeout,
       console: 'inherit',
       sandbox: {
         __outputDir: outputDir,
+        docx: require('docx'),      // docx 库作为全局变量
+        fs: restrictedFs,           // 受限的 fs 模块作为全局变量
+        path: path,                 // path 模块作为全局变量
       },
       require: {
         external: false,  // 禁止加载外部模块
-        builtin: [],      // 不允许内置模块（我们用 mock 提供）
+        builtin: [],      // 不允许内置模块
         root: './',
-        mock: {
-          // 提供 docx 模块
-          docx: require('docx'),
-          // 提供受限的 fs 模块
-          fs: restrictedFs,
-          // 提供 path 模块
-          path: path,
-        }
       }
     });
 
     // 执行代码
+    console.log('[沙箱] 准备执行代码，代码长度:', code.length);
+    console.log('[沙箱] 代码前200字符:', code.substring(0, 200));
+    console.log('[沙箱] NodeVM 配置:', JSON.stringify({ timeout, outputDir }));
     const result = vm.run(code, 'vm.js');
+    console.log('[沙箱] vm.run 返回:', typeof result);
     
     // 如果返回的是 Promise，等待它完成
     if (result && typeof result.then === 'function') {
