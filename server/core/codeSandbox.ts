@@ -8,7 +8,7 @@
  * - 30秒超时保护
  */
 
-import { VM } from 'vm2';
+import { NodeVM, VMScript } from 'vm2';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -187,31 +187,6 @@ function createRestrictedFs(allowedDir: string) {
 }
 
 /**
- * 创建受限的 require 函数
- * 只允许白名单内的模块
- */
-function createRestrictedRequire(allowedDir: string) {
-  const restrictedFs = createRestrictedFs(allowedDir);
-  
-  return (moduleName: string) => {
-    if (!ALLOWED_MODULES.includes(moduleName)) {
-      throw new Error(`安全限制：不允许使用模块 "${moduleName}"，只允许: ${ALLOWED_MODULES.join(', ')}`);
-    }
-    
-    switch (moduleName) {
-      case 'docx':
-        return require('docx');
-      case 'fs':
-        return restrictedFs;  // 返回受限版本
-      case 'path':
-        return path;
-      default:
-        throw new Error(`模块 "${moduleName}" 未配置`);
-    }
-  };
-}
-
-/**
  * 在沙箱中执行代码
  * @param code - 要执行的JavaScript代码
  * @param config - 沙箱配置
@@ -231,29 +206,38 @@ export async function executeInSandbox(
   }
 
   try {
-    // 创建受限的 require
-    const restrictedRequire = createRestrictedRequire(outputDir);
+    // 创建受限的 fs 模块
+    const restrictedFs = createRestrictedFs(outputDir);
     
-    // 创建沙箱环境
-    const vm = new VM({
+    // 创建 NodeVM 沙箱环境
+    const vm = new NodeVM({
       timeout: timeout,
+      console: 'inherit',
       sandbox: {
-        require: restrictedRequire,  // 使用受限的 require
-        console: {
-          log: console.log,
-          error: console.error,
-          warn: console.warn,
-        },
-        Buffer: Buffer,
-        __dirname: outputDir,
         __outputDir: outputDir,
-        // 注入 Promise 以支持异步操作
-        Promise: Promise,
+      },
+      require: {
+        external: false,  // 禁止加载外部模块
+        builtin: [],      // 不允许内置模块（我们用 mock 提供）
+        root: './',
+        mock: {
+          // 提供 docx 模块
+          docx: require('docx'),
+          // 提供受限的 fs 模块
+          fs: restrictedFs,
+          // 提供 path 模块
+          path: path,
+        }
       }
     });
 
     // 执行代码
-    await vm.run(code);
+    const result = vm.run(code, 'vm.js');
+    
+    // 如果返回的是 Promise，等待它完成
+    if (result && typeof result.then === 'function') {
+      await result;
+    }
 
     // 等待一小段时间让异步操作完成（如 Packer.toBuffer）
     await new Promise(resolve => setTimeout(resolve, 500));
