@@ -165,21 +165,41 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
 
 【输出文件】.docx（层级结构文档）`,
 
-  ai_code: `【适用场景】需要复杂自定义排版的文档
+  ai_code: `【自由排版（AI代码）模板】
 
-【工作原理】
-AI 将根据你的需求生成 docx-js 代码
-系统在安全沙箱中执行代码生成 Word 文档
-如果执行失败，系统会自动重试最多3次
+AI输出格式：可执行的 docx-js JavaScript 代码
 
-【路书建议】
-• 详细描述你想要的文档样式
-• 可以指定颜色、字号、布局等细节
-• 可以要求特定的表格、图片、分栏等
+【重要】文件命名要求：
+1. 你需要在代码中自己决定输出文件名
+2. 文件名要有意义，体现文档内容
+3. 例如："托福词汇List03_图书馆场景.docx"
+4. 文件名不要包含非法字符（\\ / : * ? " < > |）
 
-【输出文件】.docx（AI代码生成）
+代码结构要求：
+1. docx、fs、path 已作为全局变量注入，直接使用
+2. 使用 __outputDir 变量获取输出目录
+3. 使用 fs.writeFileSync 保存文件
 
-【注意】此模式耗时较长，适合少量复杂文档`,
+代码示例：
+const { Document, Packer, Paragraph, TextRun } = docx;
+
+// ★ 根据内容决定文件名（这是你要做的）
+const fileName = "托福词汇List03_图书馆场景.docx";
+const outputPath = path.join(__outputDir, fileName);
+
+const doc = new Document({
+  sections: [{
+    children: [
+      new Paragraph({
+        children: [new TextRun("你的内容...")]
+      })
+    ]
+  }]
+});
+
+Packer.toBuffer(doc).then(buffer => {
+  fs.writeFileSync(outputPath, buffer);
+});`,
 };
 
 export function BatchProcess() {

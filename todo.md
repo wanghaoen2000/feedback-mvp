@@ -973,10 +973,19 @@
 
 ## V60.1 Step 1: 前端UI调整 - AI代码模式命名区域禁用
 
-- [ ] 添加 isAiCodeMode 判断变量
-- [ ] 命名规则区域添加禁用样式（opacity-50 + pointer-events-none）
-- [ ] 显示提示文字「AI代码模式：文件名由AI在代码中自动决定」
-- [ ] 命名相关的 select、input 添加 disabled 属性
-- [ ] 切换到其他模板时恢复正常
+- [x] 添加 isAiCodeMode 判断变量
+- [x] 命名规则区域添加禁用样式（opacity-50）
+- [x] 显示提示文字「AI代码模式：文件名由AI在代码中自动决定」
+- [x] 命名相关的 radio 添加 disabled 属性
+- [x] 前缀输入框和文本解析区域在 AI 代码模式时隐藏
+- [x] pnpm build 无报错
+- [x] git push 并验证
+
+
+## V60.1 Step 2: 路书调整 - AI代码模式添加文件命名要求
+
+- [ ] 更新 ai_code 模板的格式说明
+- [ ] 说明中包含「文件命名要求」
+- [ ] 说明中包含代码示例
 - [ ] pnpm build 无报错
 - [ ] git push 并验证
