@@ -149,6 +149,7 @@ export const appRouter = router({
       const driveBasePath = await getConfig("driveBasePath");
       const batchFilePrefix = await getConfig("batchFilePrefix");
       const batchStoragePath = await getConfig("batchStoragePath");
+      const maxTokens = await getConfig("maxTokens");
       
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
@@ -162,6 +163,7 @@ export const appRouter = router({
         driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
         batchFilePrefix: batchFilePrefix || DEFAULT_CONFIG.batchFilePrefix,
         batchStoragePath: batchStoragePath || DEFAULT_CONFIG.batchStoragePath,
+        maxTokens: maxTokens || "64000",
         // 返回是否使用默认值
         isDefault: {
           apiModel: !apiModel,
@@ -189,6 +191,7 @@ export const appRouter = router({
         driveBasePath: z.string().optional(),
         batchFilePrefix: z.string().optional(),
         batchStoragePath: z.string().optional(),
+        maxTokens: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -262,6 +265,15 @@ export const appRouter = router({
           }
           await setConfig("batchStoragePath", path, "批量处理存储路径");
           updates.push("batchStoragePath");
+        }
+        
+        if (input.maxTokens !== undefined && input.maxTokens.trim()) {
+          // 验证是否为有效数字
+          const tokenValue = parseInt(input.maxTokens.trim(), 10);
+          if (!isNaN(tokenValue) && tokenValue >= 1000 && tokenValue <= 200000) {
+            await setConfig("maxTokens", tokenValue.toString(), "AI生成的最大token数");
+            updates.push("maxTokens");
+          }
         }
         
         return {

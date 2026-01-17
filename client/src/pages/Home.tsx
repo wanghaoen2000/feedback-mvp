@@ -237,6 +237,7 @@ export default function Home() {
   const [roadmapClass, setRoadmapClass] = useState(""); // 小班课路书内容
   const [classFirstLessonTemplate, setClassFirstLessonTemplate] = useState(""); // 小班课首次课范例
   const [driveBasePath, setDriveBasePath] = useState(""); // Google Drive存储根路径
+  const [maxTokens, setMaxTokens] = useState("64000"); // AI生成的最大token数
   const [configLoaded, setConfigLoaded] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
 
@@ -324,6 +325,7 @@ export default function Home() {
       setRoadmapClass(configQuery.data.roadmapClass || "");
       setClassFirstLessonTemplate(configQuery.data.classFirstLessonTemplate || "");
       setDriveBasePath(configQuery.data.driveBasePath || "Mac/Documents/XDF/学生档案");
+      setMaxTokens(configQuery.data.maxTokens || "64000");
       setConfigLoaded(true);
     }
   }, [configQuery.data, configLoaded]);
@@ -342,6 +344,7 @@ export default function Home() {
         roadmapClass: roadmapClass || undefined,
         classFirstLessonTemplate: classFirstLessonTemplate || undefined,
         driveBasePath: driveBasePath.trim() || undefined,
+        maxTokens: maxTokens.trim() || undefined,
       });
       // 刷新配置
       await configQuery.refetch();
@@ -1960,6 +1963,23 @@ export default function Home() {
                       />
                       <p className="text-xs text-gray-500">
                         留空则使用默认地址
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="maxTokens">最大Token数</Label>
+                      <Input
+                        id="maxTokens"
+                        type="number"
+                        placeholder="64000"
+                        value={maxTokens}
+                        onChange={(e) => setMaxTokens(e.target.value)}
+                        disabled={isGenerating}
+                        min={1000}
+                        max={200000}
+                      />
+                      <p className="text-xs text-gray-500">
+                        AI生成的最大token数，建议范围1000-200000，默认64000
                       </p>
                     </div>
 
