@@ -825,3 +825,10 @@
   - [x] DOCX 文档解析测试通过
   - [x] 来源标签功能测试通过
   - [x] pnpm build 无报错
+
+## V51 Bug修复：extractedText 未传递到后端
+
+- [x] 修复 BatchProcess.tsx 中 sharedFiles 传递时缺少 extractedText
+- [x] 修复 BatchProcess.tsx 中 files (独立文件) 传递时缺少 extractedText
+- [x] 清理排查日志代码
+- [x] 测试验证文档内容能正确发送给 AI

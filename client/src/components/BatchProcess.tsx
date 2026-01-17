@@ -47,6 +47,7 @@ interface UploadedFile {
   type: 'document' | 'image';
   url?: string;
   base64DataUri?: string;
+  extractedText?: string;  // 文档提取的纯文本内容
   error?: string;
 }
 
@@ -450,6 +451,7 @@ export function BatchProcess() {
                 url: file.url,
                 base64DataUri: file.base64DataUri,
                 mimeType: file.mimeType,
+                extractedText: file.extractedText,  // 文档提取的纯文本
               }
             ])
           ) : undefined,
@@ -459,6 +461,7 @@ export function BatchProcess() {
             url: file.url,
             base64DataUri: file.base64DataUri,
             mimeType: file.mimeType,
+            extractedText: file.extractedText,  // 文档提取的纯文本
           })) : undefined,
         }),
       });
