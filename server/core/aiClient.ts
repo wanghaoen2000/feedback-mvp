@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = {
   roadmap: "",
   roadmapClass: "",
   driveBasePath: "Mac/Documents/XDF/学生档案",
+  maxTokens: "64000",
 };
 
 /**
@@ -28,6 +29,7 @@ export interface APIConfig {
   roadmapClass?: string;
   driveBasePath?: string;
   currentYear?: string;
+  maxTokens?: number;
 }
 
 /**
@@ -52,7 +54,7 @@ async function getConfigValue(key: string): Promise<string> {
  * 从数据库读取所有 API 相关配置
  */
 export async function getAPIConfig(): Promise<APIConfig> {
-  const [apiModel, apiKey, apiUrl, roadmap, roadmapClass, driveBasePath, currentYear] = await Promise.all([
+  const [apiModel, apiKey, apiUrl, roadmap, roadmapClass, driveBasePath, currentYear, maxTokensStr] = await Promise.all([
     getConfigValue("apiModel"),
     getConfigValue("apiKey"),
     getConfigValue("apiUrl"),
@@ -60,6 +62,7 @@ export async function getAPIConfig(): Promise<APIConfig> {
     getConfigValue("roadmapClass"),
     getConfigValue("driveBasePath"),
     getConfigValue("currentYear"),
+    getConfigValue("maxTokens"),
   ]);
 
   return {
@@ -70,6 +73,7 @@ export async function getAPIConfig(): Promise<APIConfig> {
     roadmapClass,
     driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
     currentYear: currentYear || DEFAULT_CONFIG.currentYear,
+    maxTokens: parseInt(maxTokensStr || DEFAULT_CONFIG.maxTokens, 10),
   };
 }
 
@@ -112,7 +116,8 @@ export async function invokeAIStream(
 ): Promise<string> {
   // 获取配置
   const config = options?.config || await getAPIConfig();
-  const maxTokens = options?.maxTokens || 32000;
+  // 优先级：options.maxTokens > config.maxTokens > 默认值64000
+  const maxTokens = options?.maxTokens || config.maxTokens || 64000;
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
   const maxRetries = options?.retries ?? 2;
