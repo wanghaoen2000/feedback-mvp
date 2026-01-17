@@ -882,3 +882,14 @@
 - [x] 添加测试用例验证重试逻辑 (10 个新测试)
 - [x] 原有 72 个测试仍然通过 (共 82 个测试全部通过)
 - [x] pnpm build 无报错
+
+
+### Step 3.2: 对接AI实现代码修正
+- [x] 创建 server/core/aiCodeFixer.ts 文件
+- [x] 实现 cleanAIResponse 函数（去除 markdown 代码块标记）
+- [x] 实现 createAICodeFixer 函数（创建 AI 代码修正器）
+- [x] 实现 callAI 函数（调用 AI 接口）
+- [x] 实现 createAICodeFixerFromConfig 函数（从配置创建修正器）
+- [x] 添加单元测试验证 cleanAIResponse (14 个新测试)
+- [x] 原有 82 个测试仍然通过 (共 96 个测试全部通过)
+- [x] pnpm build 无报错
