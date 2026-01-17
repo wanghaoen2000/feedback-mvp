@@ -960,3 +960,12 @@
 - [x] 确认文件命名流程
 - [x] pnpm build 无报错
 - [x] git push 并验证
+
+
+## V60 修复：沙箱 require 问题（最终修复）
+
+- [x] 排查问题：require('docx') 在 ESM 环境下报错
+- [x] 修复：在文件顶部添加 import * as docx from 'docx'
+- [x] 修复：sandbox 配置中使用 docx: docx 而非 require('docx')
+- [x] 沙箱测试通过：成功生成 Word 文档
+- [x] git push 并验证
