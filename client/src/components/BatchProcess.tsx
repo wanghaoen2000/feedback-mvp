@@ -19,7 +19,9 @@ import {
   Upload,
   File,
   Image,
-  Trash2
+  Trash2,
+  Copy,
+  Check
 } from "lucide-react";
 
 // 任务状态类型
@@ -173,6 +175,9 @@ export function BatchProcess() {
   const [isPathSaving, setIsPathSaving] = useState(false);
   const [filePrefix, setFilePrefix] = useState("任务");
   const [isPrefixSaving, setIsPrefixSaving] = useState(false);
+
+  // 复制格式说明状态
+  const [copied, setCopied] = useState(false);
 
   // 文件命名方式
   const [namingMethod, setNamingMethod] = useState<'prefix' | 'custom'>('prefix');
@@ -375,6 +380,16 @@ export function BatchProcess() {
       console.error('停止请求失败:', error.message);
     }
   }, [batchState?.batchId]);
+
+  // 复制格式说明到剪贴板
+  const handleCopyDescription = async () => {
+    const text = TEMPLATE_DESCRIPTIONS[templateType];
+    if (text) {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const handleStart = useCallback(async () => {
     // 验证参数
@@ -673,11 +688,27 @@ export function BatchProcess() {
             {/* 模板格式说明 */}
             <div className="mt-2">
               <div className="text-sm text-gray-500 mb-1">格式说明：</div>
-              <div 
-                className="bg-gray-50 border rounded p-3 font-mono text-xs whitespace-pre-wrap overflow-y-auto"
-                style={{ height: '120px' }}
-              >
-                {TEMPLATE_DESCRIPTIONS[templateType] || '请选择模板类型'}
+              <div className="relative">
+                {/* 复制按钮 */}
+                <button
+                  onClick={handleCopyDescription}
+                  className="absolute top-2 right-2 p-1 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700 z-10"
+                  title="复制格式说明"
+                >
+                  {copied ? (
+                    <Check className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </button>
+                
+                {/* 说明内容 */}
+                <div 
+                  className="bg-gray-50 border rounded p-3 pr-10 font-mono text-xs whitespace-pre-wrap overflow-y-auto"
+                  style={{ height: '120px' }}
+                >
+                  {TEMPLATE_DESCRIPTIONS[templateType] || '请选择模板类型'}
+                </div>
               </div>
             </div>
           </div>
