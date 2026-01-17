@@ -135,3 +135,138 @@ describe('codeSandbox', () => {
     expect(files.length).toBe(0);
   });
 });
+
+// ==================== 安全测试 ====================
+describe('codeSandbox security', () => {
+  beforeEach(() => {
+    cleanOutputDir(TEST_OUTPUT_DIR);
+  });
+
+  it('should block child_process module', async () => {
+    const maliciousCode = `
+      const child_process = require('child_process');
+      child_process.execSync('ls -la');
+    `;
+
+    const result = await executeInSandbox(maliciousCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.message).toContain('安全限制');
+    expect(result.error?.message).toContain('child_process');
+  });
+
+  it('should block http module', async () => {
+    const maliciousCode = `
+      const http = require('http');
+      http.get('http://evil.com');
+    `;
+
+    const result = await executeInSandbox(maliciousCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.message).toContain('安全限制');
+    expect(result.error?.message).toContain('http');
+  });
+
+  it('should block net module', async () => {
+    const maliciousCode = `
+      const net = require('net');
+      net.createServer();
+    `;
+
+    const result = await executeInSandbox(maliciousCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.message).toContain('安全限制');
+    expect(result.error?.message).toContain('net');
+  });
+
+  it('should block os module', async () => {
+    const maliciousCode = `
+      const os = require('os');
+      console.log(os.hostname());
+    `;
+
+    const result = await executeInSandbox(maliciousCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.message).toContain('安全限制');
+    expect(result.error?.message).toContain('os');
+  });
+
+  it('should block writing to /etc/passwd', async () => {
+    const maliciousCode = `
+      const fs = require('fs');
+      fs.writeFileSync('/etc/passwd', 'hacked');
+    `;
+
+    const result = await executeInSandbox(maliciousCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.message).toContain('安全限制');
+  });
+
+  it('should block writing to /tmp/other-dir', async () => {
+    const maliciousCode = `
+      const fs = require('fs');
+      fs.writeFileSync('/tmp/other-dir/hack.txt', 'hacked');
+    `;
+
+    const result = await executeInSandbox(maliciousCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.message).toContain('安全限制');
+  });
+
+  it('should allow writing to outputDir', async () => {
+    const safeCode = `
+      const fs = require('fs');
+      const path = require('path');
+      fs.writeFileSync(path.join(__outputDir, 'safe.txt'), 'safe content');
+    `;
+
+    const result = await executeInSandbox(safeCode, { outputDir: TEST_OUTPUT_DIR });
+
+    // 代码执行成功（虽然没有生成 docx）
+    expect(result.error?.type).not.toBe('Error');
+    // 验证文件确实被创建
+    expect(fs.existsSync(path.join(TEST_OUTPUT_DIR, 'safe.txt'))).toBe(true);
+  });
+
+  it('should allow normal docx generation with restricted modules', async () => {
+    const safeCode = `
+      const { Document, Paragraph, TextRun, Packer } = require('docx');
+      const fs = require('fs');
+      const path = require('path');
+
+      const doc = new Document({
+        sections: [{
+          children: [
+            new Paragraph({
+              children: [new TextRun('安全测试文档')],
+            }),
+          ],
+        }],
+      });
+
+      Packer.toBuffer(doc).then(buffer => {
+        fs.writeFileSync(path.join(__outputDir, 'safe_test.docx'), buffer);
+      });
+    `;
+
+    const result = await executeInSandbox(safeCode, { 
+      outputDir: TEST_OUTPUT_DIR,
+      timeout: 10000 
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.outputPath).toBeDefined();
+    expect(result.outputPath).toContain('safe_test.docx');
+  });
+});

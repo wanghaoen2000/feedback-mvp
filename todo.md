@@ -843,3 +843,12 @@
 - [x] 实现 cleanOutputDir 函数
 - [x] 测试沙箱能生成 docx 文件 (所有 6 个测试通过)
 - [x] pnpm build 无报错
+
+
+### Step 1.2: 限制沙箱权限
+- [x] 实现模块白名单机制（只允许 docx, fs, path）
+- [x] 实现受限的 fs 模块（只能写入 outputDir）
+- [x] 添加安全测试用例 (8 个安全测试全部通过)
+- [x] 验证正常代码能执行
+- [x] 验证恶意代码被拦截 (child_process, http, net, os 等)
+- [x] pnpm build 无报错
