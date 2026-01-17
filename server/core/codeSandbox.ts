@@ -12,15 +12,21 @@ import { VM } from 'vm2';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// 错误详情类型（扩展版）
+export interface ErrorDetail {
+  type: string;           // 错误类型：SyntaxError, TypeError, ReferenceError, TimeoutError, SecurityError, NoOutputError
+  message: string;        // 错误信息
+  line?: number;          // 行号（如果能解析出来）
+  column?: number;        // 列号（如果能解析出来）
+  codeSnippet?: string;   // 出错位置前后5行代码
+  stack?: string;         // 原始错误堆栈（用于调试）
+}
+
 // 执行结果类型
 export interface ExecutionResult {
   success: boolean;
   outputPath?: string;    // 生成的文件路径
-  error?: {
-    type: string;         // 错误类型：SyntaxError, TypeError, etc.
-    message: string;      // 错误信息
-    stack?: string;       // 错误堆栈
-  };
+  error?: ErrorDetail;    // 错误详情
   executionTime?: number; // 执行耗时(ms)
 }
 
@@ -32,6 +38,110 @@ export interface SandboxConfig {
 
 // 模块白名单
 const ALLOWED_MODULES = ['docx', 'fs', 'path'];
+
+/**
+ * 从错误堆栈中解析行号和列号
+ * 错误堆栈示例：
+ * ReferenceError: undefinedFunction is not defined
+ *     at vm.js:5:1
+ *     at Script.runInContext (node:vm:149:12)
+ */
+function parseErrorLocation(error: Error, code: string): { line?: number; column?: number } {
+  const stack = error.stack || '';
+  
+  // vm2 的错误格式：at vm.js:行号:列号
+  const vmJsMatch = stack.match(/at vm\.js:(\d+):(\d+)/);
+  if (vmJsMatch) {
+    return {
+      line: parseInt(vmJsMatch[1], 10),
+      column: parseInt(vmJsMatch[2], 10)
+    };
+  }
+  
+  // 备用：尝试匹配 evalmachine.<anonymous>:行号:列号
+  const evalMatch = stack.match(/evalmachine\.<anonymous>:(\d+):(\d+)/);
+  if (evalMatch) {
+    return {
+      line: parseInt(evalMatch[1], 10),
+      column: parseInt(evalMatch[2], 10)
+    };
+  }
+  
+  // 备用：尝试匹配 <anonymous>:行号:列号
+  const anonMatch = stack.match(/at\s+(?:Object\.)?<anonymous>:(\d+):(\d+)/);
+  if (anonMatch) {
+    return {
+      line: parseInt(anonMatch[1], 10),
+      column: parseInt(anonMatch[2], 10)
+    };
+  }
+  
+  // 备用：尝试匹配 SyntaxError 中的位置信息
+  const syntaxMatch = error.message.match(/at position (\d+)/);
+  if (syntaxMatch) {
+    const position = parseInt(syntaxMatch[1], 10);
+    const lines = code.substring(0, position).split('\n');
+    return {
+      line: lines.length,
+      column: lines[lines.length - 1].length + 1
+    };
+  }
+  
+  return {};
+}
+
+/**
+ * 提取出错位置前后的代码片段
+ * @param code - 完整代码
+ * @param line - 出错行号
+ * @param contextLines - 上下文行数，默认5行
+ */
+function extractCodeSnippet(code: string, line: number, contextLines: number = 5): string {
+  const lines = code.split('\n');
+  const startLine = Math.max(0, line - contextLines - 1);
+  const endLine = Math.min(lines.length, line + contextLines);
+  
+  const snippet = lines.slice(startLine, endLine).map((content, index) => {
+    const lineNum = startLine + index + 1;
+    const marker = lineNum === line ? ' → ' : '   ';
+    return `${marker}${lineNum.toString().padStart(4)}: ${content}`;
+  }).join('\n');
+  
+  return snippet;
+}
+
+/**
+ * 构建详细的错误信息
+ */
+function buildErrorDetail(error: Error, code: string): ErrorDetail {
+  let errorType = error.name || 'UnknownError';
+  
+  // 超时错误特殊处理
+  if (error.message?.includes('Script execution timed out')) {
+    errorType = 'TimeoutError';
+  }
+  
+  // 安全限制错误特殊处理
+  if (error.message?.includes('安全限制')) {
+    errorType = 'SecurityError';
+  }
+  
+  const location = parseErrorLocation(error, code);
+  
+  const detail: ErrorDetail = {
+    type: errorType,
+    message: error.message || '未知错误',
+    stack: error.stack
+  };
+  
+  if (location.line) {
+    detail.line = location.line;
+    detail.column = location.column;
+    detail.codeSnippet = extractCodeSnippet(code, location.line);
+  }
+  
+  return detail;
+}
 
 /**
  * 创建受限的 fs 模块
@@ -170,13 +280,12 @@ export async function executeInSandbox(
     }
 
   } catch (err: any) {
+    // 构建详细错误信息
+    const errorDetail = buildErrorDetail(err, code);
+    
     return {
       success: false,
-      error: {
-        type: err.name || 'UnknownError',
-        message: err.message || '未知错误',
-        stack: err.stack
-      },
+      error: errorDetail,
       executionTime: Date.now() - startTime
     };
   }

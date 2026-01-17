@@ -852,3 +852,14 @@
 - [x] 验证正常代码能执行
 - [x] 验证恶意代码被拦截 (child_process, http, net, os 等)
 - [x] pnpm build 无报错
+
+
+### Step 2.1: 捕获语法和运行时错误
+- [x] 扩展 ErrorDetail 类型定义（添加 line, column, codeSnippet）
+- [x] 创建 parseErrorLocation 函数（从堆栈解析行号列号）
+- [x] 创建 extractCodeSnippet 函数（提取出错位置代码片段）
+- [x] 创建 buildErrorDetail 函数（构建详细错误信息）
+- [x] 修改 executeInSandbox 使用新的错误解析逻辑
+- [x] 添加错误解析测试用例 (8 个新测试)
+- [x] 原有 14 个测试仍然通过 (共 22 个测试全部通过)
+- [x] pnpm build 无报错

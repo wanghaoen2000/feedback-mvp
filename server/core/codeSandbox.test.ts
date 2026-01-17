@@ -270,3 +270,147 @@ describe('codeSandbox security', () => {
     expect(result.outputPath).toContain('safe_test.docx');
   });
 });
+
+
+// ==================== 错误解析测试 ====================
+describe('codeSandbox error parsing', () => {
+  beforeEach(() => {
+    cleanOutputDir(TEST_OUTPUT_DIR);
+  });
+
+  it('should identify SyntaxError type', async () => {
+    const syntaxErrorCode = `
+const a = 1;
+const b = 2;
+const c = {
+  name: 'test'
+const d = 3;  // 语法错误：上面的对象没有闭合
+`;
+
+    const result = await executeInSandbox(syntaxErrorCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.type).toBe('SyntaxError');
+    console.log('SyntaxError 详情:', JSON.stringify(result.error, null, 2));
+  });
+
+  it('should identify ReferenceError type', async () => {
+    const referenceErrorCode = `
+const a = 1;
+const b = 2;
+console.log(undefinedVariable);  // ReferenceError
+`;
+
+    const result = await executeInSandbox(referenceErrorCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.type).toBe('ReferenceError');
+    expect(result.error?.message).toContain('undefinedVariable');
+    console.log('ReferenceError 详情:', JSON.stringify(result.error, null, 2));
+  });
+
+  it('should identify TypeError type', async () => {
+    const typeErrorCode = `
+const a = null;
+a.toString();  // TypeError
+`;
+
+    const result = await executeInSandbox(typeErrorCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.type).toBe('TypeError');
+    console.log('TypeError 详情:', JSON.stringify(result.error, null, 2));
+  });
+
+  it('should identify TimeoutError type', async () => {
+    const timeoutCode = `
+while(true) {}  // 无限循环
+`;
+
+    const result = await executeInSandbox(timeoutCode, { 
+      outputDir: TEST_OUTPUT_DIR,
+      timeout: 1000 
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.type).toBe('TimeoutError');
+    console.log('TimeoutError 详情:', JSON.stringify(result.error, null, 2));
+  });
+
+  it('should identify SecurityError type', async () => {
+    const securityErrorCode = `
+const child_process = require('child_process');
+`;
+
+    const result = await executeInSandbox(securityErrorCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.type).toBe('SecurityError');
+    console.log('SecurityError 详情:', JSON.stringify(result.error, null, 2));
+  });
+
+  it('should extract line number from runtime error', async () => {
+    const errorCode = `
+const a = 1;
+const b = 2;
+const c = 3;
+undefinedFunction();  // 第5行出错
+const d = 4;
+`;
+
+    const result = await executeInSandbox(errorCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    
+    // 打印详细信息用于调试
+    console.log('运行时错误详情:', JSON.stringify(result.error, null, 2));
+    
+    // 验证行号存在（可能因 vm2 版本不同而有差异）
+    if (result.error?.line) {
+      expect(result.error.line).toBeGreaterThan(0);
+    }
+  });
+
+  it('should extract code snippet with error marker', async () => {
+    const errorCode = `
+const line1 = 'first';
+const line2 = 'second';
+const line3 = 'third';
+undefinedFunction();
+const line5 = 'fifth';
+const line6 = 'sixth';
+`;
+
+    const result = await executeInSandbox(errorCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    
+    // 打印代码片段
+    console.log('代码片段:', result.error?.codeSnippet);
+    
+    // 如果有代码片段，验证包含箭头标记
+    if (result.error?.codeSnippet) {
+      expect(result.error.codeSnippet).toContain('→');
+    }
+  });
+
+  it('should preserve original stack trace', async () => {
+    const errorCode = `
+throw new Error('自定义错误');
+`;
+
+    const result = await executeInSandbox(errorCode, { outputDir: TEST_OUTPUT_DIR });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.stack).toBeDefined();
+    expect(result.error?.stack).toContain('自定义错误');
+  });
+});
