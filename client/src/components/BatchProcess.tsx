@@ -164,11 +164,27 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
 ⚠️ JSON必须能被JSON.parse()直接解析
 
 【输出文件】.docx（层级结构文档）`,
+
+  ai_code: `【适用场景】需要复杂自定义排版的文档
+
+【工作原理】
+AI 将根据你的需求生成 docx-js 代码
+系统在安全沙箱中执行代码生成 Word 文档
+如果执行失败，系统会自动重试最多3次
+
+【路书建议】
+• 详细描述你想要的文档样式
+• 可以指定颜色、字号、布局等细节
+• 可以要求特定的表格、图片、分栏等
+
+【输出文件】.docx（AI代码生成）
+
+【注意】此模式耗时较长，适合少量复杂文档`,
 };
 
 export function BatchProcess() {
   // 基本设置
-  const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material'>('markdown_styled');
+  const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material' | 'ai_code'>('markdown_styled');
   const [startNumber, setStartNumber] = useState("");
   const [endNumber, setEndNumber] = useState("");
   const [concurrency, setConcurrency] = useState("5");
@@ -675,7 +691,7 @@ export function BatchProcess() {
               id="templateType"
               value={templateType}
               onChange={(e) => {
-                const value = e.target.value as 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material';
+                const value = e.target.value as 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material' | 'ai_code';
                 setTemplateType(value);
                 console.log('模板类型已切换:', value);
               }}
@@ -687,6 +703,7 @@ export function BatchProcess() {
               <option value="markdown_file">生成MD文件（不转换）</option>
               <option value="word_card">词汇卡片（精确排版）</option>
               <option value="writing_material">写作素材模板</option>
+              <option value="ai_code">自由排版（AI代码）</option>
             </select>
             {/* 模板格式说明 */}
             <div className="mt-2">
