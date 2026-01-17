@@ -873,3 +873,12 @@
 - [x] 添加测试用例验证格式化输出 (11 个新测试)
 - [x] 原有 22 个测试仍然通过 (共 72 个测试全部通过)
 - [x] pnpm build 无报错
+
+
+### Step 3.1: 实现重试控制器框架
+- [x] 创建 server/core/codeRetry.ts 文件
+- [x] 实现 executeWithRetry 函数（控制重试流程）
+- [x] 实现 createMockFixer 函数（用于测试）
+- [x] 添加测试用例验证重试逻辑 (10 个新测试)
+- [x] 原有 72 个测试仍然通过 (共 82 个测试全部通过)
+- [x] pnpm build 无报错
