@@ -347,6 +347,7 @@ ${roadmapContent}
       independentFile
     );
 
+
     let lastReportedChars = 0;
 
     const aiResult = await invokeAIStream(

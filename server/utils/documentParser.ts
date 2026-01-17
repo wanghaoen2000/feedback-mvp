@@ -13,19 +13,11 @@ import mammoth from 'mammoth';
  */
 export async function parsePdfToText(buffer: Buffer): Promise<string> {
   try {
-    const parser = new PDFParse();
-    const data = await parser.loadPDF(buffer);
-    // 提取所有页面的文本
-    let text = '';
-    for (let i = 1; i <= data.numPages; i++) {
-      const page = await data.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ');
-      text += pageText + '\n';
-    }
-    return text.trim();
+    // pdf-parse v2 API: 使用 data 参数传入 buffer
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    await parser.destroy();
+    return result.text?.trim() || '';
   } catch (error) {
     console.warn('[DocumentParser] PDF 解析失败:', error);
     return '';
@@ -57,17 +49,19 @@ export async function parseDocumentToText(
   buffer: Buffer,
   mimeType: string
 ): Promise<string> {
-  switch (mimeType) {
-    case 'application/pdf':
-      return parsePdfToText(buffer);
-    
-    case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-      return parseDocxToText(buffer);
-    
-    default:
-      console.warn(`[DocumentParser] 不支持的文件类型: ${mimeType}`);
-      return '';
+  // 根据 MIME 类型或文件扩展名判断
+  const isPdf = mimeType === 'application/pdf';
+  const isDocx = mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
+    || mimeType === 'application/octet-stream'; // DOCX 有时被识别为 octet-stream
+  
+  if (isPdf) {
+    return parsePdfToText(buffer);
+  } else if (isDocx) {
+    return parseDocxToText(buffer);
   }
+  
+  console.warn(`[DocumentParser] 不支持的文件类型: ${mimeType}`);
+  return '';
 }
 
 /**
@@ -78,6 +72,7 @@ export async function parseDocumentToText(
 export function isParseableDocument(mimeType: string): boolean {
   return [
     'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/octet-stream' // DOCX 有时被识别为这个类型
   ].includes(mimeType);
 }
