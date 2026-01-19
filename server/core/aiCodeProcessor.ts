@@ -42,7 +42,10 @@ const AI_CODE_SYSTEM_PROMPT = `你是一个专业的 JavaScript/docx-js 代码�
 2. fs 和 path 已作为全局变量注入，直接使用 fs.writeFileSync() 和 path.join()
 3. 最终使用 Packer.toBuffer() 生成文档，并用 fs.writeFileSync() 写入文件
 4. 输出路径使用 __outputDir 变量（已注入沙箱环境）
-5. 文件名使用 'output.docx'
+5. 根据文档内容决定一个有意义的中文文件名，如 "托福词汇_学术场景.docx"、"新托福口语List03_图书馆场景.docx"
+   - 文件名要能体现文档内容
+   - 文件名不要包含非法字符（\ / : * ? " < > |）
+   - 文件名必须以 .docx 结尾
 
 输出要求：
 1. 只输出可执行的 JavaScript 代码
@@ -65,8 +68,11 @@ const doc = new Document({
   }]
 });
 
+// 根据内容决定文件名
+const fileName = "托福词汇_学术场景.docx";  // ← AI根据实际内容决定
+
 Packer.toBuffer(doc).then(buffer => {
-  fs.writeFileSync(path.join(__outputDir, 'output.docx'), buffer);
+  fs.writeFileSync(path.join(__outputDir, fileName), buffer);
 });`;
 
 /**
