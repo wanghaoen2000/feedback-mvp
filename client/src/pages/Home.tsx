@@ -29,14 +29,15 @@ import {
   Search,
   MinusCircle,
   Cloud,
-  Users
+  Users,
+  SkipForward
 } from "lucide-react";
 
 // 步骤状态类型
 interface StepStatus {
   step: number;
   name: string;
-  status: 'pending' | 'running' | 'success' | 'error';
+  status: 'pending' | 'running' | 'success' | 'error' | 'skipped';
   message?: string;
   error?: string;
   detail?: string; // 详细信息，如“AI正在生成中...”
@@ -62,6 +63,8 @@ function StatusIcon({ status }: { status: string }) {
       return <CheckCircle2 className="w-5 h-5 text-green-500" />;
     case 'error':
       return <XCircle className="w-5 h-5 text-red-500" />;
+    case 'skipped':
+      return <SkipForward className="w-5 h-5 text-gray-400" />;
     default:
       return <Circle className="w-5 h-5 text-gray-300" />;
   }
@@ -1379,9 +1382,9 @@ export default function Home() {
           break;
       }
 
-      // 检查是否所有步骤都成功
-      const allSuccess = steps.every((s, i) => i === stepIndex || s.status === 'success');
-      if (allSuccess) {
+      // 检查是否所有步骤都成功或跳过
+      const allDone = steps.every((s, i) => i === stepIndex || s.status === 'success' || s.status === 'skipped');
+      if (allDone) {
         setIsComplete(true);
         setHasError(false);
       }
@@ -1428,6 +1431,32 @@ export default function Home() {
     generateFeedbackMutation, generateReviewMutation, generateTestMutation,
     generateExtractionMutation, generateBubbleChartMutation
   ]);
+
+  // 跳过步骤函数（仅适用于步骤2-5）
+  const skipStep = useCallback((stepIndex: number) => {
+    // 步骤1不能跳过，因为后续步骤都依赖它的输出
+    if (stepIndex === 0) return;
+    
+    // 将该步骤标记为 skipped
+    updateStep(stepIndex, { 
+      status: 'skipped', 
+      message: '已跳过',
+      error: undefined 
+    });
+    
+    // 继续执行下一步（如果有的话）
+    // 调用 retryStep 来执行下一步
+    const nextStepIndex = stepIndex + 1;
+    if (nextStepIndex < 5) {
+      // 延迟一下再执行下一步，确保 UI 更新
+      setTimeout(() => {
+        retryStep(nextStepIndex);
+      }, 100);
+    } else {
+      // 已经是最后一步，标记为完成
+      setIsComplete(true);
+    }
+  }, [updateStep, retryStep]);
 
   const handleReset = () => {
     // 根据课程类型重置不同的步骤
@@ -2417,6 +2446,7 @@ export default function Home() {
                         step.status === 'running' ? 'bg-blue-50 border-blue-200' :
                         step.status === 'success' ? 'bg-green-50 border-green-200' :
                         step.status === 'error' ? 'bg-red-50 border-red-200' :
+                        step.status === 'skipped' ? 'bg-gray-50 border-gray-200' :
                         'bg-white border-gray-200'
                       }`}>
                         <div className="flex items-center gap-3">
@@ -2426,6 +2456,9 @@ export default function Home() {
                               <span className="font-medium">{step.step}. {step.name}</span>
                               {step.status === 'success' && step.message && (
                                 <span className="text-xs text-green-600">{step.message}</span>
+                              )}
+                              {step.status === 'skipped' && (
+                                <span className="text-xs text-gray-500">已跳过</span>
                               )}
                             </div>
                             {/* 运行中状态 */}
@@ -2484,16 +2517,31 @@ export default function Home() {
                           </div>
                           {/* 重试/重做按钮 */}
                           {(step.status === 'error' || step.status === 'success') && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => retryStep(index)}
-                              disabled={isGenerating}
-                              className="text-xs"
-                            >
-                              <RefreshCw className="w-3 h-3 mr-1" />
-                              {step.status === 'error' ? '重试' : '重做'}
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => retryStep(index)}
+                                disabled={isGenerating}
+                                className="text-xs"
+                              >
+                                <RefreshCw className="w-3 h-3 mr-1" />
+                                {step.status === 'error' ? '重试' : '重做'}
+                              </Button>
+                              {/* 跳过按钮（仅步骤2-5失败时显示） */}
+                              {step.status === 'error' && index > 0 && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => skipStep(index)}
+                                  disabled={isGenerating}
+                                  className="text-xs text-gray-500 hover:text-gray-700"
+                                >
+                                  <SkipForward className="w-3 h-3 mr-1" />
+                                  跳过
+                                </Button>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
