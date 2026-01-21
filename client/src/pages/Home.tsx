@@ -394,6 +394,7 @@ export default function Home() {
     let content = "";
     let date = "";
     let stopped = false;
+    let localCurrentStep = 1; // 使用局部变量跟踪当前步骤，避免闭包陷阱
 
     // 创建学生信息快照（并发安全，防止生成过程中输入框被修改）
     const studentSnapshot = {
@@ -427,6 +428,7 @@ export default function Home() {
 
     try {
       // 步骤1: 生成学情反馈 (V45c: 使用 SSE 流式输出防止超时)
+      localCurrentStep = 1;
       checkAborted();
       const step1Start = Date.now();
       updateStep(0, { 
@@ -546,6 +548,7 @@ export default function Home() {
       setCurrentStep(2);
 
       // 步骤2: 生成复习文档（使用 SSE 流式端点防止超时）
+      localCurrentStep = 2;
       checkAborted();
       const step2Start = Date.now();
       updateStep(1, { 
@@ -637,6 +640,7 @@ export default function Home() {
       setCurrentStep(3);
 
       // 步骤3: 生成测试本
+      localCurrentStep = 3;
       checkAborted();
       const step3Start = Date.now();
       updateStep(2, { 
@@ -662,6 +666,7 @@ export default function Home() {
       setCurrentStep(4);
 
       // 步骤4: 生成课后信息提取
+      localCurrentStep = 4;
       checkAborted();
       const step4Start = Date.now();
       updateStep(3, { 
@@ -687,6 +692,7 @@ export default function Home() {
       setCurrentStep(5);
 
       // 步骤5: 生成气泡图
+      localCurrentStep = 5;
       checkAborted();
       const step5Start = Date.now();
       updateStep(4, { 
@@ -770,7 +776,7 @@ export default function Home() {
       }
       
       // 标记当前步骤为失败或取消
-      const failedStepIndex = currentStep - 1;
+      const failedStepIndex = localCurrentStep - 1; // 使用局部变量，避免闭包陷阱
       if (failedStepIndex >= 0 && failedStepIndex < 5) {
         updateStep(failedStepIndex, { 
           status: 'error', 
@@ -787,8 +793,8 @@ export default function Home() {
     studentName, lessonNumber, lastFeedback, currentNotes, transcript, 
     isFirstLesson, specialRequirements, apiModel, apiKey, apiUrl,
     generateFeedbackMutation, generateReviewMutation, generateTestMutation,
-    generateExtractionMutation, generateBubbleChartMutation, updateStep, currentStep
-  ]);
+    generateExtractionMutation, generateBubbleChartMutation, updateStep
+  ]); // 移除 currentStep 依赖，使用 localCurrentStep 代替
 
   // 小班课生成流程
   const runClassGeneration = useCallback(async () => {
@@ -837,9 +843,11 @@ export default function Home() {
 
     let combinedFeedback = '';
     let extractedDate = '';
+    let localCurrentStep = 1; // 使用局部变量跟踪当前步骤，避免闭包陷阱
 
     try {
       // 步骤1: 生成1份完整学情反馈（使用 SSE 流式端点防止超时）
+      localCurrentStep = 1;
       checkAborted();
       const step1Start = Date.now();
       updateStep(0, { status: 'running', message: `正在为 ${classSnapshot.classNumber} 班生成学情反馈...` });
@@ -976,6 +984,7 @@ export default function Home() {
       setCurrentStep(2);
 
       // 步骤2: 生成复习文档（使用 SSE 流式端点防止超时）
+      localCurrentStep = 2;
       checkAborted();
       const step2Start = Date.now();
       updateStep(1, { status: 'running', message: '正在生成复习文档...' });
@@ -1063,6 +1072,7 @@ export default function Home() {
       setCurrentStep(3);
 
       // 步骤3: 生成测试本
+      localCurrentStep = 3;
       checkAborted();
       const step3Start = Date.now();
       updateStep(2, { status: 'running', message: '正在生成测试本...' });
@@ -1103,6 +1113,7 @@ export default function Home() {
       setCurrentStep(4);
 
       // 步骤4: 生成课后信息提取
+      localCurrentStep = 4;
       checkAborted();
       const step4Start = Date.now();
       updateStep(3, { status: 'running', message: '正在生成课后信息提取...' });
@@ -1142,6 +1153,7 @@ export default function Home() {
       setCurrentStep(5);
 
       // 步骤5: 为每个学生生成气泡图
+      localCurrentStep = 5;
       checkAborted();
       const step5Start = Date.now();
       updateStep(4, { status: 'running', message: `正在为 ${validStudents.length} 个学生生成气泡图...` });
@@ -1219,7 +1231,7 @@ export default function Home() {
       let displayError = rawMessage;
       
       // 标记当前步骤为失败
-      const failedStepIndex = currentStep - 1;
+      const failedStepIndex = localCurrentStep - 1; // 使用局部变量，避免闭包陷阱
       if (failedStepIndex >= 0 && failedStepIndex < 5) {
         updateStep(failedStepIndex, { 
           status: 'error', 
@@ -1237,8 +1249,8 @@ export default function Home() {
     currentNotes, transcript, specialRequirements, apiModel, apiKey, apiUrl,
     roadmapClass, driveBasePath, generateClassFeedbackMutation, generateClassReviewMutation,
     generateClassTestMutation, generateClassExtractionMutation, generateClassBubbleChartMutation,
-    uploadClassFileMutation, updateStep, currentStep
-  ]);
+    uploadClassFileMutation, updateStep
+  ]); // 移除 currentStep 依赖，使用 localCurrentStep 代替
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

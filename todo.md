@@ -1016,3 +1016,12 @@
 - [x] 修改示例代码，展示如何自定义文件名
 - [x] pnpm build 无报错
 - [x] git push 并验证
+
+
+## V61: 修复步骤失败时状态未更新的问题（闭包陷阱）
+
+- [x] 一对一模式 runOneToOneGeneration 添加 localCurrentStep
+- [x] 小班课模式 runClassGeneration 添加 localCurrentStep
+- [x] 从依赖数组移除 currentStep
+- [x] pnpm build 无报错
+- [ ] 测试：步骤失败时正确显示红色error状态和重试按钮
