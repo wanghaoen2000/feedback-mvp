@@ -2482,8 +2482,8 @@ export default function Home() {
                               <p className="text-xs text-red-600 mt-1">{step.error}</p>
                             )}
                           </div>
-                          {/* 重试按钮 */}
-                          {step.status === 'error' && (
+                          {/* 重试/重做按钮 */}
+                          {(step.status === 'error' || step.status === 'success') && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -2492,7 +2492,7 @@ export default function Home() {
                               className="text-xs"
                             >
                               <RefreshCw className="w-3 h-3 mr-1" />
-                              重试
+                              {step.status === 'error' ? '重试' : '重做'}
                             </Button>
                           )}
                         </div>
