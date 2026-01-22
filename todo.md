@@ -1044,3 +1044,11 @@
 - [x] 处理跳过后继续执行的逻辑
 - [x] pnpm build 无报错
 - [ ] 测试：步骤1失败只显示重试，步骤2-5失败显示重试+跳过
+
+
+## V63: 修复 .md/.txt 文件文本提取功能
+
+- [x] 修改 isParseableDocument 函数，添加 text/markdown 和 text/plain
+- [x] 修改 parseDocumentToText 函数，添加纯文本文件处理分支
+- [x] pnpm build 无报错
+- [ ] 测试：上传 .md 文件后 extractedText 有值

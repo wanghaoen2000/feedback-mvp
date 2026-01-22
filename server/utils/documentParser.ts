@@ -60,6 +60,12 @@ export async function parseDocumentToText(
     return parseDocxToText(buffer);
   }
   
+  // 纯文本文件（.md, .txt）直接读取
+  const isPlainText = mimeType === 'text/markdown' || mimeType === 'text/plain';
+  if (isPlainText) {
+    return buffer.toString('utf-8');
+  }
+  
   console.warn(`[DocumentParser] 不支持的文件类型: ${mimeType}`);
   return '';
 }
@@ -73,6 +79,8 @@ export function isParseableDocument(mimeType: string): boolean {
   return [
     'application/pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/octet-stream' // DOCX 有时被识别为这个类型
+    'application/octet-stream', // DOCX 有时被识别为这个类型
+    'text/markdown',  // .md 文件
+    'text/plain',     // .txt 文件
   ].includes(mimeType);
 }
