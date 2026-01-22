@@ -1052,3 +1052,15 @@
 - [x] 修改 parseDocumentToText 函数，添加纯文本文件处理分支
 - [x] pnpm build 无报错
 - [ ] 测试：上传 .md 文件后 extractedText 有值
+
+
+## V63b: 版本号更新 + 自动化
+
+- [x] 任务1：把 Home.tsx 版本号从 V60 改成 V63
+- [x] 任务1：检查 BatchProcess.tsx 是否也有版本号显示（没有）
+- [x] 任务2：创建 scripts/generate-version.cjs 脚本
+- [x] 任务2：修改 package.json 构建脚本
+- [x] 任务2：前端使用自动生成的版本号
+- [x] 任务2：.gitignore 添加生成文件
+- [x] pnpm build 无报错
+- [x] 界面显示 V63 (5d1c446) 格式

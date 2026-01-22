@@ -105,3 +105,6 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+
+# 自动生成的版本文件
+client/src/version.generated.ts

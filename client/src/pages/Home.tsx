@@ -29,9 +29,11 @@ import {
   Search,
   MinusCircle,
   Cloud,
+  User,
   Users,
-  SkipForward
+  SkipForward,
 } from "lucide-react";
+import { VERSION_DISPLAY } from "../version.generated";
 
 // 步骤状态类型
 interface StepStatus {
@@ -1592,7 +1594,7 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
       {/* 版本号显示 */}
       <div className="fixed top-2 right-2 text-xs text-muted-foreground z-50">
-        V60
+        {VERSION_DISPLAY}
       </div>
       <div className="max-w-4xl mx-auto">
         {/* 标题 */}
