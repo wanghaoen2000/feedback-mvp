@@ -43,30 +43,57 @@ export async function parseDocxToText(buffer: Buffer): Promise<string> {
  * 统一入口：根据 mimeType 自动选择解析器
  * @param buffer 文件的 Buffer
  * @param mimeType 文件的 MIME 类型
+ * @param filename 文件名（可选，用于根据扩展名判断类型）
  * @returns 提取的纯文本内容
  */
 export async function parseDocumentToText(
   buffer: Buffer,
-  mimeType: string
+  mimeType: string,
+  filename?: string
 ): Promise<string> {
-  // 根据 MIME 类型或文件扩展名判断
-  const isPdf = mimeType === 'application/pdf';
-  const isDocx = mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
-    || mimeType === 'application/octet-stream'; // DOCX 有时被识别为 octet-stream
+  // 获取文件扩展名
+  const ext = filename ? filename.split('.').pop()?.toLowerCase() : null;
   
+  console.log('[DocumentParser] parseDocumentToText 开始');
+  console.log('[DocumentParser] mimeType:', mimeType);
+  console.log('[DocumentParser] filename:', filename);
+  console.log('[DocumentParser] ext:', ext);
+  console.log('[DocumentParser] Buffer 大小:', buffer.length, 'bytes');
+  
+  // 【优先】根据扩展名判断纯文本文件（.md, .txt）
+  // 这是为了解决浏览器将 .md 文件识别为 application/octet-stream 的问题
+  if (ext === 'md' || ext === 'txt') {
+    console.log(`[DocumentParser] 根据扩展名 .${ext} 识别为纯文本文件`);
+    const result = buffer.toString('utf-8');
+    console.log('[DocumentParser] 纯文本读取成功，长度:', result.length);
+    return result;
+  }
+  
+  // 根据 MIME 类型判断纯文本文件
+  const isPlainText = mimeType === 'text/markdown' || mimeType === 'text/plain';
+  if (isPlainText) {
+    console.log(`[DocumentParser] 根据 MIME 类型 ${mimeType} 识别为纯文本文件`);
+    const result = buffer.toString('utf-8');
+    console.log('[DocumentParser] 纯文本读取成功，长度:', result.length);
+    return result;
+  }
+  
+  // PDF 文件
+  const isPdf = mimeType === 'application/pdf' || ext === 'pdf';
   if (isPdf) {
+    console.log('[DocumentParser] 识别为 PDF 文件');
     return parsePdfToText(buffer);
-  } else if (isDocx) {
+  }
+  
+  // DOCX 文件（注意：只有扩展名也是 .docx 时才当作 DOCX 处理）
+  const isDocx = mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
+    || (mimeType === 'application/octet-stream' && ext === 'docx');
+  if (isDocx) {
+    console.log('[DocumentParser] 识别为 DOCX 文件');
     return parseDocxToText(buffer);
   }
   
-  // 纯文本文件（.md, .txt）直接读取
-  const isPlainText = mimeType === 'text/markdown' || mimeType === 'text/plain';
-  if (isPlainText) {
-    return buffer.toString('utf-8');
-  }
-  
-  console.warn(`[DocumentParser] 不支持的文件类型: ${mimeType}`);
+  console.warn(`[DocumentParser] 不支持的文件类型: mimeType=${mimeType}, filename=${filename}, ext=${ext}`);
   return '';
 }
 
@@ -76,11 +103,13 @@ export async function parseDocumentToText(
  * @returns 是否可解析
  */
 export function isParseableDocument(mimeType: string): boolean {
-  return [
+  const supportedTypes = [
     'application/pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'application/octet-stream', // DOCX 有时被识别为这个类型
     'text/markdown',  // .md 文件
     'text/plain',     // .txt 文件
-  ].includes(mimeType);
+  ];
+  
+  return supportedTypes.includes(mimeType);
 }

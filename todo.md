@@ -1064,3 +1064,12 @@
 - [x] 任务2：.gitignore 添加生成文件
 - [x] pnpm build 无报错
 - [x] 界面显示 V63 (5d1c446) 格式
+
+
+## V63.1: 修复 .md 文件 mimetype 识别问题
+
+- [x] 修改 documentParser.ts: parseDocumentToText 新增 filename 参数
+- [x] 修改 batchRoutes.ts: 调用时传入 decodedFilename
+- [x] pnpm build 无报错
+- [ ] 测试：上传 .md 文件能正确提取文本
+- [ ] git push 成功
