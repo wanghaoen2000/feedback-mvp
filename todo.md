@@ -1072,4 +1072,4 @@
 - [x] 修改 batchRoutes.ts: 调用时传入 decodedFilename
 - [x] pnpm build 无报错
 - [ ] 测试：上传 .md 文件能正确提取文本
-- [ ] git push 成功
+- [x] git push 成功
