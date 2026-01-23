@@ -1212,4 +1212,4 @@
 - [x] 点击跳过后标记状态为"已跳过"
 - [x] 一对一模式跳过功能不受影响
 - [x] pnpm build 无报错
-- [ ] git push 成功
+- [x] git push 成功 (commit: fe0917c)
