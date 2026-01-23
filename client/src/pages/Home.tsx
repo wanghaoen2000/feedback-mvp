@@ -90,6 +90,29 @@ const initialClassSteps: StepStatus[] = [
   { step: 5, name: "气泡图", status: 'pending' },
 ];
 
+// V63.8: 并行任务状态类型
+interface ParallelTaskStatus {
+  status: 'pending' | 'running' | 'success' | 'failed';
+  startTime?: number;
+  endTime?: number;
+  charCount?: number;  // 字符数
+  error?: string;      // 失败时的错误信息
+  uploadResult?: {
+    fileName: string;
+    url: string;
+    path: string;
+    folderUrl?: string;
+  };
+}
+
+// 并行任务初始状态
+const initialParallelTasks = {
+  review: { status: 'pending' as const },
+  test: { status: 'pending' as const },
+  extraction: { status: 'pending' as const },
+  bubble: { status: 'pending' as const },
+};
+
 /**
  * 根据日期字符串计算星期
  * @param dateStr 日期字符串，如 "1月15日" 或 "1.15"
@@ -256,6 +279,15 @@ export default function Home() {
   const [hasError, setHasError] = useState(false);
   const [isStopping, setIsStopping] = useState(false); // 是否正在停止
   const [currentGeneratingStudent, setCurrentGeneratingStudent] = useState<string | null>(null); // 当前正在生成的学生名
+  
+  // V63.8: 并行任务状态（复习文档、测试本、课后信息、气泡图）
+  const [parallelTasks, setParallelTasks] = useState<{
+    review: ParallelTaskStatus;
+    test: ParallelTaskStatus;
+    extraction: ParallelTaskStatus;
+    bubble: ParallelTaskStatus;
+  }>(initialParallelTasks);
+  const [isParallelPhase, setIsParallelPhase] = useState(false); // 是否处于并行生成阶段
   
   // 小班课生成状态
   const [classFeedbacks, setClassFeedbacks] = useState<{studentName: string; feedback: string}[]>([]); // 各学生的学情反馈
@@ -556,6 +588,15 @@ export default function Home() {
       // 后4个文档只依赖学情反馈内容，互不依赖，可以并行生成
       const parallelStartTime = Date.now();
       
+      // V63.8: 进入并行阶段，初始化并行任务状态
+      setIsParallelPhase(true);
+      setParallelTasks({
+        review: { status: 'running', startTime: parallelStartTime },
+        test: { status: 'running', startTime: parallelStartTime },
+        extraction: { status: 'running', startTime: parallelStartTime },
+        bubble: { status: 'running', startTime: parallelStartTime },
+      });
+      
       // 设置所有4个步骤为运行中状态
       updateStep(1, { status: 'running', message: '正在并行生成...', detail: '复习文档', startTime: parallelStartTime });
       updateStep(2, { status: 'running', message: '正在并行生成...', detail: '测试本', startTime: parallelStartTime });
@@ -567,6 +608,8 @@ export default function Home() {
         // 任务1: 复习文档 (SSE)
         (async () => {
           const taskStart = Date.now();
+          // V63.8: 实时更新复习文档状态
+          setParallelTasks(prev => ({ ...prev, review: { ...prev.review, status: 'running', startTime: taskStart } }));
           try {
             checkAborted();
             const reviewSseResponse = await fetch('/api/review-stream', {
@@ -617,6 +660,8 @@ export default function Home() {
                     if (reviewCurrentEventType === 'progress' && data.chars) {
                       reviewCharCount = data.chars;
                       updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
+                      // V63.8: 更新并行任务状态
+                      setParallelTasks(prev => ({ ...prev, review: { ...prev.review, charCount: data.chars } }));
                     } else if (reviewCurrentEventType === 'complete') {
                       if (data.uploadResult) reviewUploadResult = data.uploadResult;
                       if (data.chars) reviewCharCount = data.chars;
@@ -639,16 +684,25 @@ export default function Home() {
             }
             
             const taskEnd = Date.now();
+            // V63.8: 实时更新复习文档完成状态
+            setParallelTasks(prev => ({ ...prev, review: { status: 'success', startTime: taskStart, endTime: taskEnd, charCount: reviewCharCount, uploadResult: reviewUploadResult } }));
+            updateStep(1, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: reviewCharCount ? `共${reviewCharCount}字` : '复习文档已上传', endTime: taskEnd, uploadResult: reviewUploadResult });
             return { type: 'review', success: true, duration: taskEnd - taskStart, charCount: reviewCharCount, uploadResult: reviewUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
-            return { type: 'review', success: false, duration: taskEnd - taskStart, error: error instanceof Error ? error.message : '未知错误' };
+            const errorMsg = error instanceof Error ? error.message : '未知错误';
+            // V63.8: 实时更新复习文档失败状态
+            setParallelTasks(prev => ({ ...prev, review: { status: 'failed', startTime: taskStart, endTime: taskEnd, error: errorMsg } }));
+            updateStep(1, { status: 'error', error: errorMsg });
+            return { type: 'review', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
 
         // 任务2: 测试本 (tRPC)
         (async () => {
           const taskStart = Date.now();
+          // V63.8: 实时更新测试本状态
+          setParallelTasks(prev => ({ ...prev, test: { ...prev.test, status: 'running', startTime: taskStart } }));
           try {
             checkAborted();
             const result = await generateTestMutation.mutateAsync({
@@ -658,16 +712,25 @@ export default function Home() {
               ...configSnapshot,
             });
             const taskEnd = Date.now();
+            // V63.8: 实时更新测试本完成状态
+            setParallelTasks(prev => ({ ...prev, test: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: result.uploadResult } }));
+            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '测试本已上传', endTime: taskEnd, uploadResult: result.uploadResult });
             return { type: 'test', success: true, duration: taskEnd - taskStart, uploadResult: result.uploadResult };
           } catch (error) {
             const taskEnd = Date.now();
-            return { type: 'test', success: false, duration: taskEnd - taskStart, error: error instanceof Error ? error.message : '未知错误' };
+            const errorMsg = error instanceof Error ? error.message : '未知错误';
+            // V63.8: 实时更新测试本失败状态
+            setParallelTasks(prev => ({ ...prev, test: { status: 'failed', startTime: taskStart, endTime: taskEnd, error: errorMsg } }));
+            updateStep(2, { status: 'error', error: errorMsg });
+            return { type: 'test', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
 
         // 任务3: 课后信息提取 (tRPC)
         (async () => {
           const taskStart = Date.now();
+          // V63.8: 实时更新课后信息状态
+          setParallelTasks(prev => ({ ...prev, extraction: { ...prev.extraction, status: 'running', startTime: taskStart } }));
           try {
             checkAborted();
             const result = await generateExtractionMutation.mutateAsync({
@@ -677,16 +740,25 @@ export default function Home() {
               ...configSnapshot,
             });
             const taskEnd = Date.now();
+            // V63.8: 实时更新课后信息完成状态
+            setParallelTasks(prev => ({ ...prev, extraction: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: result.uploadResult } }));
+            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '课后信息已上传', endTime: taskEnd, uploadResult: result.uploadResult });
             return { type: 'extraction', success: true, duration: taskEnd - taskStart, uploadResult: result.uploadResult };
           } catch (error) {
             const taskEnd = Date.now();
-            return { type: 'extraction', success: false, duration: taskEnd - taskStart, error: error instanceof Error ? error.message : '未知错误' };
+            const errorMsg = error instanceof Error ? error.message : '未知错误';
+            // V63.8: 实时更新课后信息失败状态
+            setParallelTasks(prev => ({ ...prev, extraction: { status: 'failed', startTime: taskStart, endTime: taskEnd, error: errorMsg } }));
+            updateStep(3, { status: 'error', error: errorMsg });
+            return { type: 'extraction', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
 
         // 任务4: 气泡图 (tRPC + 前端转换 + 上传)
         (async () => {
           const taskStart = Date.now();
+          // V63.8: 实时更新气泡图状态
+          setParallelTasks(prev => ({ ...prev, bubble: { ...prev.bubble, status: 'running', startTime: taskStart } }));
           try {
             checkAborted();
             // 步骤5a: 后端生成SVG
@@ -700,6 +772,8 @@ export default function Home() {
             
             checkAborted();
             updateStep(4, { status: 'running', message: '正在转换PNG...', detail: '气泡图' });
+            // V63.8: 更新气泡图转换状态
+            setParallelTasks(prev => ({ ...prev, bubble: { ...prev.bubble, status: 'running' } }));
             
             // 步骤5b: 前端将SVG转换为PNG
             const svgContent = svgResult.svgContent;
@@ -714,10 +788,17 @@ export default function Home() {
             });
             
             const taskEnd = Date.now();
+            // V63.8: 实时更新气泡图完成状态
+            setParallelTasks(prev => ({ ...prev, bubble: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: uploadResult.uploadResult } }));
+            updateStep(4, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '气泡图已上传', endTime: taskEnd, uploadResult: uploadResult.uploadResult });
             return { type: 'bubble', success: true, duration: taskEnd - taskStart, uploadResult: uploadResult.uploadResult };
           } catch (error) {
             const taskEnd = Date.now();
-            return { type: 'bubble', success: false, duration: taskEnd - taskStart, error: error instanceof Error ? error.message : '未知错误' };
+            const errorMsg = error instanceof Error ? error.message : '未知错误';
+            // V63.8: 实时更新气泡图失败状态
+            setParallelTasks(prev => ({ ...prev, bubble: { status: 'failed', startTime: taskStart, endTime: taskEnd, error: errorMsg } }));
+            updateStep(4, { status: 'error', error: errorMsg });
+            return { type: 'bubble', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
       ];
@@ -727,94 +808,31 @@ export default function Home() {
       const parallelEndTime = Date.now();
       const totalParallelDuration = Math.round((parallelEndTime - parallelStartTime) / 1000);
 
-      // 处理结果并更新UI
+      // V63.8: 统计结果（状态已在各任务中实时更新）
       let successCount = 0;
       let failedCount = 0;
-      const failedTasks: string[] = [];
+      const failedTaskNames: string[] = [];
+      const taskNames = ['复习文档', '测试本', '课后信息提取', '气泡图'];
 
-      // 处理复习文档结果 (index 0 -> step 1)
-      const reviewResult = results[0];
-      if (reviewResult.status === 'fulfilled' && reviewResult.value.success) {
-        const r = reviewResult.value;
-        updateStep(1, {
-          status: 'success',
-          message: `完成 (${Math.round(r.duration / 1000)}秒)`,
-          detail: r.charCount ? `共${r.charCount}字` : '复习文档已上传',
-          endTime: parallelEndTime,
-          uploadResult: r.uploadResult
-        });
-        successCount++;
-      } else {
-        const errorMsg = reviewResult.status === 'fulfilled' ? reviewResult.value.error : '任务异常';
-        updateStep(1, { status: 'error', error: errorMsg || '复习文档生成失败' });
-        failedCount++;
-        failedTasks.push('复习文档');
-      }
-
-      // 处理测试本结果 (index 1 -> step 2)
-      const testResult = results[1];
-      if (testResult.status === 'fulfilled' && testResult.value.success) {
-        const r = testResult.value;
-        updateStep(2, {
-          status: 'success',
-          message: `完成 (${Math.round(r.duration / 1000)}秒)`,
-          detail: '测试本已上传',
-          endTime: parallelEndTime,
-          uploadResult: r.uploadResult
-        });
-        successCount++;
-      } else {
-        const errorMsg = testResult.status === 'fulfilled' ? testResult.value.error : '任务异常';
-        updateStep(2, { status: 'error', error: errorMsg || '测试本生成失败' });
-        failedCount++;
-        failedTasks.push('测试本');
-      }
-
-      // 处理课后信息提取结果 (index 2 -> step 3)
-      const extractionResult = results[2];
-      if (extractionResult.status === 'fulfilled' && extractionResult.value.success) {
-        const r = extractionResult.value;
-        updateStep(3, {
-          status: 'success',
-          message: `完成 (${Math.round(r.duration / 1000)}秒)`,
-          detail: '课后信息已上传',
-          endTime: parallelEndTime,
-          uploadResult: r.uploadResult
-        });
-        successCount++;
-      } else {
-        const errorMsg = extractionResult.status === 'fulfilled' ? extractionResult.value.error : '任务异常';
-        updateStep(3, { status: 'error', error: errorMsg || '课后信息提取失败' });
-        failedCount++;
-        failedTasks.push('课后信息提取');
-      }
-
-      // 处理气泡图结果 (index 3 -> step 4)
-      const bubbleResult = results[3];
-      if (bubbleResult.status === 'fulfilled' && bubbleResult.value.success) {
-        const r = bubbleResult.value;
-        updateStep(4, {
-          status: 'success',
-          message: `完成 (${Math.round(r.duration / 1000)}秒)`,
-          detail: '气泡图已上传',
-          endTime: parallelEndTime,
-          uploadResult: r.uploadResult
-        });
-        successCount++;
-      } else {
-        const errorMsg = bubbleResult.status === 'fulfilled' ? bubbleResult.value.error : '任务异常';
-        updateStep(4, { status: 'error', error: errorMsg || '气泡图生成失败' });
-        failedCount++;
-        failedTasks.push('气泡图');
-      }
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled' && result.value.success) {
+          successCount++;
+        } else {
+          failedCount++;
+          failedTaskNames.push(taskNames[index]);
+        }
+      });
 
       // 设置最终步骤（用于错误处理）
       localCurrentStep = 5;
       setCurrentStep(5);
 
+      // V63.8: 退出并行阶段
+      setIsParallelPhase(false);
+
       // 如果有失败的任务，抛出错误以触发错误处理
       if (failedCount > 0) {
-        throw new Error(`并行生成完成，${successCount}/4 成功，失败: ${failedTasks.join('、')}`);
+        throw new Error(`并行生成完成，${successCount}/4 成功，失败: ${failedTaskNames.join('、')}`);
       }
 
       console.log(`[V63.7] 并行生成完成: ${successCount}/4 成功，总耗时 ${totalParallelDuration} 秒`);
@@ -1543,6 +1561,9 @@ export default function Home() {
     setIsComplete(false);
     setHasError(false);
     setExportLogResult(null);
+    // V63.8: 重置并行任务状态
+    setParallelTasks(initialParallelTasks);
+    setIsParallelPhase(false);
     // 重置小班课相关状态
     setClassFeedbacks([]);
     setBubbleChartProgress([]);
@@ -2474,7 +2495,11 @@ export default function Home() {
                         hasError ? 'text-red-800' :
                         'text-blue-800'
                       }`}>
-                        {isGenerating ? `正在为「${currentGeneratingStudent}」生成第 ${currentStep} 个文档...` :
+                        {isGenerating ? (
+                          isParallelPhase 
+                            ? `正在为「${currentGeneratingStudent}」并行生成4个文档...`
+                            : `正在为「${currentGeneratingStudent}」生成第 ${currentStep} 个文档...`
+                        ) :
                          isComplete ? '✅ 全部完成！' :
                          '⚠️ 生成过程中出错'}
                       </span>
@@ -2540,7 +2565,15 @@ export default function Home() {
                             {/* 运行中状态 */}
                             {step.status === 'running' && (
                               <div className="mt-1">
-                                <p className="text-xs text-blue-600">{step.message}</p>
+                                <p className="text-xs text-blue-600">
+                                  {step.message}
+                                  {/* V63.8: 并行阶段显示实时耗时 */}
+                                  {isParallelPhase && step.startTime && (
+                                    <span className="ml-2 text-blue-400">
+                                      (已{Math.round((Date.now() - step.startTime) / 1000)}秒)
+                                    </span>
+                                  )}
+                                </p>
                                 {step.detail && (
                                   <p className="text-xs text-blue-500 mt-0.5">{step.detail}</p>
                                 )}
