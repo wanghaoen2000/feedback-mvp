@@ -292,6 +292,15 @@ export default function Home() {
   // 小班课生成状态
   const [classFeedbacks, setClassFeedbacks] = useState<{studentName: string; feedback: string}[]>([]); // 各学生的学情反馈
   const [bubbleChartProgress, setBubbleChartProgress] = useState<{studentName: string; status: 'pending' | 'running' | 'success' | 'error'}[]>([]); // 气泡图生成进度
+  
+  // V63.11: 小班课并行任务状态（复习文档、测试本、课后信息、气泡图）
+  const [classParallelTasks, setClassParallelTasks] = useState<{
+    review: ParallelTaskStatus;
+    test: ParallelTaskStatus;
+    extraction: ParallelTaskStatus;
+    bubble: ParallelTaskStatus;
+  }>(initialParallelTasks);
+  const [isClassParallelPhase, setIsClassParallelPhase] = useState(false); // 小班课是否处于并行生成阶段
   const [isExportingLog, setIsExportingLog] = useState(false); // 是否正在导出日志
   const [exportLogResult, setExportLogResult] = useState<{
     success: boolean;
@@ -1083,6 +1092,15 @@ export default function Home() {
       // V63.9 (Step 3a): 步骤2-5 并行执行
       const parallelStartTime = Date.now();
       
+      // V63.11: 进入小班课并行阶段，初始化并行任务状态
+      setIsClassParallelPhase(true);
+      setClassParallelTasks({
+        review: { status: 'running', startTime: parallelStartTime },
+        test: { status: 'running', startTime: parallelStartTime },
+        extraction: { status: 'running', startTime: parallelStartTime },
+        bubble: { status: 'running', startTime: parallelStartTime },
+      });
+      
       // 初始化所有并行步骤的状态为 running
       updateStep(1, { status: 'running', message: '正在并行生成...', detail: '复习文档' });
       updateStep(2, { status: 'running', message: '正在并行生成...', detail: '测试本' });
@@ -1176,11 +1194,32 @@ export default function Home() {
               endTime: taskEnd,
               uploadResult: classReviewUploadResult
             });
+            // V63.11: 更新小班课并行任务状态
+            setClassParallelTasks(prev => ({
+              ...prev,
+              review: {
+                status: 'success',
+                startTime: prev.review.startTime,
+                endTime: taskEnd,
+                charCount: classReviewCharCount,
+                uploadResult: classReviewUploadResult || undefined,
+              }
+            }));
             return { type: 'review', success: true, duration: taskEnd - taskStart, charCount: classReviewCharCount, uploadResult: classReviewUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
             const errorMsg = error instanceof Error ? error.message : '未知错误';
             updateStep(1, { status: 'error', error: errorMsg });
+            // V63.11: 更新小班课并行任务状态
+            setClassParallelTasks(prev => ({
+              ...prev,
+              review: {
+                status: 'failed',
+                startTime: prev.review.startTime,
+                endTime: taskEnd,
+                error: errorMsg,
+              }
+            }));
             return { type: 'review', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
@@ -1225,11 +1264,35 @@ export default function Home() {
                 path: testUploadResult.path,
               }
             });
+            // V63.11: 更新小班课并行任务状态
+            setClassParallelTasks(prev => ({
+              ...prev,
+              test: {
+                status: 'success',
+                startTime: prev.test.startTime,
+                endTime: taskEnd,
+                uploadResult: {
+                  fileName: testUploadResult.fileName,
+                  url: testUploadResult.url,
+                  path: testUploadResult.path,
+                },
+              }
+            }));
             return { type: 'test', success: true, duration: taskEnd - taskStart, uploadResult: testUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
             const errorMsg = error instanceof Error ? error.message : '未知错误';
             updateStep(2, { status: 'error', error: errorMsg });
+            // V63.11: 更新小班课并行任务状态
+            setClassParallelTasks(prev => ({
+              ...prev,
+              test: {
+                status: 'failed',
+                startTime: prev.test.startTime,
+                endTime: taskEnd,
+                error: errorMsg,
+              }
+            }));
             return { type: 'test', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
@@ -1273,11 +1336,35 @@ export default function Home() {
                 path: extractionUploadResult.path,
               }
             });
+            // V63.11: 更新小班课并行任务状态
+            setClassParallelTasks(prev => ({
+              ...prev,
+              extraction: {
+                status: 'success',
+                startTime: prev.extraction.startTime,
+                endTime: taskEnd,
+                uploadResult: {
+                  fileName: extractionUploadResult.fileName,
+                  url: extractionUploadResult.url,
+                  path: extractionUploadResult.path,
+                },
+              }
+            }));
             return { type: 'extraction', success: true, duration: taskEnd - taskStart, uploadResult: extractionUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
             const errorMsg = error instanceof Error ? error.message : '未知错误';
             updateStep(3, { status: 'error', error: errorMsg });
+            // V63.11: 更新小班课并行任务状态
+            setClassParallelTasks(prev => ({
+              ...prev,
+              extraction: {
+                status: 'failed',
+                startTime: prev.extraction.startTime,
+                endTime: taskEnd,
+                error: errorMsg,
+              }
+            }));
             return { type: 'extraction', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
@@ -1355,11 +1442,30 @@ export default function Home() {
               detail: `已生成 ${bubbleSuccessCount}/${validStudents.length} 个气泡图`,
               endTime: taskEnd
             });
+            // V63.11: 更新小班课并行任务状态
+            setClassParallelTasks(prev => ({
+              ...prev,
+              bubble: {
+                status: 'success',
+                startTime: prev.bubble.startTime,
+                endTime: taskEnd,
+              }
+            }));
             return { type: 'bubble', success: true, duration: taskEnd - taskStart, successCount: bubbleSuccessCount, totalCount: validStudents.length };
           } catch (error) {
             const taskEnd = Date.now();
             const errorMsg = error instanceof Error ? error.message : '未知错误';
             updateStep(4, { status: 'error', error: errorMsg });
+            // V63.11: 更新小班课并行任务状态
+            setClassParallelTasks(prev => ({
+              ...prev,
+              bubble: {
+                status: 'failed',
+                startTime: prev.bubble.startTime,
+                endTime: taskEnd,
+                error: errorMsg,
+              }
+            }));
             return { type: 'bubble', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
@@ -1398,6 +1504,8 @@ export default function Home() {
 
       // 完成
       setIsComplete(true);
+      // V63.11: 退出小班课并行阶段
+      setIsClassParallelPhase(false);
       
     } catch (error: any) {
       setHasError(true);
@@ -1642,6 +1750,9 @@ export default function Home() {
     // V63.8: 重置并行任务状态
     setParallelTasks(initialParallelTasks);
     setIsParallelPhase(false);
+    // V63.11: 重置小班课并行任务状态
+    setClassParallelTasks(initialParallelTasks);
+    setIsClassParallelPhase(false);
     // 重置小班课相关状态
     setClassFeedbacks([]);
     setBubbleChartProgress([]);
@@ -2574,9 +2685,13 @@ export default function Home() {
                         'text-blue-800'
                       }`}>
                         {isGenerating ? (
-                          isParallelPhase 
-                            ? `正在为「${currentGeneratingStudent}」并行生成4个文档...`
-                            : `正在为「${currentGeneratingStudent}」生成第 ${currentStep} 个文档...`
+                          courseType === 'oneToOne' 
+                            ? (isParallelPhase 
+                                ? `正在为「${currentGeneratingStudent}」并行生成4个文档...`
+                                : `正在为「${currentGeneratingStudent}」生成第 ${currentStep} 个文档...`)
+                            : (isClassParallelPhase
+                                ? `正在为 ${classNumber}班 并行生成4个文档...`
+                                : `正在为 ${classNumber}班 生成第 ${currentStep} 个文档...`)
                         ) :
                          isComplete ? '✅ 全部完成！' :
                          '⚠️ 生成过程中出错'}
@@ -2645,8 +2760,8 @@ export default function Home() {
                               <div className="mt-1">
                                 <p className="text-xs text-blue-600">
                                   {step.message}
-                                  {/* V63.8: 并行阶段显示实时耗时 */}
-                                  {isParallelPhase && step.startTime && (
+                                  {/* V63.8/V63.11: 并行阶段显示实时耗时 */}
+                                  {(isParallelPhase || isClassParallelPhase) && step.startTime && (
                                     <span className="ml-2 text-blue-400">
                                       (已{Math.round((Date.now() - step.startTime) / 1000)}秒)
                                     </span>
