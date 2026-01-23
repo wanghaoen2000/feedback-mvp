@@ -1994,19 +1994,31 @@ export default function Home() {
       error: undefined 
     });
     
-    // 继续执行下一步（如果有的话）
-    // 调用 retryStep 来执行下一步
-    const nextStepIndex = stepIndex + 1;
-    if (nextStepIndex < 5) {
-      // 延迟一下再执行下一步，确保 UI 更新
-      setTimeout(() => {
-        retryStep(nextStepIndex);
-      }, 100);
+    // V63.13: 根据课程类型区分处理逻辑
+    if (courseType === 'oneToOne') {
+      // 一对一模式：继续执行下一步
+      const nextStepIndex = stepIndex + 1;
+      if (nextStepIndex < 5) {
+        // 延迟一下再执行下一步，确保 UI 更新
+        setTimeout(() => {
+          retryStep(nextStepIndex);
+        }, 100);
+      } else {
+        // 已经是最后一步，标记为完成
+        setIsComplete(true);
+      }
     } else {
-      // 已经是最后一步，标记为完成
-      setIsComplete(true);
+      // 小班课模式：并行执行已完成，只需标记状态
+      // 检查是否所有步骤都已完成（成功或跳过）
+      const allDone = steps.every((s, i) => 
+        i === stepIndex || s.status === 'success' || s.status === 'skipped'
+      );
+      if (allDone) {
+        setIsComplete(true);
+        setHasError(false);
+      }
     }
-  }, [updateStep, retryStep]);
+  }, [updateStep, retryStep, courseType, steps]);
 
   const handleReset = () => {
     // 根据课程类型重置不同的步骤
