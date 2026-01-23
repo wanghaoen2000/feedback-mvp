@@ -1221,4 +1221,4 @@
 - [x] 复用现有 AI 生成和 Word 生成逻辑
 - [x] 返回 SSE 流式响应（retry-start, task-progress, retry-complete, retry-error）
 - [x] pnpm build 无报错
-- [ ] git push 成功
+- [x] git push 成功 (commit: 76091c3)
