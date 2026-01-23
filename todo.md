@@ -1137,4 +1137,14 @@
 
 ### 验收
 - [x] pnpm build 无报错
-- [x] git push 成功
+- [ ] git push 成功
+
+
+## V63.7: 一对一模式后4个文档并行生成
+
+- [x] 修改 Home.tsx 步骤2-5 从串行改为并行
+- [x] 使用 Promise.allSettled 确保一个失败不影响其他
+- [x] 进度显示改为"正在并行生成4个文档..."
+- [x] 完成后显示成功/失败数量
+- [x] pnpm build 无报错
+- [x] git push 成功 (commit: 677b774)

@@ -552,198 +552,272 @@ export default function Home() {
       });
       setCurrentStep(2);
 
-      // 步骤2: 生成复习文档（使用 SSE 流式端点防止超时）
-      localCurrentStep = 2;
-      checkAborted();
-      const step2Start = Date.now();
-      updateStep(1, { 
-        status: 'running', 
-        message: '正在生成复习文档...',
-        detail: '提取生词和错题，生成Word文档',
-        startTime: step2Start
-      });
+      // ===== V63.7: 步骤2-5 并行执行 =====
+      // 后4个文档只依赖学情反馈内容，互不依赖，可以并行生成
+      const parallelStartTime = Date.now();
       
-      // 使用 SSE 流式端点
-      const reviewSseResponse = await fetch('/api/review-stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          studentName: studentSnapshot.studentName,
-          dateStr: date,
-          feedbackContent: content,
-          ...configSnapshot,
-        }),
-      });
-      
-      if (!reviewSseResponse.ok) {
-        throw new Error(`复习文档生成失败: HTTP ${reviewSseResponse.status}`);
-      }
-      
-      const reviewReader = reviewSseResponse.body?.getReader();
-      if (!reviewReader) {
-        throw new Error('无法读取响应流');
-      }
-      
-      const reviewDecoder = new TextDecoder();
-      let reviewBuffer = '';
-      let reviewSseError: string | null = null;
-      let reviewCurrentEventType = '';
-      let reviewUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
-      let reviewCharCount = 0;
-      
-      while (true) {
-        checkAborted();
-        const { done, value } = await reviewReader.read();
-        if (done) break;
-        
-        reviewBuffer += reviewDecoder.decode(value, { stream: true });
-        const reviewLines = reviewBuffer.split('\n');
-        reviewBuffer = reviewLines.pop() || '';
-        
-        for (const line of reviewLines) {
-          if (line.startsWith('event: ')) {
-            reviewCurrentEventType = line.slice(7).trim();
-            continue;
-          }
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (reviewCurrentEventType === 'progress' && data.chars) {
-                reviewCharCount = data.chars;
-                const progressMsg = data.message || `正在生成复习文档... 已生成 ${data.chars} 字符`;
-                updateStep(1, { status: 'running', message: progressMsg });
-              } else if (reviewCurrentEventType === 'complete') {
-                if (data.uploadResult) reviewUploadResult = data.uploadResult;
-                if (data.chars) reviewCharCount = data.chars;
-              } else if (reviewCurrentEventType === 'error' && data.message) {
-                reviewSseError = data.message;
-              }
-            } catch (e) {
-              // 忽略解析错误
+      // 设置所有4个步骤为运行中状态
+      updateStep(1, { status: 'running', message: '正在并行生成...', detail: '复习文档', startTime: parallelStartTime });
+      updateStep(2, { status: 'running', message: '正在并行生成...', detail: '测试本', startTime: parallelStartTime });
+      updateStep(3, { status: 'running', message: '正在并行生成...', detail: '课后信息提取', startTime: parallelStartTime });
+      updateStep(4, { status: 'running', message: '正在并行生成...', detail: '气泡图', startTime: parallelStartTime });
+
+      // 定义4个并行任务
+      const parallelTasks = [
+        // 任务1: 复习文档 (SSE)
+        (async () => {
+          const taskStart = Date.now();
+          try {
+            checkAborted();
+            const reviewSseResponse = await fetch('/api/review-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                studentName: studentSnapshot.studentName,
+                dateStr: date,
+                feedbackContent: content,
+                ...configSnapshot,
+              }),
+            });
+            
+            if (!reviewSseResponse.ok) {
+              throw new Error(`复习文档生成失败: HTTP ${reviewSseResponse.status}`);
             }
+            
+            const reviewReader = reviewSseResponse.body?.getReader();
+            if (!reviewReader) {
+              throw new Error('无法读取响应流');
+            }
+            
+            const reviewDecoder = new TextDecoder();
+            let reviewBuffer = '';
+            let reviewSseError: string | null = null;
+            let reviewCurrentEventType = '';
+            let reviewUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+            let reviewCharCount = 0;
+            
+            while (true) {
+              checkAborted();
+              const { done, value } = await reviewReader.read();
+              if (done) break;
+              
+              reviewBuffer += reviewDecoder.decode(value, { stream: true });
+              const reviewLines = reviewBuffer.split('\n');
+              reviewBuffer = reviewLines.pop() || '';
+              
+              for (const line of reviewLines) {
+                if (line.startsWith('event: ')) {
+                  reviewCurrentEventType = line.slice(7).trim();
+                  continue;
+                }
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    
+                    if (reviewCurrentEventType === 'progress' && data.chars) {
+                      reviewCharCount = data.chars;
+                      updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
+                    } else if (reviewCurrentEventType === 'complete') {
+                      if (data.uploadResult) reviewUploadResult = data.uploadResult;
+                      if (data.chars) reviewCharCount = data.chars;
+                    } else if (reviewCurrentEventType === 'error' && data.message) {
+                      reviewSseError = data.message;
+                    }
+                  } catch (e) {
+                    // 忽略解析错误
+                  }
+                }
+              }
+            }
+            
+            if (reviewSseError) {
+              throw new Error(reviewSseError);
+            }
+            
+            if (!reviewUploadResult) {
+              throw new Error('复习文档生成失败：未收到上传结果');
+            }
+            
+            const taskEnd = Date.now();
+            return { type: 'review', success: true, duration: taskEnd - taskStart, charCount: reviewCharCount, uploadResult: reviewUploadResult };
+          } catch (error) {
+            const taskEnd = Date.now();
+            return { type: 'review', success: false, duration: taskEnd - taskStart, error: error instanceof Error ? error.message : '未知错误' };
           }
-        }
-      }
-      
-      if (reviewSseError) {
-        throw new Error(reviewSseError);
-      }
-      
-      if (!reviewUploadResult) {
-        throw new Error('复习文档生成失败：未收到上传结果');
-      }
-      
-      const step2End = Date.now();
-      updateStep(1, { 
-        status: 'success', 
-        message: `生成完成 (耗时${Math.round((step2End - step2Start) / 1000)}秒)`,
-        detail: reviewCharCount > 0 ? `复习文档已上传到Google Drive，共${reviewCharCount}字` : '复习文档已上传到Google Drive',
-        endTime: step2End,
-        uploadResult: reviewUploadResult
-      });
-      setCurrentStep(3);
+        })(),
 
-      // 步骤3: 生成测试本
-      localCurrentStep = 3;
-      checkAborted();
-      const step3Start = Date.now();
-      updateStep(2, { 
-        status: 'running', 
-        message: '正在生成测试本...',
-        detail: '生成学生自测文档',
-        startTime: step3Start
-      });
-      const step3Result = await generateTestMutation.mutateAsync({
-        studentName: studentSnapshot.studentName,
-        dateStr: date,
-        feedbackContent: content,
-        ...configSnapshot,
-      });
-      const step3End = Date.now();
-      updateStep(2, { 
-        status: 'success', 
-        message: `生成完成 (耗时${Math.round((step3End - step3Start) / 1000)}秒)`,
-        detail: '测试本已上传到Google Drive',
-        endTime: step3End,
-        uploadResult: step3Result.uploadResult
-      });
-      setCurrentStep(4);
+        // 任务2: 测试本 (tRPC)
+        (async () => {
+          const taskStart = Date.now();
+          try {
+            checkAborted();
+            const result = await generateTestMutation.mutateAsync({
+              studentName: studentSnapshot.studentName,
+              dateStr: date,
+              feedbackContent: content,
+              ...configSnapshot,
+            });
+            const taskEnd = Date.now();
+            return { type: 'test', success: true, duration: taskEnd - taskStart, uploadResult: result.uploadResult };
+          } catch (error) {
+            const taskEnd = Date.now();
+            return { type: 'test', success: false, duration: taskEnd - taskStart, error: error instanceof Error ? error.message : '未知错误' };
+          }
+        })(),
 
-      // 步骤4: 生成课后信息提取
-      localCurrentStep = 4;
-      checkAborted();
-      const step4Start = Date.now();
-      updateStep(3, { 
-        status: 'running', 
-        message: '正在生成课后信息提取...',
-        detail: '提取课后作业和下次课信息',
-        startTime: step4Start
-      });
-      const step4Result = await generateExtractionMutation.mutateAsync({
-        studentName: studentSnapshot.studentName,
-        dateStr: date,
-        feedbackContent: content,
-        ...configSnapshot,
-      });
-      const step4End = Date.now();
-      updateStep(3, { 
-        status: 'success', 
-        message: `生成完成 (耗时${Math.round((step4End - step4Start) / 1000)}秒)`,
-        detail: '课后信息已上传到Google Drive',
-        endTime: step4End,
-        uploadResult: step4Result.uploadResult
-      });
+        // 任务3: 课后信息提取 (tRPC)
+        (async () => {
+          const taskStart = Date.now();
+          try {
+            checkAborted();
+            const result = await generateExtractionMutation.mutateAsync({
+              studentName: studentSnapshot.studentName,
+              dateStr: date,
+              feedbackContent: content,
+              ...configSnapshot,
+            });
+            const taskEnd = Date.now();
+            return { type: 'extraction', success: true, duration: taskEnd - taskStart, uploadResult: result.uploadResult };
+          } catch (error) {
+            const taskEnd = Date.now();
+            return { type: 'extraction', success: false, duration: taskEnd - taskStart, error: error instanceof Error ? error.message : '未知错误' };
+          }
+        })(),
+
+        // 任务4: 气泡图 (tRPC + 前端转换 + 上传)
+        (async () => {
+          const taskStart = Date.now();
+          try {
+            checkAborted();
+            // 步骤5a: 后端生成SVG
+            const svgResult = await generateBubbleChartMutation.mutateAsync({
+              studentName: studentSnapshot.studentName,
+              dateStr: date,
+              lessonNumber: studentSnapshot.lessonNumber,
+              feedbackContent: content,
+              ...configSnapshot,
+            });
+            
+            checkAborted();
+            updateStep(4, { status: 'running', message: '正在转换PNG...', detail: '气泡图' });
+            
+            // 步骤5b: 前端将SVG转换为PNG
+            const svgContent = svgResult.svgContent;
+            const pngBase64 = await svgToPngBase64(svgContent);
+            
+            // 步骤5c: 上传PNG到Google Drive
+            const uploadResult = await uploadBubbleChartMutation.mutateAsync({
+              studentName: studentSnapshot.studentName,
+              dateStr: date,
+              pngBase64,
+              driveBasePath: configSnapshot.driveBasePath,
+            });
+            
+            const taskEnd = Date.now();
+            return { type: 'bubble', success: true, duration: taskEnd - taskStart, uploadResult: uploadResult.uploadResult };
+          } catch (error) {
+            const taskEnd = Date.now();
+            return { type: 'bubble', success: false, duration: taskEnd - taskStart, error: error instanceof Error ? error.message : '未知错误' };
+          }
+        })(),
+      ];
+
+      // 使用 Promise.allSettled 并行执行，确保一个失败不影响其他
+      const results = await Promise.allSettled(parallelTasks);
+      const parallelEndTime = Date.now();
+      const totalParallelDuration = Math.round((parallelEndTime - parallelStartTime) / 1000);
+
+      // 处理结果并更新UI
+      let successCount = 0;
+      let failedCount = 0;
+      const failedTasks: string[] = [];
+
+      // 处理复习文档结果 (index 0 -> step 1)
+      const reviewResult = results[0];
+      if (reviewResult.status === 'fulfilled' && reviewResult.value.success) {
+        const r = reviewResult.value;
+        updateStep(1, {
+          status: 'success',
+          message: `完成 (${Math.round(r.duration / 1000)}秒)`,
+          detail: r.charCount ? `共${r.charCount}字` : '复习文档已上传',
+          endTime: parallelEndTime,
+          uploadResult: r.uploadResult
+        });
+        successCount++;
+      } else {
+        const errorMsg = reviewResult.status === 'fulfilled' ? reviewResult.value.error : '任务异常';
+        updateStep(1, { status: 'error', error: errorMsg || '复习文档生成失败' });
+        failedCount++;
+        failedTasks.push('复习文档');
+      }
+
+      // 处理测试本结果 (index 1 -> step 2)
+      const testResult = results[1];
+      if (testResult.status === 'fulfilled' && testResult.value.success) {
+        const r = testResult.value;
+        updateStep(2, {
+          status: 'success',
+          message: `完成 (${Math.round(r.duration / 1000)}秒)`,
+          detail: '测试本已上传',
+          endTime: parallelEndTime,
+          uploadResult: r.uploadResult
+        });
+        successCount++;
+      } else {
+        const errorMsg = testResult.status === 'fulfilled' ? testResult.value.error : '任务异常';
+        updateStep(2, { status: 'error', error: errorMsg || '测试本生成失败' });
+        failedCount++;
+        failedTasks.push('测试本');
+      }
+
+      // 处理课后信息提取结果 (index 2 -> step 3)
+      const extractionResult = results[2];
+      if (extractionResult.status === 'fulfilled' && extractionResult.value.success) {
+        const r = extractionResult.value;
+        updateStep(3, {
+          status: 'success',
+          message: `完成 (${Math.round(r.duration / 1000)}秒)`,
+          detail: '课后信息已上传',
+          endTime: parallelEndTime,
+          uploadResult: r.uploadResult
+        });
+        successCount++;
+      } else {
+        const errorMsg = extractionResult.status === 'fulfilled' ? extractionResult.value.error : '任务异常';
+        updateStep(3, { status: 'error', error: errorMsg || '课后信息提取失败' });
+        failedCount++;
+        failedTasks.push('课后信息提取');
+      }
+
+      // 处理气泡图结果 (index 3 -> step 4)
+      const bubbleResult = results[3];
+      if (bubbleResult.status === 'fulfilled' && bubbleResult.value.success) {
+        const r = bubbleResult.value;
+        updateStep(4, {
+          status: 'success',
+          message: `完成 (${Math.round(r.duration / 1000)}秒)`,
+          detail: '气泡图已上传',
+          endTime: parallelEndTime,
+          uploadResult: r.uploadResult
+        });
+        successCount++;
+      } else {
+        const errorMsg = bubbleResult.status === 'fulfilled' ? bubbleResult.value.error : '任务异常';
+        updateStep(4, { status: 'error', error: errorMsg || '气泡图生成失败' });
+        failedCount++;
+        failedTasks.push('气泡图');
+      }
+
+      // 设置最终步骤（用于错误处理）
+      localCurrentStep = 5;
       setCurrentStep(5);
 
-      // 步骤5: 生成气泡图
-      localCurrentStep = 5;
-      checkAborted();
-      const step5Start = Date.now();
-      updateStep(4, { 
-        status: 'running', 
-        message: '正在生成气泡图...',
-        detail: 'AI正在生成SVG图形',
-        startTime: step5Start
-      });
-      
-      // 步骤5a: 后端生成SVG
-      const step5Result = await generateBubbleChartMutation.mutateAsync({
-        studentName: studentSnapshot.studentName,
-        dateStr: date,
-        lessonNumber: studentSnapshot.lessonNumber,
-        feedbackContent: content,
-        ...configSnapshot,
-      });
-      
-      checkAborted();
-      updateStep(4, { 
-        status: 'running', 
-        message: '正在转换并上传...',
-        detail: '前端转换SVG为PNG并上传',
-        startTime: step5Start
-      });
-      
-      // 步骤5b: 前端将SVG转换为PNG
-      const svgContent = step5Result.svgContent;
-      const pngBase64 = await svgToPngBase64(svgContent);
-      
-      // 步骤5c: 上传PNG到Google Drive
-      const uploadResult = await uploadBubbleChartMutation.mutateAsync({
-        studentName: studentSnapshot.studentName,
-        dateStr: date,
-        pngBase64,
-        driveBasePath: configSnapshot.driveBasePath,
-      });
-      
-      const step5End = Date.now();
-      updateStep(4, { 
-        status: 'success', 
-        message: `生成完成 (耗时${Math.round((step5End - step5Start) / 1000)}秒)`,
-        detail: '气泡图已上传到Google Drive',
-        endTime: step5End,
-        uploadResult: uploadResult.uploadResult
-      });
+      // 如果有失败的任务，抛出错误以触发错误处理
+      if (failedCount > 0) {
+        throw new Error(`并行生成完成，${successCount}/4 成功，失败: ${failedTasks.join('、')}`);
+      }
+
+      console.log(`[V63.7] 并行生成完成: ${successCount}/4 成功，总耗时 ${totalParallelDuration} 秒`);
 
       setIsComplete(true);
     } catch (error) {
