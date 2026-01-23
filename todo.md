@@ -1104,4 +1104,4 @@
 - [x] 创建 authMiddleware.ts 认证中间件
 - [x] pnpm build 无报错
 - [ ] 测试：未登录状态访问应被拦截
-- [ ] git push 成功
+- [x] git push 成功
