@@ -116,6 +116,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     filePrefix = '任务',
     templateType = 'markdown_styled',
     customFileNames,  // 可选：自定义文件名映射 Record<number, string>
+    namingMethod = 'prefix',  // 命名方式: 'prefix' | 'custom' | 'ai_auto'
     files,  // 可选：独立文件信息 Record<number, FileInfo>
     sharedFiles  // 可选：共享文件信息 FileInfo[]
   } = req.body;
@@ -573,18 +574,29 @@ ${roadmapContent}
       const pathModule = await import('path');
       buffer = fs.readFileSync(aiCodeResult.outputPath);
       
-      // AI代码模式：使用 AI 生成的实际文件名
-      // 从输出路径中提取文件名（AI 在代码中自己决定的）
-      filename = pathModule.basename(aiCodeResult.outputPath);
+      // AI代码模式：根据 namingMethod 决定文件名
+      const aiGeneratedFilename = pathModule.basename(aiCodeResult.outputPath);
+      const taskNumStr = taskNumber.toString().padStart(2, '0');
+      const prefix = filePrefix.trim() || '任务';
       
-      // 如果文件名是默认的 output.docx，说明 AI 没有自定义文件名，使用回退命名
-      if (filename === 'output.docx') {
-        const taskNumStr = taskNumber.toString().padStart(2, '0');
-        const prefix = filePrefix.trim() || '任务';
+      if (namingMethod === 'prefix') {
+        // 前缀+编号：强制使用前缀+编号，忽略 AI 的命名
         filename = `${prefix}${taskNumStr}.docx`;
-        console.log(`[BatchRoutes] 任务 ${taskNumber} AI未自定义文件名，使用回退命名: ${filename}`);
+        console.log(`[BatchRoutes] 任务 ${taskNumber} 使用前缀+编号命名: ${filename}`);
+      } else if (namingMethod === 'custom' && customName) {
+        // 从文本解析：使用用户指定的文件名，忽略 AI 的命名
+        filename = customName.endsWith('.docx') ? customName : `${customName}.docx`;
+        console.log(`[BatchRoutes] 任务 ${taskNumber} 使用自定义文件名: ${filename}`);
       } else {
-        console.log(`[BatchRoutes] 任务 ${taskNumber} 使用AI生成的文件名: ${filename}`);
+        // AI自主命名：使用 AI 在代码中生成的文件名
+        filename = aiGeneratedFilename;
+        // 如果 AI 没有自定义文件名（默认 output.docx），回退到前缀+编号
+        if (filename === 'output.docx') {
+          filename = `${prefix}${taskNumStr}.docx`;
+          console.log(`[BatchRoutes] 任务 ${taskNumber} AI未自定义文件名，回退到前缀+编号: ${filename}`);
+        } else {
+          console.log(`[BatchRoutes] 任务 ${taskNumber} 使用AI生成的文件名: ${filename}`);
+        }
       }
       
       console.log(`[BatchRoutes] 任务 ${taskNumber} AI代码模式完成: ${filename}, 耗时: ${aiCodeResult.executionTime}ms`);

@@ -217,7 +217,7 @@ export function BatchProcess() {
   const [copied, setCopied] = useState(false);
 
   // 文件命名方式
-  const [namingMethod, setNamingMethod] = useState<'prefix' | 'custom'>('prefix');
+  const [namingMethod, setNamingMethod] = useState<'prefix' | 'custom' | 'ai_auto'>('prefix');
   const [customNames, setCustomNames] = useState<string>('');
   const [parsedNames, setParsedNames] = useState<Map<number, string>>(new Map());
 
@@ -479,6 +479,8 @@ export function BatchProcess() {
           storagePath: storagePath.trim() || undefined,
           filePrefix: filePrefix.trim() || '任务',
           templateType: templateType,
+          // 传递命名方式
+          namingMethod: namingMethod,
           // 如果使用自定义命名，传递 customFileNames
           customFileNames: namingMethod === 'custom' ? Object.fromEntries(parsedNames) : undefined,
           // 传递上传的独立文件信息
@@ -716,6 +718,12 @@ export function BatchProcess() {
               onChange={(e) => {
                 const value = e.target.value as 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material' | 'ai_code';
                 setTemplateType(value);
+                // ai_code 模式默认选中 AI 自主命名，其他模式默认前缀+编号
+                if (value === 'ai_code') {
+                  setNamingMethod('ai_auto');
+                } else if (namingMethod === 'ai_auto') {
+                  setNamingMethod('prefix');
+                }
                 console.log('模板类型已切换:', value);
               }}
               disabled={isGenerating}
@@ -796,44 +804,53 @@ export function BatchProcess() {
               />
               <p className="text-xs text-gray-500">同时处理的任务数量，建议3-5</p>
             </div>
-            <div className={`space-y-2 ${isAiCodeMode ? 'opacity-50' : ''}`}>
+            <div className="space-y-2">
               <Label>文件命名方式</Label>
-              {isAiCodeMode && (
-                <div className="text-sm text-gray-500 mb-2">
-                  （AI代码模式：文件名由AI在代码中自动决定）
-                </div>
-              )}
-              <div className="flex gap-4">
-                <label className={`flex items-center gap-2 ${isAiCodeMode ? '' : 'cursor-pointer'}`}>
+              <div className="flex gap-4 flex-wrap">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
                     name="namingMethod"
                     value="prefix"
                     checked={namingMethod === 'prefix'}
                     onChange={() => setNamingMethod('prefix')}
-                    disabled={isGenerating || isAiCodeMode}
+                    disabled={isGenerating}
                     className="w-4 h-4 text-blue-600"
                   />
                   <span className="text-sm">前缀+编号</span>
                 </label>
-                <label className={`flex items-center gap-2 ${isAiCodeMode ? '' : 'cursor-pointer'}`}>
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
                     name="namingMethod"
                     value="custom"
                     checked={namingMethod === 'custom'}
                     onChange={() => setNamingMethod('custom')}
-                    disabled={isGenerating || isAiCodeMode}
+                    disabled={isGenerating}
                     className="w-4 h-4 text-blue-600"
                   />
                   <span className="text-sm">从文本解析</span>
                 </label>
+                {isAiCodeMode && (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="namingMethod"
+                      value="ai_auto"
+                      checked={namingMethod === 'ai_auto'}
+                      onChange={() => setNamingMethod('ai_auto')}
+                      disabled={isGenerating}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="text-sm">AI自主命名</span>
+                  </label>
+                )}
               </div>
             </div>
           </div>
 
           {/* 前缀+编号方式 */}
-          {namingMethod === 'prefix' && !isAiCodeMode && (
+          {namingMethod === 'prefix' && (
             <div className="space-y-2">
               <Label htmlFor="filePrefix">文件名前缀</Label>
               <Input
@@ -863,7 +880,7 @@ export function BatchProcess() {
           )}
 
           {/* 从文本解析方式 */}
-          {namingMethod === 'custom' && !isAiCodeMode && (
+          {namingMethod === 'custom' && (
             <div className="space-y-3">
               <div className="space-y-2">
                 <Label htmlFor="customNames">文件名列表（一行一个）</Label>

@@ -1105,3 +1105,22 @@
 - [x] pnpm build 无报错
 - [ ] 测试：未登录状态访问应被拦截
 - [x] git push 成功
+
+
+
+## V63.5: ai_code模式恢复三种文件命名方式
+
+### 前端改动
+- [x] 移除 disabled={isAiCodeMode} 禁用逻辑
+- [x] 移除灰色提示文字和 opacity-50 样式
+- [x] 新增“AI自主命名”选项（仅 ai_code 模式显示）
+- [x] ai_code 模式默认选中“AI自主命名”
+- [x] 将 namingMethod 传递到后端请求
+
+### 后端改动
+- [x] 接收 namingMethod 参数
+- [x] ai_code 分支根据 namingMethod 决定文件名
+
+### 验收
+- [x] pnpm build 无报错
+- [ ] git push 成功
