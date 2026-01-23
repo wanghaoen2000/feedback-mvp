@@ -1202,4 +1202,4 @@
 - [x] 小班课步骤5重试为所有学生重新生成气泡图
 - [x] 一对一模式重试功能不受影响
 - [x] pnpm build 无报错
-- [ ] git push 成功
+- [x] git push 成功 (commit: 1cc27f1)
