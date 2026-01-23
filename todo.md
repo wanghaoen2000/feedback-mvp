@@ -1073,3 +1073,13 @@
 - [x] pnpm build 无报错
 - [ ] 测试：上传 .md 文件能正确提取文本
 - [x] git push 成功
+
+
+## V63.2: 清理调试日志
+
+- [x] 清理 documentParser.ts 中的调试日志
+- [x] 清理 batchRoutes.ts 中的调试日志
+- [x] 清理 aiCodeProcessor.ts 中的调试日志
+- [x] grep -rn "DEBUG" server/ 返回空或只有合理内容
+- [x] pnpm build 无报错
+- [ ] git push 成功

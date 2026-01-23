@@ -54,34 +54,21 @@ export async function parseDocumentToText(
   // 获取文件扩展名
   const ext = filename ? filename.split('.').pop()?.toLowerCase() : null;
   
-  console.log('[DocumentParser] parseDocumentToText 开始');
-  console.log('[DocumentParser] mimeType:', mimeType);
-  console.log('[DocumentParser] filename:', filename);
-  console.log('[DocumentParser] ext:', ext);
-  console.log('[DocumentParser] Buffer 大小:', buffer.length, 'bytes');
-  
   // 【优先】根据扩展名判断纯文本文件（.md, .txt）
   // 这是为了解决浏览器将 .md 文件识别为 application/octet-stream 的问题
   if (ext === 'md' || ext === 'txt') {
-    console.log(`[DocumentParser] 根据扩展名 .${ext} 识别为纯文本文件`);
-    const result = buffer.toString('utf-8');
-    console.log('[DocumentParser] 纯文本读取成功，长度:', result.length);
-    return result;
+    return buffer.toString('utf-8');
   }
   
   // 根据 MIME 类型判断纯文本文件
   const isPlainText = mimeType === 'text/markdown' || mimeType === 'text/plain';
   if (isPlainText) {
-    console.log(`[DocumentParser] 根据 MIME 类型 ${mimeType} 识别为纯文本文件`);
-    const result = buffer.toString('utf-8');
-    console.log('[DocumentParser] 纯文本读取成功，长度:', result.length);
-    return result;
+    return buffer.toString('utf-8');
   }
   
   // PDF 文件
   const isPdf = mimeType === 'application/pdf' || ext === 'pdf';
   if (isPdf) {
-    console.log('[DocumentParser] 识别为 PDF 文件');
     return parsePdfToText(buffer);
   }
   
@@ -89,7 +76,6 @@ export async function parseDocumentToText(
   const isDocx = mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
     || (mimeType === 'application/octet-stream' && ext === 'docx');
   if (isDocx) {
-    console.log('[DocumentParser] 识别为 DOCX 文件');
     return parseDocxToText(buffer);
   }
   

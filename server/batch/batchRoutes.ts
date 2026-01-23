@@ -262,14 +262,6 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     sharedFileList: FileInfo[] | undefined,
     independentFile: FileInfo | undefined
   ): { systemPrompt: string; userMessage: string } => {
-    console.log('========== [DEBUG-节点5] 构建消息 ==========');
-    console.log('taskNumber:', taskNumber);
-    console.log('independentFile 存在:', !!independentFile);
-    console.log('independentFile.type:', independentFile?.type);
-    console.log('independentFile.extractedText 存在:', !!independentFile?.extractedText);
-    console.log('independentFile.extractedText 长度:', independentFile?.extractedText?.length || 0);
-    console.log('sharedFiles 数量:', sharedFileList?.length || 0);
-    
     // 构建 system prompt（路书部分）
     const systemPrompt = `<路书提示词>
 ${roadmapContent}
@@ -321,21 +313,6 @@ ${roadmapContent}
     if (hints.length > 0) {
       userMessage += `\n\n【附件】请分析以上 ${hints.join('、')}。`;
     }
-    
-    console.log('消息是否包含 <单独文档>:', userMessage.includes('<单独文档>'));
-    console.log('消息是否包含 <共享文档>:', userMessage.includes('<共享文档>'));
-    console.log('================================================');
-    
-    console.log('========== [DEBUG-节点6] 发送给 AI ==========');
-    console.log('完整消息长度:', userMessage.length);
-    console.log('完整消息内容:');
-    console.log('--- 消息开始 ---');
-    console.log(userMessage.slice(0, 2000));
-    if (userMessage.length > 2000) {
-      console.log('--- 消息截断（超过2000字符）---');
-    }
-    console.log('--- 消息结束 ---');
-    console.log('================================================');
     
     return { systemPrompt, userMessage };
   };
@@ -865,13 +842,6 @@ router.post("/upload-files", upload.array("files", 20), async (req: Request, res
       // 解码文件名（处理中文乱码问题）
       const decodedFilename = decodeFilename(file.originalname);
       
-      console.log('========== [DEBUG-节点1] 文件接收 ==========');
-      console.log('文件名:', decodedFilename);
-      console.log('MIME类型:', file.mimetype);
-      console.log('文件大小:', file.size, 'bytes');
-      console.log('文件扩展名:', decodedFilename.split('.').pop());
-      console.log('==============================================');
-      
       console.log(`[BatchRoutes] 处理文件: ${decodedFilename}, 类型: ${file.mimetype}, 大小: ${file.size}`);
       
       const result: UploadedFile = {
@@ -921,18 +891,11 @@ router.post("/upload-files", upload.array("files", 20), async (req: Request, res
             try {
               const extractedText = await parseDocumentToText(file.buffer, file.mimetype, decodedFilename);
               
-              console.log('========== [DEBUG-节点4] extractedText 存储 ==========');
-              console.log('提取结果是否为空:', !extractedText);
-              console.log('提取结果长度:', extractedText?.length || 0);
-              console.log('提取结果前200字符:', extractedText?.slice(0, 200) || 'EMPTY');
-              console.log('======================================================');
-              
               if (extractedText) {
                 result.extractedText = extractedText;
                 console.log(`[BatchRoutes] 文档文字提取成功: ${decodedFilename} (${extractedText.length} 字符)`);
               }
             } catch (parseError: any) {
-              console.error('[DEBUG-节点4] 文档解析出错:', parseError.message);
               console.warn(`[BatchRoutes] 文档文字提取失败: ${decodedFilename}`, parseError.message);
               // 解析失败不影响上传，继续处理
             }
