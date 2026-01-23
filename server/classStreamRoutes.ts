@@ -2,7 +2,7 @@
  * V45b: 小班课学情反馈 SSE 流式端点
  * 解决 Cloudflare 524 超时问题
  */
-import { Express, Request, Response } from "express";
+import { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { invokeWhatAIStream, APIConfig } from "./whatai";
 import { ClassFeedbackInput, textToDocx, cleanMarkdownAndHtml } from "./feedbackGenerator";
@@ -20,6 +20,7 @@ import {
   GenerationLog 
 } from "./logger";
 import { parseError } from "./errorHandler";
+import { requireAuth } from "./_core/authMiddleware";
 
 // 默认配置值（和 routers.ts 保持一致）
 const DEFAULT_CONFIG = {
@@ -137,8 +138,8 @@ const classFeedbackInputSchema = z.object({
  * 注册小班课 SSE 流式端点
  */
 export function registerClassStreamRoutes(app: Express): void {
-  // SSE 端点：小班课学情反馈流式生成
-  app.post("/api/class-feedback-stream", async (req: Request, res: Response) => {
+  // SSE 端点：小班课学情反馈流式生成（需要登录）
+  app.post("/api/class-feedback-stream", requireAuth, async (req: Request, res: Response) => {
     
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -348,7 +349,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
 8. 最后以【OK】结尾`;
   
   // SSE 端点：一对一学情反馈流式生成
-  app.post("/api/feedback-stream", async (req: Request, res: Response) => {
+  app.post("/api/feedback-stream", requireAuth, async (req: Request, res: Response) => {
     
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -609,7 +610,7 @@ ${input.transcript}
 同类题型注意点：xxx`;
   
   // SSE 端点：一对一复习文档流式生成
-  app.post("/api/review-stream", async (req: Request, res: Response) => {
+  app.post("/api/review-stream", requireAuth, async (req: Request, res: Response) => {
     
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -801,7 +802,7 @@ ${input.feedbackContent}
 （按照学情反馈中的错题逐一解析）`;
   
   // SSE 端点：小班课复习文档流式生成
-  app.post("/api/class-review-stream", async (req: Request, res: Response) => {
+  app.post("/api/class-review-stream", requireAuth, async (req: Request, res: Response) => {
     
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");

@@ -9,6 +9,7 @@ import batchRoutes from "../batch/batchRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { requireAuth } from "./authMiddleware";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -45,8 +46,8 @@ async function startServer() {
   registerOAuthRoutes(app);
   // SSE 端点：小班课学情反馈流式生成
   registerClassStreamRoutes(app);
-  // 批量处理 SSE 端点
-  app.use("/api/batch", batchRoutes);
+  // 批量处理 SSE 端点（需要登录）
+  app.use("/api/batch", requireAuth, batchRoutes);
   // tRPC API - 设置请求超时为15分钟
   app.use(
     "/api/trpc",

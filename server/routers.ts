@@ -3,7 +3,7 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
@@ -137,7 +137,7 @@ export const appRouter = router({
   // 配置管理
   config: router({
     // 获取所有配置
-    getAll: publicProcedure.query(async () => {
+    getAll: protectedProcedure.query(async () => {
       const apiModel = await getConfig("apiModel");
       const apiKey = await getConfig("apiKey");
       const apiUrl = await getConfig("apiUrl");
@@ -178,7 +178,7 @@ export const appRouter = router({
     }),
 
     // 更新配置
-    update: publicProcedure
+    update: protectedProcedure
       .input(z.object({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
@@ -286,7 +286,7 @@ export const appRouter = router({
       }),
 
     // 重置为默认值
-    reset: publicProcedure
+    reset: protectedProcedure
       .input(z.object({
         keys: z.array(z.enum(["apiModel", "apiKey", "apiUrl", "currentYear", "roadmap", "driveBasePath"])),
       }))
@@ -312,7 +312,7 @@ export const appRouter = router({
   // 学情反馈生成 - 拆分为5个独立端点
   feedback: router({
     // 步骤1: 生成学情反馈
-    generateFeedback: publicProcedure
+    generateFeedback: protectedProcedure
       .input(feedbackInputSchema)
       .mutation(async ({ input }) => {
         // 获取配置（优先使用传入的快照，确保并发安全）
@@ -406,7 +406,7 @@ export const appRouter = router({
       }),
 
     // 步骤2: 生成复习文档
-    generateReview: publicProcedure
+    generateReview: protectedProcedure
       .input(z.object({
         studentName: z.string(),
         dateStr: z.string(),
@@ -485,7 +485,7 @@ export const appRouter = router({
       }),
 
     // 步骤3: 生成测试本
-    generateTest: publicProcedure
+    generateTest: protectedProcedure
       .input(z.object({
         studentName: z.string(),
         dateStr: z.string(),
@@ -564,7 +564,7 @@ export const appRouter = router({
       }),
 
     // 步骤4: 生成课后信息提取
-    generateExtraction: publicProcedure
+    generateExtraction: protectedProcedure
       .input(z.object({
         studentName: z.string(),
         dateStr: z.string(),
@@ -643,7 +643,7 @@ export const appRouter = router({
       }),
 
     // 步骤5: 生成气泡图SVG（返回SVG字符串，前端转换为PNG并上传）
-    generateBubbleChart: publicProcedure
+    generateBubbleChart: protectedProcedure
       .input(z.object({
         studentName: z.string(),
         dateStr: z.string(),
@@ -708,7 +708,7 @@ export const appRouter = router({
       }),
 
     // 步骤5b: 上传气泡图PNG（前端转换后调用）
-    uploadBubbleChart: publicProcedure
+    uploadBubbleChart: protectedProcedure
       .input(z.object({
         studentName: z.string(),
         dateStr: z.string(),
@@ -759,7 +759,7 @@ export const appRouter = router({
       }),
 
     // 最终验证
-    verifyAll: publicProcedure
+    verifyAll: protectedProcedure
       .input(z.object({
         studentName: z.string(),
         dateStr: z.string(),
@@ -792,7 +792,7 @@ export const appRouter = router({
       }),
 
     // 获取最新日志
-    getLatestLog: publicProcedure
+    getLatestLog: protectedProcedure
       .query(async () => {
         const logPath = getLatestLogPath();
         if (!logPath) {
@@ -807,7 +807,7 @@ export const appRouter = router({
       }),
 
     // 导出日志到Google Drive
-    exportLog: publicProcedure
+    exportLog: protectedProcedure
       .input(z.object({
         studentName: z.string().optional(),
       }).optional())
@@ -856,7 +856,7 @@ export const appRouter = router({
       }),
 
     // 列出所有日志文件
-    listLogs: publicProcedure
+    listLogs: protectedProcedure
       .query(async () => {
         const logs = listLogFiles();
         return {
@@ -870,7 +870,7 @@ export const appRouter = router({
       }),
 
     // 系统自检
-    systemCheck: publicProcedure
+    systemCheck: protectedProcedure
       .mutation(async () => {
         try {
           const results = await runSystemCheck();
@@ -890,23 +890,23 @@ export const appRouter = router({
         }
       }),
     // Google Drive OAuth授权
-    googleAuthStatus: publicProcedure
+    googleAuthStatus: protectedProcedure
       .query(async () => {
         return await googleAuth.getStatus();
       }),
-    googleAuthUrl: publicProcedure
+    googleAuthUrl: protectedProcedure
       .query(async () => {
         return { 
           url: googleAuth.getAuthUrl(),
           redirectUri: googleAuth.getRedirectUri()
         };
       }),
-    googleAuthCallback: publicProcedure
+    googleAuthCallback: protectedProcedure
       .input(z.object({ code: z.string() }))
       .mutation(async ({ input }) => {
         return await googleAuth.handleCallback(input.code);
       }),
-    googleAuthDisconnect: publicProcedure
+    googleAuthDisconnect: protectedProcedure
       .mutation(async () => {
         return await googleAuth.disconnect();
       }),
@@ -914,7 +914,7 @@ export const appRouter = router({
     // ========== 小班课生成接口 ==========
     
     // 小班课步骤1: 生成1份完整学情反馈
-    generateClassFeedback: publicProcedure
+    generateClassFeedback: protectedProcedure
       .input(classFeedbackInputSchema)
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
@@ -979,7 +979,7 @@ export const appRouter = router({
       }),
     
     // 小班课步骤2: 生成复习文档
-    generateClassReview: publicProcedure
+    generateClassReview: protectedProcedure
       .input(z.object({
         classNumber: z.string(),
         lessonNumber: z.string().optional(),
@@ -1024,7 +1024,7 @@ export const appRouter = router({
       }),
     
     // 小班课步骤3: 生成测试本
-    generateClassTest: publicProcedure
+    generateClassTest: protectedProcedure
       .input(z.object({
         classNumber: z.string(),
         lessonNumber: z.string().optional(),
@@ -1069,7 +1069,7 @@ export const appRouter = router({
       }),
     
     // 小班课步骤4: 生成课后信息提取
-    generateClassExtraction: publicProcedure
+    generateClassExtraction: protectedProcedure
       .input(z.object({
         classNumber: z.string(),
         lessonNumber: z.string().optional(),
@@ -1113,7 +1113,7 @@ export const appRouter = router({
       }),
     
     // 小班课步骤5: 为单个学生生成气泡图SVG
-    generateClassBubbleChart: publicProcedure
+    generateClassBubbleChart: protectedProcedure
       .input(z.object({
         studentName: z.string(),
         studentFeedback: z.string(),
@@ -1147,7 +1147,7 @@ export const appRouter = router({
       }),
     
     // 小班课上传文件到 Google Drive
-    uploadClassFile: publicProcedure
+    uploadClassFile: protectedProcedure
       .input(z.object({
         classNumber: z.string(),
         dateStr: z.string(),
@@ -1222,7 +1222,7 @@ export const appRouter = router({
 
   // 简单计算功能（保留MVP验证）
   calculate: router({
-    compute: publicProcedure
+    compute: protectedProcedure
       .input(z.object({
         expression: z.string().min(1, "请输入算术表达式"),
         studentName: z.string().default("李四"),

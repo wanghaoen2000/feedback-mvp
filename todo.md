@@ -1095,3 +1095,13 @@
 - [x] grep -rn "sk-wOwJ" server/ 返回空
 - [x] pnpm build 无报错
 - [x] git push 成功
+
+
+## V63.4: 添加 API 登录保护
+
+- [x] 修改 routers.ts 中的业务 API 为 protectedProcedure
+- [x] 检查其他路由文件（classStreamRoutes.ts, batch/batchRoutes.ts）
+- [x] 创建 authMiddleware.ts 认证中间件
+- [x] pnpm build 无报错
+- [ ] 测试：未登录状态访问应被拦截
+- [ ] git push 成功
