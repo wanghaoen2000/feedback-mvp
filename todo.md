@@ -1169,3 +1169,13 @@
 - [x] 一对一模式不受影响
 - [x] pnpm build 无报错
 - [x] git push 成功 (commit: 7dfe811)
+
+
+## V63.10 (Step 3b): 小班课气泡图多学生并行
+
+- [x] 将气泡图 for 循环改为 Promise.allSettled 并行
+- [x] 保持 bubbleChartProgress 状态独立更新
+- [x] 一个学生失败不影响其他学生
+- [x] 一对一模式不受影响
+- [x] pnpm build 无报错
+- [ ] git push 成功

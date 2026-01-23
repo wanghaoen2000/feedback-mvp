@@ -1282,72 +1282,71 @@ export default function Home() {
           }
         })(),
 
-        // 任务4: 气泡图 (内部仍是串行循环，Step 3b 再改成并行)
+        // 任务4: 气泡图 (V63.10 Step 3b: 多学生并行生成)
         (async () => {
           const taskStart = Date.now();
           try {
             checkAborted();
             
-            // 初始化气泡图进度
-            const initialProgress = validStudents.map(name => ({ studentName: name, status: 'pending' as const }));
+            // 初始化气泡图进度，所有学生同时开始
+            const initialProgress = validStudents.map(name => ({ studentName: name, status: 'running' as const }));
             setBubbleChartProgress(initialProgress);
+            updateStep(4, { status: 'running', message: `正在并行生成 ${validStudents.length} 个学生的气泡图...`, detail: `全部并行执行中` });
             
-            let bubbleSuccessCount = 0;
-            
-            // 串行生成每个学生的气泡图
-            for (let i = 0; i < validStudents.length; i++) {
-              checkAborted();
-              const studentName = validStudents[i];
-              
-              // 更新进度：当前学生正在生成
-              setBubbleChartProgress(prev => prev.map((p, idx) => 
-                idx === i ? { ...p, status: 'running' } : p
-              ));
-              updateStep(4, { status: 'running', message: `正在生成 ${studentName} 的气泡图...`, detail: `进度: ${i}/${validStudents.length}` });
-              
-              try {
-                // 生成 SVG
-                const svgResult = await generateClassBubbleChartMutation.mutateAsync({
-                  studentName: studentName,
-                  studentFeedback: combinedFeedback,
-                  classNumber: classSnapshot.classNumber,
-                  dateStr: extractedDate,
-                  lessonNumber: classSnapshot.lessonNumber,
-                  ...configSnapshot,
-                });
-                
-                if (!svgResult.success || !svgResult.svg) {
-                  throw new Error(`${studentName} 气泡图生成失败`);
+            // V63.10: 所有学生并行生成气泡图
+            const bubbleResults = await Promise.allSettled(
+              validStudents.map(async (studentName, index) => {
+                try {
+                  checkAborted();
+                  
+                  // 生成 SVG
+                  const svgResult = await generateClassBubbleChartMutation.mutateAsync({
+                    studentName: studentName,
+                    studentFeedback: combinedFeedback,
+                    classNumber: classSnapshot.classNumber,
+                    dateStr: extractedDate,
+                    lessonNumber: classSnapshot.lessonNumber,
+                    ...configSnapshot,
+                  });
+                  
+                  if (!svgResult.success || !svgResult.svg) {
+                    throw new Error(`${studentName} 气泡图生成失败`);
+                  }
+                  
+                  // 前端转换 SVG 为 PNG
+                  const pngBase64 = await svgToPngBase64(svgResult.svg);
+                  
+                  // 上传气泡图
+                  await uploadClassFileMutation.mutateAsync({
+                    classNumber: classSnapshot.classNumber,
+                    dateStr: extractedDate,
+                    fileType: 'bubbleChart',
+                    studentName: studentName,
+                    content: pngBase64,
+                    driveBasePath: configSnapshot.driveBasePath,
+                  });
+                  
+                  // 更新该学生状态为成功
+                  setBubbleChartProgress(prev => prev.map((p, idx) => 
+                    idx === index ? { ...p, status: 'success' } : p
+                  ));
+                  
+                  return { studentName, success: true };
+                } catch (error) {
+                  // 更新该学生状态为失败
+                  setBubbleChartProgress(prev => prev.map((p, idx) => 
+                    idx === index ? { ...p, status: 'error' } : p
+                  ));
+                  console.error(`${studentName} 气泡图生成失败:`, error);
+                  return { studentName, success: false, error: error instanceof Error ? error.message : '未知错误' };
                 }
-                
-                // 前端转换 SVG 为 PNG
-                const pngBase64 = await svgToPngBase64(svgResult.svg);
-                
-                // 上传气泡图
-                await uploadClassFileMutation.mutateAsync({
-                  classNumber: classSnapshot.classNumber,
-                  dateStr: extractedDate,
-                  fileType: 'bubbleChart',
-                  studentName: studentName,
-                  content: pngBase64,
-                  driveBasePath: configSnapshot.driveBasePath,
-                });
-                
-                bubbleSuccessCount++;
-                
-                // 更新进度：当前学生完成
-                setBubbleChartProgress(prev => prev.map((p, idx) => 
-                  idx === i ? { ...p, status: 'success' } : p
-                ));
-              } catch (error) {
-                // 更新进度：当前学生失败
-                setBubbleChartProgress(prev => prev.map((p, idx) => 
-                  idx === i ? { ...p, status: 'error' } : p
-                ));
-                console.error(`${studentName} 气泡图生成失败:`, error);
-                // 继续生成其他学生的气泡图
-              }
-            }
+              })
+            );
+            
+            // 统计成功数量
+            const bubbleSuccessCount = bubbleResults.filter(
+              r => r.status === 'fulfilled' && r.value.success
+            ).length;
             
             const taskEnd = Date.now();
             updateStep(4, { 
