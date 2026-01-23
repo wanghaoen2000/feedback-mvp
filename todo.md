@@ -1123,4 +1123,4 @@
 
 ### 验收
 - [x] pnpm build 无报错
-- [ ] git push 成功
+- [x] git push 成功
