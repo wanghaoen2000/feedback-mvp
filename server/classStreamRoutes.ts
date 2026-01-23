@@ -24,7 +24,7 @@ import { parseError } from "./errorHandler";
 // 默认配置值（和 routers.ts 保持一致）
 const DEFAULT_CONFIG = {
   apiModel: "claude-sonnet-4-5-20250929",
-  apiKey: process.env.WHATAI_API_KEY || "sk-WyfaRl3qxKk8gpaptVWUfe1ZiJYQg0Vqjd7nscsZMT4l0c9U",
+  apiKey: process.env.WHATAI_API_KEY || "",
   apiUrl: "https://www.DMXapi.com/v1",
   currentYear: "2026",
   roadmap: "",

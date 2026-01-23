@@ -1083,3 +1083,15 @@
 - [x] grep -rn "DEBUG" server/ 返回空或只有合理内容
 - [x] pnpm build 无报错
 - [x] git push 成功
+
+
+## V63.3: 移除硬编码 API Key（安全修复）
+
+- [x] 修改 server/classStreamRoutes.ts 第 27 行
+- [x] 修改 server/core/aiClient.ts 第 12 行
+- [x] 修改 server/routers.ts 第 45 行
+- [x] 修改 server/whatai.ts 第 8 行
+- [x] grep -rn "sk-Wyfa" server/ 返回空
+- [x] grep -rn "sk-wOwJ" server/ 返回空
+- [x] pnpm build 无报错
+- [ ] git push 成功

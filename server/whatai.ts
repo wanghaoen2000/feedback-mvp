@@ -5,7 +5,7 @@
  */
 
 // 默认配置（可被覆盖）
-const DEFAULT_API_KEY = process.env.WHATAI_API_KEY || "sk-WyfaRl3qxKk8gpaptVWUfe1ZiJYQg0Vqjd7nscsZMT4l0c9U";
+const DEFAULT_API_KEY = process.env.WHATAI_API_KEY || "";
 const DEFAULT_BASE_URL = "https://www.DMXapi.com/v1";
 const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
 
