@@ -742,6 +742,386 @@ ${roadmapContent}
 });
 
 // ============================================
+// 单任务重做端点
+// ============================================
+
+/**
+ * POST /api/batch/retry-task
+ * 重做单个任务（用于批量处理完成后重做失败或不满意的任务）
+ * 
+ * 请求参数：
+ * - taskNumber: 要重做的任务编号
+ * - originalBatchId: 原批次ID（用于确定存储路径）
+ * - storagePath: 原存储路径（Google Drive 文件夹路径）
+ * - roadmap: 路书内容
+ * - templateType: 模板类型
+ * - filePrefix: 文件名前缀
+ * - customFileName: 自定义文件名（可选）
+ * - namingMethod: 命名方式
+ * - files: 独立文件信息（可选）
+ * - sharedFiles: 共享文件信息（可选）
+ */
+router.post("/retry-task", async (req: Request, res: Response) => {
+  const {
+    taskNumber,
+    originalBatchId,
+    storagePath,
+    roadmap,
+    templateType = 'markdown_styled',
+    filePrefix = '任务',
+    customFileName,
+    namingMethod = 'prefix',
+    files,
+    sharedFiles,
+  } = req.body;
+
+  // 参数验证
+  if (taskNumber === undefined || taskNumber === null) {
+    res.status(400).json({ error: "缺少 taskNumber 参数" });
+    return;
+  }
+
+  if (!originalBatchId) {
+    res.status(400).json({ error: "缺少 originalBatchId 参数" });
+    return;
+  }
+
+  if (!roadmap || typeof roadmap !== "string") {
+    res.status(400).json({ error: "缺少 roadmap 参数或格式错误" });
+    return;
+  }
+
+  const taskNum = Number(taskNumber);
+  if (isNaN(taskNum)) {
+    res.status(400).json({ error: "taskNumber 必须是数字" });
+    return;
+  }
+
+  console.log(`[BatchRoutes] 开始重做任务`);
+  console.log(`[BatchRoutes] 任务编号: ${taskNum}`);
+  console.log(`[BatchRoutes] 原批次 ID: ${originalBatchId}`);
+  console.log(`[BatchRoutes] 模板类型: ${templateType}`);
+  console.log(`[BatchRoutes] 存储路径: ${storagePath || "(未指定)"}`);
+
+  // 设置 SSE 响应头
+  setupSSEHeaders(res);
+
+  // 获取 API 配置
+  const config = await getAPIConfig();
+
+  // 发送重做开始事件
+  sendSSEEvent(res, "retry-start", {
+    taskNumber: taskNum,
+    originalBatchId,
+    timestamp: Date.now(),
+  });
+
+  // 构建文件存储路径（使用原批次文件夹）
+  let batchFolderPath: string | undefined;
+  if (storagePath) {
+    batchFolderPath = `${storagePath}/${originalBatchId}`;
+    console.log(`[BatchRoutes] 重做任务将存储到: ${batchFolderPath}`);
+  }
+
+  // 构建带来源标签的消息内容
+  const buildRetryMessageContent = (
+    taskNum: number,
+    roadmapContent: string,
+    sharedFileList: FileInfo[] | undefined,
+    independentFile: FileInfo | undefined
+  ): { systemPrompt: string; userMessage: string } => {
+    const systemPrompt = `<路书提示词>
+${roadmapContent}
+</路书提示词>
+
+【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`;
+    
+    let userMessage = `这是任务编号 ${taskNum}，请按照路书要求生成内容。`;
+    
+    // 添加共享文档内容
+    const sharedDocTexts: string[] = [];
+    if (sharedFileList && sharedFileList.length > 0) {
+      for (const file of sharedFileList) {
+        if (file.type === 'document' && file.extractedText) {
+          sharedDocTexts.push(file.extractedText);
+        }
+      }
+    }
+    
+    if (sharedDocTexts.length > 0) {
+      userMessage += `\n\n<共享文档>\n${sharedDocTexts.join('\n---\n')}\n</共享文档>`;
+    }
+    
+    // 添加独立文档内容
+    if (independentFile?.type === 'document' && independentFile.extractedText) {
+      userMessage += `\n\n<单独文档>\n${independentFile.extractedText}\n</单独文档>`;
+    }
+    
+    // 统计文件数量并添加提示
+    const allFiles = [...(sharedFileList || []), ...(independentFile ? [independentFile] : [])];
+    const imageCount = allFiles.filter(f => f.type === 'image').length;
+    const docCount = allFiles.filter(f => f.type === 'document').length;
+    const textDocCount = allFiles.filter(f => f.type === 'document' && f.extractedText).length;
+    const urlDocCount = docCount - textDocCount;
+    
+    const hints: string[] = [];
+    if (imageCount > 0) hints.push(`${imageCount} 张图片`);
+    if (textDocCount > 0) hints.push(`${textDocCount} 份文档（已提取文本，见上方标签）`);
+    if (urlDocCount > 0) hints.push(`${urlDocCount} 份文档（以URL形式提供）`);
+    
+    if (hints.length > 0) {
+      userMessage += `\n\n【附件】请分析以上 ${hints.join('、')}。`;
+    }
+    
+    return { systemPrompt, userMessage };
+  };
+
+  try {
+    // 获取文件信息
+    const taskFileInfos: FileInfo[] = [];
+    const sharedFileList = sharedFiles as FileInfo[] | undefined;
+    if (sharedFileList && sharedFileList.length > 0) {
+      taskFileInfos.push(...sharedFileList);
+    }
+    const independentFiles = files as Record<number, FileInfo> | undefined;
+    const independentFile = independentFiles?.[taskNum];
+    if (independentFile) {
+      taskFileInfos.push(independentFile);
+    }
+
+    console.log(`[BatchRoutes] 重做任务${taskNum}：共享文件${sharedFileList?.length || 0}个，独立文件${independentFile ? 1 : 0}个`);
+
+    // 构建消息
+    const { systemPrompt, userMessage } = buildRetryMessageContent(
+      taskNum,
+      roadmap,
+      sharedFileList,
+      independentFile
+    );
+
+    let lastReportedChars = 0;
+
+    // 调用 AI 生成
+    const aiResult = await invokeAIStream(
+      systemPrompt,
+      userMessage,
+      (chars) => {
+        if (chars - lastReportedChars >= 100 || lastReportedChars === 0) {
+          sendSSEEvent(res, "task-progress", {
+            taskNumber: taskNum,
+            chars,
+            timestamp: Date.now(),
+          });
+          lastReportedChars = chars;
+        }
+      },
+      { config, fileInfos: taskFileInfos.length > 0 ? taskFileInfos : undefined }
+    );
+
+    const content = aiResult.content;
+    const isTruncated = aiResult.truncated;
+
+    if (!content || content.length === 0) {
+      throw new Error("AI 返回内容为空");
+    }
+
+    if (isTruncated) {
+      console.log(`[BatchRoutes] ⚠️ 重做任务 ${taskNum} 内容因token上限被截断`);
+    }
+
+    // 发送最终进度
+    if (content.length !== lastReportedChars) {
+      sendSSEEvent(res, "task-progress", {
+        taskNumber: taskNum,
+        chars: content.length,
+        timestamp: Date.now(),
+      });
+    }
+
+    console.log(`[BatchRoutes] 重做任务 ${taskNum} AI 生成完成，内容长度: ${content.length} 字符`);
+
+    // 生成 Word 文档
+    sendSSEEvent(res, "task-progress", {
+      taskNumber: taskNum,
+      chars: content.length,
+      message: "正在生成 Word 文档...",
+      timestamp: Date.now(),
+    });
+
+    let buffer: Buffer;
+    let filename: string;
+    const customName = customFileName as string | undefined;
+
+    // 根据模板类型生成文档（复用现有逻辑）
+    if (templateType === 'word_card') {
+      let cleanContent = content.trim();
+      if (cleanContent.startsWith('```json')) cleanContent = cleanContent.slice(7);
+      else if (cleanContent.startsWith('```')) cleanContent = cleanContent.slice(3);
+      if (cleanContent.endsWith('```')) cleanContent = cleanContent.slice(0, -3);
+      cleanContent = cleanContent.trim();
+      
+      const jsonData = JSON.parse(cleanContent) as WordListData;
+      buffer = await generateWordListDocx(jsonData);
+      if (customName) {
+        filename = `${customName}.docx`;
+      } else {
+        const taskNumStr = taskNum.toString().padStart(2, '0');
+        const prefix = filePrefix.trim() || '任务';
+        filename = `${prefix}${taskNumStr}.docx`;
+      }
+    } else if (templateType === 'writing_material') {
+      let cleanContent = content.trim();
+      if (cleanContent.startsWith('```json')) cleanContent = cleanContent.slice(7);
+      else if (cleanContent.startsWith('```')) cleanContent = cleanContent.slice(3);
+      if (cleanContent.endsWith('```')) cleanContent = cleanContent.slice(0, -3);
+      cleanContent = cleanContent.trim();
+      
+      if (!cleanContent.startsWith('{')) {
+        const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) cleanContent = jsonMatch[1].trim();
+        else {
+          const braceMatch = content.match(/\{[\s\S]*\}/);
+          if (braceMatch) cleanContent = braceMatch[0];
+        }
+      }
+      
+      const jsonData = JSON.parse(cleanContent) as WritingMaterialData;
+      buffer = await generateWritingMaterialDocx(jsonData);
+      if (customName) {
+        filename = `${customName}.docx`;
+      } else {
+        const taskNumStr = taskNum.toString().padStart(2, '0');
+        const prefix = filePrefix.trim() || '任务';
+        filename = `${prefix}${taskNumStr}.docx`;
+      }
+    } else if (templateType === 'markdown_file') {
+      if (customName) {
+        filename = `${customName}.md`;
+      } else {
+        const taskNumStr = taskNum.toString().padStart(2, '0');
+        const prefix = filePrefix.trim() || '任务';
+        filename = `${prefix}${taskNumStr}.md`;
+      }
+      buffer = Buffer.from(content, 'utf-8');
+    } else if (templateType === 'markdown_plain') {
+      const result = await generateBatchDocument(content, taskNum, filePrefix, false, customName);
+      buffer = result.buffer;
+      filename = result.filename;
+    } else if (templateType === 'ai_code') {
+      // AI代码模式
+      const aiCodePrompt = `任务编号: ${taskNum}\n\n${content}`;
+      const outputDir = `/tmp/docx-output-retry-${originalBatchId}-${taskNum}`;
+      
+      sendSSEEvent(res, "task-progress", {
+        taskNumber: taskNum,
+        chars: content.length,
+        message: "AI正在生成代码...",
+        timestamp: Date.now(),
+      });
+      
+      const aiCodeResult = await processAICodeGeneration(
+        aiCodePrompt,
+        {
+          aiConfig: {
+            apiUrl: config.apiUrl,
+            apiKey: config.apiKey,
+            model: config.apiModel,
+            maxTokens: config.maxTokens,
+          },
+          outputDir,
+          maxAttempts: 3,
+          validateStructure: true,
+        },
+        (message) => {
+          sendSSEEvent(res, "task-progress", {
+            taskNumber: taskNum,
+            chars: content.length,
+            message,
+            timestamp: Date.now(),
+          });
+        }
+      );
+      
+      if (!aiCodeResult.success || !aiCodeResult.outputPath) {
+        throw new Error(`AI代码生成失败: ${aiCodeResult.errors.join('; ')}`);
+      }
+      
+      const fs = await import('fs');
+      const pathModule = await import('path');
+      buffer = fs.readFileSync(aiCodeResult.outputPath);
+      
+      const aiGeneratedFilename = pathModule.basename(aiCodeResult.outputPath);
+      const taskNumStr = taskNum.toString().padStart(2, '0');
+      const prefix = filePrefix.trim() || '任务';
+      
+      if (namingMethod === 'prefix') {
+        filename = `${prefix}${taskNumStr}.docx`;
+      } else if (namingMethod === 'custom' && customName) {
+        filename = customName.endsWith('.docx') ? customName : `${customName}.docx`;
+      } else {
+        filename = aiGeneratedFilename === 'output.docx' ? `${prefix}${taskNumStr}.docx` : aiGeneratedFilename;
+      }
+    } else {
+      // 默认模板
+      const result = await generateBatchDocument(content, taskNum, filePrefix, true, customName);
+      buffer = result.buffer;
+      filename = result.filename;
+    }
+
+    // 上传到 Google Drive
+    let uploadUrl: string | undefined;
+    let uploadPath: string | undefined;
+
+    if (batchFolderPath) {
+      sendSSEEvent(res, "task-progress", {
+        taskNumber: taskNum,
+        chars: content.length,
+        message: "正在上传到 Google Drive...",
+        timestamp: Date.now(),
+      });
+
+      console.log(`[BatchRoutes] 重做任务 ${taskNum} 上传到: ${batchFolderPath}/${filename}`);
+
+      const uploadResult = await uploadBinaryToGoogleDrive(buffer, filename, batchFolderPath);
+
+      if (uploadResult.status === 'success') {
+        uploadUrl = uploadResult.url;
+        uploadPath = uploadResult.path;
+        console.log(`[BatchRoutes] 重做任务 ${taskNum} 上传成功`);
+      } else {
+        throw new Error(`上传失败: ${uploadResult.error}`);
+      }
+    }
+
+    // 发送重做完成事件
+    sendSSEEvent(res, "retry-complete", {
+      taskNumber: taskNum,
+      originalBatchId,
+      chars: content.length,
+      filename,
+      url: uploadUrl,
+      path: uploadPath,
+      truncated: isTruncated || false,
+      timestamp: Date.now(),
+    });
+
+    console.log(`[BatchRoutes] 重做任务 ${taskNum} 完成`);
+
+  } catch (error: any) {
+    console.error(`[BatchRoutes] 重做任务 ${taskNum} 失败:`, error.message);
+
+    sendSSEEvent(res, "retry-error", {
+      taskNumber: taskNum,
+      originalBatchId,
+      error: error.message || "重做失败",
+      timestamp: Date.now(),
+    });
+  } finally {
+    res.end();
+  }
+});
+
+// ============================================
 // 文件上传端点
 // ============================================
 
