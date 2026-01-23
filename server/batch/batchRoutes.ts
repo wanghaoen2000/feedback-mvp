@@ -2,7 +2,7 @@
  * 批量处理 SSE 路由
  * 提供批量生成文档的 SSE 端点，支持并发控制、错误重试和停止功能
  */
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
@@ -831,8 +831,22 @@ function isImage(mimeType: string, filename: string): boolean {
 /**
  * POST /api/batch/upload-files
  * 批量上传文件（文档和图片）
+ * 最多支持 100 个文件
  */
-router.post("/upload-files", upload.array("files", 20), async (req: Request, res: Response) => {
+router.post("/upload-files", (req: Request, res: Response, next: NextFunction) => {
+  // 使用自定义错误处理的 multer 中间件
+  upload.array("files", 100)(req, res, (err: any) => {
+    if (err) {
+      console.error("[BatchRoutes] Multer 错误:", err.message);
+      return res.status(400).json({
+        success: false,
+        error: err.message || '文件上传失败',
+        hint: '最多支持 100 个文件，单个文件最大 20MB'
+      });
+    }
+    next();
+  });
+}, async (req: Request, res: Response) => {
   console.log("[BatchRoutes] 收到文件上传请求");
   
   try {

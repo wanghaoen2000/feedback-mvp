@@ -1124,3 +1124,17 @@
 ### 验收
 - [x] pnpm build 无报错
 - [x] git push 成功
+
+
+## V63.6: 修改文件上传数量限制为100个
+
+### 后端改动
+- [x] 把 upload.array("files", 20) 改成 upload.array("files", 100)
+- [x] 添加 multer 错误处理，返回 JSON 格式错误
+
+### 前端改动
+- [x] 在文件上传区域添加“最多支持100个文件”提示
+
+### 验收
+- [x] pnpm build 无报错
+- [ ] git push 成功

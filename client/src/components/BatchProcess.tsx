@@ -1033,6 +1033,7 @@ export function BatchProcess() {
               <FolderOpen className="w-4 h-4" />
               共享文件（发送给所有任务）
             </Label>
+            <p className="text-xs text-gray-500">最多支持 100 个文件，单个文件最大 20MB</p>
             
             {/* 隐藏的文件输入 */}
             <input
@@ -1112,6 +1113,7 @@ export function BatchProcess() {
               <FolderOpen className="w-4 h-4" />
               独立文件（每个任务对应不同文件，按文件名排序）
             </Label>
+            <p className="text-xs text-gray-500">最多支持 100 个文件，单个文件最大 20MB</p>
             
             {/* 隐藏的文件输入 */}
             <input
