@@ -1222,3 +1222,13 @@
 - [x] 返回 SSE 流式响应（retry-start, task-progress, retry-complete, retry-error）
 - [x] pnpm build 无报错
 - [x] git push 成功 (commit: 76091c3)
+
+
+## V64.2 (Step 2): 前端添加重做按钮和参数快照
+
+- [ ] 添加 batchParams 状态保存参数快照
+- [ ] 批量生成开始时保存参数（roadmap, templateType, storagePath, batchId）
+- [ ] 为成功/失败的任务添加重做按钮
+- [ ] 实现 handleRetryTask 函数框架（仅 console.log）
+- [ ] pnpm build 无报错
+- [ ] git push 成功

@@ -21,7 +21,8 @@ import {
   Image,
   Trash2,
   Copy,
-  Check
+  Check,
+  RefreshCw
 } from "lucide-react";
 
 // 任务状态类型
@@ -59,6 +60,31 @@ interface BatchState {
   completed: number;
   failed: number;
   stopped?: boolean;
+}
+
+// 批次参数快照（用于单任务重做）
+interface BatchParams {
+  roadmap: string;
+  templateType: 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material' | 'ai_code';
+  storagePath: string;
+  batchId: string;
+  filePrefix: string;
+  namingMethod: 'prefix' | 'custom' | 'ai_auto';
+  customFileNames?: Record<number, string>;
+  files?: Record<number, {
+    type: 'document' | 'image';
+    url?: string;
+    base64DataUri?: string;
+    mimeType: string;
+    extractedText?: string;
+  }>;
+  sharedFiles?: Array<{
+    type: 'document' | 'image';
+    url?: string;
+    base64DataUri?: string;
+    mimeType: string;
+    extractedText?: string;
+  }>;
 }
 
 // 模板格式说明
@@ -259,6 +285,11 @@ export function BatchProcess() {
   const [isStopping, setIsStopping] = useState(false);
   const [batchState, setBatchState] = useState<BatchState | null>(null);
   const [tasks, setTasks] = useState<Map<number, TaskState>>(new Map());
+  
+  // 批次参数快照（用于单任务重做）
+  const [batchParams, setBatchParams] = useState<BatchParams | null>(null);
+  // 正在重做的任务编号集合
+  const [retryingTasks, setRetryingTasks] = useState<Set<number>>(new Set());
 
   // 判断是否是 AI 代码模式
   const isAiCodeMode = templateType === 'ai_code';
@@ -431,6 +462,18 @@ export function BatchProcess() {
     }
   };
 
+  // 单任务重做
+  const handleRetryTask = useCallback(async (taskNumber: number) => {
+    if (!batchParams) {
+      console.error('[BatchProcess] 无法重做：参数快照不存在');
+      return;
+    }
+    
+    console.log('[BatchProcess] 重做任务:', taskNumber, '参数快照:', batchParams);
+    
+    // TODO: Step 3 实现具体调用逻辑
+  }, [batchParams]);
+
   const handleStart = useCallback(async () => {
     // 验证参数
     const start = parseInt(startNumber);
@@ -551,6 +594,36 @@ export function BatchProcess() {
                   completed: 0,
                   failed: 0,
                 });
+                // 保存参数快照，用于单任务重做
+                setBatchParams({
+                  roadmap: roadmap.trim(),
+                  templateType: templateType,
+                  storagePath: storagePath.trim() || 'Mac(online)/Documents/XDF/批量任务',
+                  batchId: data.batchId,
+                  filePrefix: filePrefix.trim() || '任务',
+                  namingMethod: namingMethod,
+                  customFileNames: namingMethod === 'custom' ? Object.fromEntries(parsedNames) : undefined,
+                  files: uploadedFiles.size > 0 ? Object.fromEntries(
+                    Array.from(uploadedFiles.entries()).map(([taskNum, file]) => [
+                      taskNum,
+                      {
+                        type: file.type,
+                        url: file.url,
+                        base64DataUri: file.base64DataUri,
+                        mimeType: file.mimeType,
+                        extractedText: file.extractedText,
+                      }
+                    ])
+                  ) : undefined,
+                  sharedFiles: sharedFiles.length > 0 ? sharedFiles.map(file => ({
+                    type: file.type,
+                    url: file.url,
+                    base64DataUri: file.base64DataUri,
+                    mimeType: file.mimeType,
+                    extractedText: file.extractedText,
+                  })) : undefined,
+                });
+                console.log('[BatchProcess] 参数快照已保存, batchId:', data.batchId);
               } else if (currentEventType === 'task-start') {
                 setTasks(prev => {
                   const newTasks = new Map(prev);
@@ -684,6 +757,17 @@ export function BatchProcess() {
           >
             <ExternalLink className="w-4 h-4" />
           </a>
+        )}
+        {/* 重做按钮：已完成或失败的任务显示，批量生成过程中不显示 */}
+        {!isGenerating && batchParams && (task.status === 'completed' || task.status === 'error') && (
+          <button
+            onClick={() => handleRetryTask(task.taskNumber)}
+            disabled={retryingTasks.has(task.taskNumber)}
+            className="p-1 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="重做此任务"
+          >
+            <RefreshCw className={`w-4 h-4 ${retryingTasks.has(task.taskNumber) ? 'animate-spin' : ''}`} />
+          </button>
         )}
       </div>
     );
