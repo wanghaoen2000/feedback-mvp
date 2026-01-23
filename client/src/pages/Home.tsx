@@ -1555,6 +1555,7 @@ export default function Home() {
   };
 
   // 单步重试函数
+  // V63.12: 根据 courseType 区分一对一和小班课接口
   const retryStep = useCallback(async (stepIndex: number) => {
     if (isGenerating) return;
     
@@ -1569,97 +1570,362 @@ export default function Home() {
       lessonDate: lessonDate.trim() || undefined,
       currentYear: currentYear.trim() || undefined,
       roadmap: roadmap || undefined,
+      roadmapClass: roadmapClass || undefined,
       driveBasePath: driveBasePath.trim() || undefined,
     };
 
     try {
       let result;
       
-      switch (stepIndex) {
-        case 0: // 学情反馈
-          result = await generateFeedbackMutation.mutateAsync({
-            studentName: studentName.trim(),
-            lessonNumber: lessonNumber.trim(),
-            lastFeedback: lastFeedback.trim(),
-            currentNotes: currentNotes.trim(),
-            transcript: transcript.trim(),
-            isFirstLesson,
-            specialRequirements: specialRequirements.trim(),
-            ...configSnapshot,
-          });
-          setFeedbackContent(result.feedbackContent);
-          setDateStr(result.dateStr);
-          updateStep(0, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
-          break;
+      // V63.12: 根据课程类型调用不同接口
+      if (courseType === 'class') {
+        // ===== 小班课模式 =====
+        const validStudents = attendanceStudents.filter((s: string) => s.trim());
+        
+        switch (stepIndex) {
+          case 0: // 小班课学情反馈 (SSE)
+            updateStep(0, { status: 'running', message: `正在为 ${classNumber} 班重新生成学情反馈...` });
+            
+            const classFeedbackResponse = await fetch('/api/class-feedback-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                classNumber: classNumber.trim(),
+                lessonNumber: lessonNumber.trim(),
+                lessonDate: lessonDate.trim(),
+                attendanceStudents: validStudents,
+                lastFeedback: lastFeedback.trim(),
+                currentNotes: currentNotes.trim(),
+                transcript: transcript.trim(),
+                specialRequirements: specialRequirements.trim(),
+                ...configSnapshot,
+              }),
+            });
+            
+            if (!classFeedbackResponse.ok) {
+              throw new Error(`学情反馈生成失败: HTTP ${classFeedbackResponse.status}`);
+            }
+            
+            // 读取 SSE 流式响应
+            const cfReader = classFeedbackResponse.body?.getReader();
+            if (!cfReader) throw new Error('无法读取响应流');
+            
+            const cfDecoder = new TextDecoder();
+            let cfBuffer = '';
+            let cfFeedbackContent = '';
+            let cfSseError: string | null = null;
+            let cfCurrentEventType = '';
+            const cfContentChunks: string[] = [];
+            
+            while (true) {
+              const { done, value } = await cfReader.read();
+              if (done) break;
+              
+              cfBuffer += cfDecoder.decode(value, { stream: true });
+              const cfLines = cfBuffer.split('\n');
+              cfBuffer = cfLines.pop() || '';
+              
+              for (const line of cfLines) {
+                if (line.startsWith('event: ')) {
+                  cfCurrentEventType = line.slice(7).trim();
+                  continue;
+                }
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (cfCurrentEventType === 'progress' && data.chars) {
+                      updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
+                    } else if (cfCurrentEventType === 'content-chunk' && data.text !== undefined) {
+                      cfContentChunks[data.index] = data.text;
+                    } else if (cfCurrentEventType === 'complete') {
+                      if (data.chunked && cfContentChunks.length > 0) {
+                        cfFeedbackContent = cfContentChunks.join('');
+                      } else if (data.feedback) {
+                        cfFeedbackContent = data.feedback;
+                      }
+                    } else if (cfCurrentEventType === 'error' && data.message) {
+                      cfSseError = data.message;
+                    }
+                  } catch (e) { /* 忽略解析错误 */ }
+                }
+              }
+            }
+            
+            if (cfSseError) throw new Error(cfSseError);
+            if (!cfFeedbackContent) throw new Error('学情反馈生成失败: 未收到内容');
+            
+            // 提取日期
+            let cfExtractedDate = lessonDate.trim();
+            if (!cfExtractedDate) {
+              const dateMatch = cfFeedbackContent.match(/(\d{1,2}月\d{1,2}日?)/);
+              cfExtractedDate = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+            }
+            setDateStr(cfExtractedDate);
+            setFeedbackContent(cfFeedbackContent);
+            
+            // 上传学情反馈
+            const cfUploadResult = await uploadClassFileMutation.mutateAsync({
+              classNumber: classNumber.trim(),
+              dateStr: cfExtractedDate,
+              fileType: 'feedback',
+              content: cfFeedbackContent,
+              driveBasePath: configSnapshot.driveBasePath,
+            });
+            
+            updateStep(0, { status: 'success', message: '生成完成', uploadResult: { fileName: cfUploadResult.fileName, url: cfUploadResult.url, path: cfUploadResult.path } });
+            break;
 
-        case 1: // 复习文档
-          if (!feedbackContent || !dateStr) {
-            throw new Error('请先生成学情反馈');
-          }
-          result = await generateReviewMutation.mutateAsync({
-            studentName: studentName.trim(),
-            dateStr,
-            feedbackContent,
-            ...configSnapshot,
-          });
-          updateStep(1, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
-          break;
+          case 1: // 小班课复习文档 (SSE)
+            if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
+            updateStep(1, { status: 'running', message: '正在重新生成复习文档...' });
+            
+            const classReviewResponse = await fetch('/api/class-review-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                classNumber: classNumber.trim(),
+                lessonNumber: lessonNumber.trim(),
+                lessonDate: dateStr,
+                attendanceStudents: validStudents,
+                currentNotes: currentNotes.trim(),
+                combinedFeedback: feedbackContent,
+                ...configSnapshot,
+              }),
+            });
+            
+            if (!classReviewResponse.ok) throw new Error(`复习文档生成失败: HTTP ${classReviewResponse.status}`);
+            
+            const crReader = classReviewResponse.body?.getReader();
+            if (!crReader) throw new Error('无法读取响应流');
+            
+            const crDecoder = new TextDecoder();
+            let crBuffer = '';
+            let crSseError: string | null = null;
+            let crCurrentEventType = '';
+            let crUploadResult: { fileName: string; url: string; path: string } | null = null;
+            
+            while (true) {
+              const { done, value } = await crReader.read();
+              if (done) break;
+              
+              crBuffer += crDecoder.decode(value, { stream: true });
+              const crLines = crBuffer.split('\n');
+              crBuffer = crLines.pop() || '';
+              
+              for (const line of crLines) {
+                if (line.startsWith('event: ')) {
+                  crCurrentEventType = line.slice(7).trim();
+                  continue;
+                }
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (crCurrentEventType === 'progress' && data.chars) {
+                      updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符` });
+                    } else if (crCurrentEventType === 'complete' && data.uploadResult) {
+                      crUploadResult = data.uploadResult;
+                    } else if (crCurrentEventType === 'error' && data.message) {
+                      crSseError = data.message;
+                    }
+                  } catch (e) { /* 忽略解析错误 */ }
+                }
+              }
+            }
+            
+            if (crSseError) throw new Error(crSseError);
+            if (!crUploadResult) throw new Error('复习文档生成失败：未收到上传结果');
+            
+            updateStep(1, { status: 'success', message: '生成完成', uploadResult: crUploadResult });
+            break;
 
-        case 2: // 测试本
-          if (!feedbackContent || !dateStr) {
-            throw new Error('请先生成学情反馈');
-          }
-          result = await generateTestMutation.mutateAsync({
-            studentName: studentName.trim(),
-            dateStr,
-            feedbackContent,
-            ...configSnapshot,
-          });
-          updateStep(2, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
-          break;
+          case 2: // 小班课测试本 (tRPC)
+            if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
+            updateStep(2, { status: 'running', message: '正在重新生成测试本...' });
+            
+            const classTestResult = await generateClassTestMutation.mutateAsync({
+              classNumber: classNumber.trim(),
+              lessonNumber: lessonNumber.trim(),
+              lessonDate: dateStr,
+              attendanceStudents: validStudents,
+              currentNotes: currentNotes.trim(),
+              combinedFeedback: feedbackContent,
+              ...configSnapshot,
+            });
+            
+            if (!classTestResult.success) throw new Error('测试本生成失败');
+            
+            const classTestUploadResult = await uploadClassFileMutation.mutateAsync({
+              classNumber: classNumber.trim(),
+              dateStr,
+              fileType: 'test',
+              content: classTestResult.content,
+              driveBasePath: configSnapshot.driveBasePath,
+            });
+            
+            updateStep(2, { status: 'success', message: '生成完成', uploadResult: { fileName: classTestUploadResult.fileName, url: classTestUploadResult.url, path: classTestUploadResult.path } });
+            break;
 
-        case 3: // 课后信息提取
-          if (!feedbackContent || !dateStr) {
-            throw new Error('请先生成学情反馈');
-          }
-          result = await generateExtractionMutation.mutateAsync({
-            studentName: studentName.trim(),
-            dateStr,
-            feedbackContent,
-            ...configSnapshot,
-          });
-          updateStep(3, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
-          break;
+          case 3: // 小班课课后信息提取 (tRPC)
+            if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
+            updateStep(3, { status: 'running', message: '正在重新生成课后信息提取...' });
+            
+            const classExtractionResult = await generateClassExtractionMutation.mutateAsync({
+              classNumber: classNumber.trim(),
+              lessonNumber: lessonNumber.trim(),
+              lessonDate: dateStr,
+              attendanceStudents: validStudents,
+              combinedFeedback: feedbackContent,
+              ...configSnapshot,
+            });
+            
+            if (!classExtractionResult.success) throw new Error('课后信息提取生成失败');
+            
+            const classExtractionUploadResult = await uploadClassFileMutation.mutateAsync({
+              classNumber: classNumber.trim(),
+              dateStr,
+              fileType: 'extraction',
+              content: classExtractionResult.content,
+              driveBasePath: configSnapshot.driveBasePath,
+            });
+            
+            updateStep(3, { status: 'success', message: '生成完成', uploadResult: { fileName: classExtractionUploadResult.fileName, url: classExtractionUploadResult.url, path: classExtractionUploadResult.path } });
+            break;
 
-        case 4: // 气泡图
-          if (!feedbackContent || !dateStr) {
-            throw new Error('请先生成学情反馈');
-          }
-          // 步骤5a: 后端生成SVG
-          updateStep(4, { status: 'running', message: '正在生成SVG...' });
-          result = await generateBubbleChartMutation.mutateAsync({
-            studentName: studentName.trim(),
-            dateStr,
-            lessonNumber: lessonNumber.trim(),
-            feedbackContent,
-            ...configSnapshot,
-          });
-          
-          // 步骤5b: 前端转换SVG为PNG
-          updateStep(4, { status: 'running', message: '正在转换并上传...' });
-          const svgContent = result.svgContent;
-          const pngBase64 = await svgToPngBase64(svgContent);
-          
-          // 步骤5c: 上传PNG到Google Drive
-          const uploadResult = await uploadBubbleChartMutation.mutateAsync({
-            studentName: studentName.trim(),
-            dateStr,
-            pngBase64,
-            driveBasePath: configSnapshot.driveBasePath,
-          });
-          
-          updateStep(4, { status: 'success', message: '生成完成', uploadResult: uploadResult.uploadResult });
-          break;
+          case 4: // 小班课气泡图 (多学生并行)
+            if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
+            updateStep(4, { status: 'running', message: `正在为 ${validStudents.length} 个学生重新生成气泡图...` });
+            
+            // 初始化气泡图进度
+            const initialProgress = validStudents.map(name => ({ studentName: name, status: 'running' as const }));
+            setBubbleChartProgress(initialProgress);
+            
+            // V63.12: 复用 Step 3b 的并行逻辑
+            const bubbleResults = await Promise.allSettled(
+              validStudents.map(async (studentName, index) => {
+                try {
+                  const svgResult = await generateClassBubbleChartMutation.mutateAsync({
+                    studentName: studentName,
+                    studentFeedback: feedbackContent,
+                    classNumber: classNumber.trim(),
+                    dateStr,
+                    lessonNumber: lessonNumber.trim(),
+                    ...configSnapshot,
+                  });
+                  
+                  if (!svgResult.success || !svgResult.svg) throw new Error(`${studentName} 气泡图生成失败`);
+                  
+                  const pngBase64 = await svgToPngBase64(svgResult.svg);
+                  
+                  await uploadClassFileMutation.mutateAsync({
+                    classNumber: classNumber.trim(),
+                    dateStr,
+                    fileType: 'bubbleChart',
+                    studentName: studentName,
+                    content: pngBase64,
+                    driveBasePath: configSnapshot.driveBasePath,
+                  });
+                  
+                  setBubbleChartProgress(prev => prev.map((p, idx) => idx === index ? { ...p, status: 'success' } : p));
+                  return { studentName, success: true };
+                } catch (error) {
+                  setBubbleChartProgress(prev => prev.map((p, idx) => idx === index ? { ...p, status: 'error' } : p));
+                  return { studentName, success: false, error: error instanceof Error ? error.message : '未知错误' };
+                }
+              })
+            );
+            
+            const bubbleSuccessCount = bubbleResults.filter(r => r.status === 'fulfilled' && r.value.success).length;
+            updateStep(4, { status: 'success', message: '生成完成', detail: `已生成 ${bubbleSuccessCount}/${validStudents.length} 个气泡图` });
+            break;
+        }
+      } else {
+        // ===== 一对一模式（保持原有逻辑） =====
+        switch (stepIndex) {
+          case 0: // 学情反馈
+            result = await generateFeedbackMutation.mutateAsync({
+              studentName: studentName.trim(),
+              lessonNumber: lessonNumber.trim(),
+              lastFeedback: lastFeedback.trim(),
+              currentNotes: currentNotes.trim(),
+              transcript: transcript.trim(),
+              isFirstLesson,
+              specialRequirements: specialRequirements.trim(),
+              ...configSnapshot,
+            });
+            setFeedbackContent(result.feedbackContent);
+            setDateStr(result.dateStr);
+            updateStep(0, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+            break;
+
+          case 1: // 复习文档
+            if (!feedbackContent || !dateStr) {
+              throw new Error('请先生成学情反馈');
+            }
+            result = await generateReviewMutation.mutateAsync({
+              studentName: studentName.trim(),
+              dateStr,
+              feedbackContent,
+              ...configSnapshot,
+            });
+            updateStep(1, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+            break;
+
+          case 2: // 测试本
+            if (!feedbackContent || !dateStr) {
+              throw new Error('请先生成学情反馈');
+            }
+            result = await generateTestMutation.mutateAsync({
+              studentName: studentName.trim(),
+              dateStr,
+              feedbackContent,
+              ...configSnapshot,
+            });
+            updateStep(2, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+            break;
+
+          case 3: // 课后信息提取
+            if (!feedbackContent || !dateStr) {
+              throw new Error('请先生成学情反馈');
+            }
+            result = await generateExtractionMutation.mutateAsync({
+              studentName: studentName.trim(),
+              dateStr,
+              feedbackContent,
+              ...configSnapshot,
+            });
+            updateStep(3, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+            break;
+
+          case 4: // 气泡图
+            if (!feedbackContent || !dateStr) {
+              throw new Error('请先生成学情反馈');
+            }
+            // 步骤5a: 后端生成SVG
+            updateStep(4, { status: 'running', message: '正在生成SVG...' });
+            result = await generateBubbleChartMutation.mutateAsync({
+              studentName: studentName.trim(),
+              dateStr,
+              lessonNumber: lessonNumber.trim(),
+              feedbackContent,
+              ...configSnapshot,
+            });
+            
+            // 步骤5b: 前端转换SVG为PNG
+            updateStep(4, { status: 'running', message: '正在转换并上传...' });
+            const svgContent = result.svgContent;
+            const pngBase64 = await svgToPngBase64(svgContent);
+            
+            // 步骤5c: 上传PNG到Google Drive
+            const uploadResult = await uploadBubbleChartMutation.mutateAsync({
+              studentName: studentName.trim(),
+              dateStr,
+              pngBase64,
+              driveBasePath: configSnapshot.driveBasePath,
+            });
+            
+            updateStep(4, { status: 'success', message: '生成完成', uploadResult: uploadResult.uploadResult });
+            break;
+        }
       }
 
       // 检查是否所有步骤都成功或跳过
@@ -1707,9 +1973,13 @@ export default function Home() {
   }, [
     isGenerating, steps, feedbackContent, dateStr, studentName, lessonNumber,
     lessonDate, currentYear, lastFeedback, currentNotes, transcript, isFirstLesson, specialRequirements,
-    apiModel, apiKey, apiUrl, updateStep,
+    apiModel, apiKey, apiUrl, roadmap, roadmapClass, driveBasePath, updateStep,
+    // 一对一 mutations
     generateFeedbackMutation, generateReviewMutation, generateTestMutation,
-    generateExtractionMutation, generateBubbleChartMutation
+    generateExtractionMutation, generateBubbleChartMutation, uploadBubbleChartMutation,
+    // V63.12: 小班课 mutations
+    courseType, classNumber, attendanceStudents,
+    generateClassTestMutation, generateClassExtractionMutation, generateClassBubbleChartMutation, uploadClassFileMutation
   ]);
 
   // 跳过步骤函数（仅适用于步骤2-5）

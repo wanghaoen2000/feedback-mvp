@@ -1190,3 +1190,16 @@
 - [x] 一对一模式的进度显示不受影响
 - [x] pnpm build 无报错
 - [x] git push 成功 (commit: 678a984)
+
+
+## V63.12 (Step 4): 修复小班课单步重试bug
+
+- [x] 修改 retryStep 函数，根据 courseType 区分接口
+- [x] 小班课步骤1重试调用 /api/class-feedback-stream
+- [x] 小班课步骤2重试调用 /api/class-review-stream
+- [x] 小班课步骤3重试调用 generateClassTestMutation
+- [x] 小班课步骤4重试调用 generateClassExtractionMutation
+- [x] 小班课步骤5重试为所有学生重新生成气泡图
+- [x] 一对一模式重试功能不受影响
+- [x] pnpm build 无报错
+- [ ] git push 成功
