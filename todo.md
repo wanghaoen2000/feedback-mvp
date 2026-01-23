@@ -1168,4 +1168,4 @@
 - [x] 气泡图步骤内部保持串行（Step 3b 再改）
 - [x] 一对一模式不受影响
 - [x] pnpm build 无报错
-- [ ] git push 成功
+- [x] git push 成功 (commit: 7dfe811)
