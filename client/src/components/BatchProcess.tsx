@@ -471,7 +471,158 @@ export function BatchProcess() {
     
     console.log('[BatchProcess] 重做任务:', taskNumber, '参数快照:', batchParams);
     
-    // TODO: Step 3 实现具体调用逻辑
+    // 1. 设置任务状态为 retrying
+    setRetryingTasks(prev => new Set(prev).add(taskNumber));
+    
+    // 更新任务状态为 running
+    setTasks(prev => {
+      const newTasks = new Map(prev);
+      const task = newTasks.get(taskNumber);
+      if (task) {
+        newTasks.set(taskNumber, {
+          ...task,
+          status: 'running',
+          chars: 0,
+          error: undefined,
+        });
+      }
+      return newTasks;
+    });
+    
+    // 2. 获取该任务的自定义文件名
+    const customFileName = batchParams.customFileNames?.[taskNumber];
+    
+    try {
+      // 3. 调用 SSE 端点
+      const response = await fetch('/api/batch/retry-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskNumber,
+          originalBatchId: batchParams.batchId,
+          roadmap: batchParams.roadmap,
+          templateType: batchParams.templateType,
+          storagePath: batchParams.storagePath,
+          filePrefix: batchParams.filePrefix,
+          namingMethod: batchParams.namingMethod,
+          customFileName,
+          files: batchParams.files,
+          sharedFiles: batchParams.sharedFiles,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`请求失败: HTTP ${response.status}`);
+      }
+
+      // 4. 处理 SSE 流
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('无法读取响应流');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let currentEventType = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEventType = line.slice(7).trim();
+            continue;
+          }
+          
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (currentEventType === 'retry-start') {
+                console.log('[BatchProcess] 重做开始:', data);
+              } else if (currentEventType === 'task-progress') {
+                // 更新字符数
+                setTasks(prev => {
+                  const newTasks = new Map(prev);
+                  const task = newTasks.get(taskNumber);
+                  if (task) {
+                    newTasks.set(taskNumber, {
+                      ...task,
+                      chars: data.chars || task.chars,
+                      message: data.message || task.message,
+                    });
+                  }
+                  return newTasks;
+                });
+              } else if (currentEventType === 'retry-complete') {
+                // 重做成功
+                console.log('[BatchProcess] 重做完成:', data);
+                setTasks(prev => {
+                  const newTasks = new Map(prev);
+                  const task = newTasks.get(taskNumber);
+                  if (task) {
+                    newTasks.set(taskNumber, {
+                      ...task,
+                      status: 'completed',
+                      chars: data.chars || task.chars,
+                      filename: data.filename,
+                      url: data.url,
+                      truncated: data.truncated || false,
+                      error: undefined,
+                    });
+                  }
+                  return newTasks;
+                });
+              } else if (currentEventType === 'retry-error') {
+                // 重做失败
+                console.error('[BatchProcess] 重做失败:', data);
+                setTasks(prev => {
+                  const newTasks = new Map(prev);
+                  const task = newTasks.get(taskNumber);
+                  if (task) {
+                    newTasks.set(taskNumber, {
+                      ...task,
+                      status: 'error',
+                      error: data.error || '重做失败',
+                    });
+                  }
+                  return newTasks;
+                });
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('[BatchProcess] 重做请求失败:', error);
+      // 更新任务状态为失败
+      setTasks(prev => {
+        const newTasks = new Map(prev);
+        const task = newTasks.get(taskNumber);
+        if (task) {
+          newTasks.set(taskNumber, {
+            ...task,
+            status: 'error',
+            error: error.message || '重做失败',
+          });
+        }
+        return newTasks;
+      });
+    } finally {
+      // 5. 移除 retrying 状态
+      setRetryingTasks(prev => {
+        const next = new Set(prev);
+        next.delete(taskNumber);
+        return next;
+      });
+    }
   }, [batchParams]);
 
   const handleStart = useCallback(async () => {

@@ -1232,3 +1232,14 @@
 - [x] 实现 handleRetryTask 函数框架（仅 console.log）
 - [x] pnpm build 无报错
 - [x] git push 成功 (commit: bbf3418)
+
+
+## V64.3 (Step 3): 实现重做功能的 SSE 调用逻辑
+
+- [ ] 完善 handleRetryTask 函数，调用 /api/batch/retry-task 端点
+- [ ] 处理 SSE 事件：retry-start, task-progress, retry-complete, retry-error
+- [ ] 重做过程中更新任务状态和字符数
+- [ ] 重做成功后更新文件链接
+- [ ] 重做失败后显示错误信息
+- [ ] pnpm build 无报错
+- [ ] git push 成功
