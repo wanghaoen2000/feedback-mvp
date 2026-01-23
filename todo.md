@@ -1159,3 +1159,13 @@
 - [x] 失败的任务显示❌和错误信息
 - [x] pnpm build 无报错
 - [x] git push 成功 (commit: 422de22)
+
+
+## V63.9 (Step 3a): 小班课后4文档并行执行
+
+- [x] 修改 runClassGeneration 函数，步骤2-5 从串行改为并行
+- [x] 使用 Promise.allSettled 确保一个失败不影响其他
+- [x] 气泡图步骤内部保持串行（Step 3b 再改）
+- [x] 一对一模式不受影响
+- [x] pnpm build 无报错
+- [ ] git push 成功
