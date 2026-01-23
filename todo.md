@@ -1094,4 +1094,4 @@
 - [x] grep -rn "sk-Wyfa" server/ 返回空
 - [x] grep -rn "sk-wOwJ" server/ 返回空
 - [x] pnpm build 无报错
-- [ ] git push 成功
+- [x] git push 成功
