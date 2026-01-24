@@ -1279,10 +1279,10 @@
 
 ## V64 Step 3: 前端添加超时检测和状态恢复
 
-- [ ] 添加超时检测机制（30秒无事件警告）
-- [ ] 添加 fetchBatchStatus() 状态查询函数
-- [ ] 添加 updateStateFromBatchStatus() 状态恢复函数
-- [ ] 添加 startPolling() 轮询机制
-- [ ] 修改错误处理逻辑：先查询状态再决定是否显示错误
-- [ ] pnpm build 无报错
-- [ ] git push 成功
+- [x] 添加超时检测机制（30秒无事件警告）
+- [x] 添加 fetchBatchStatus() 状态查询函数
+- [x] 添加 updateStateFromBatchStatus() 状态恢复函数
+- [x] 添加 startPolling() 轮询机制
+- [x] 修改错误处理逻辑：先查询状态再决定是否显示错误
+- [x] pnpm build 无报错
+- [x] git push 成功 (commit: 5b52061)
