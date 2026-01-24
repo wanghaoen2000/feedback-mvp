@@ -87,6 +87,27 @@ interface BatchParams {
   }>;
 }
 
+// 批次状态查询响应（用于降级查询）
+interface BatchStatusTask {
+  taskNumber: number;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  fileName?: string;
+  fileUrl?: string;
+  chars?: number;
+  error?: string;
+}
+
+interface BatchStatusResponse {
+  batchId: string;
+  totalTasks: number;
+  completedTasks: number;
+  failedTasks: number;
+  startTime: number;
+  status: 'running' | 'completed' | 'failed' | 'stopped';
+  stopped: boolean;
+  tasks: BatchStatusTask[];
+}
+
 // 模板格式说明
 const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   markdown_styled: `【适用场景】带紫色标题、表头背景色的教学文档
@@ -290,6 +311,10 @@ export function BatchProcess() {
   const [batchParams, setBatchParams] = useState<BatchParams | null>(null);
   // 正在重做的任务编号集合
   const [retryingTasks, setRetryingTasks] = useState<Set<number>>(new Set());
+  // 轮询定时器引用（用于 SSE 断开后的降级查询）
+  const pollingIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  // 当前批次 ID（用于降级查询）
+  const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
 
   // 判断是否是 AI 代码模式
   const isAiCodeMode = templateType === 'ai_code';
@@ -625,6 +650,95 @@ export function BatchProcess() {
     }
   }, [batchParams]);
 
+  // 查询批次状态（用于 SSE 断开后的降级查询）
+  const fetchBatchStatus = useCallback(async (batchId: string): Promise<BatchStatusResponse | null> => {
+    try {
+      const response = await fetch(`/api/batch/status/${batchId}`);
+      const result = await response.json();
+      if (result.success) {
+        return result.data;
+      }
+      return null;
+    } catch (e) {
+      console.error('[BatchProcess] 状态查询失败:', e);
+      return null;
+    }
+  }, []);
+
+  // 根据查询结果更新前端状态
+  const updateStateFromBatchStatus = useCallback((status: BatchStatusResponse) => {
+    // 更新每个任务的状态
+    status.tasks.forEach(task => {
+      setTasks(prev => {
+        const newTasks = new Map(prev);
+        const existingTask = newTasks.get(task.taskNumber);
+        if (existingTask) {
+          newTasks.set(task.taskNumber, {
+            ...existingTask,
+            status: task.status === 'completed' ? 'completed' : 
+                    task.status === 'failed' ? 'error' : 
+                    task.status === 'running' ? 'running' : 'waiting',
+            chars: task.chars || existingTask.chars,
+            filename: task.fileName || existingTask.filename,
+            url: task.fileUrl || existingTask.url,
+            error: task.error,
+          });
+        }
+        return newTasks;
+      });
+    });
+    
+    // 更新批次状态
+    setBatchState(prev => prev ? {
+      ...prev,
+      completed: status.completedTasks,
+      failed: status.failedTasks,
+      stopped: status.stopped,
+    } : null);
+  }, []);
+
+  // 启动轮询机制（用于 SSE 断开后批次仍在运行的情况）
+  const startPolling = useCallback((batchId: string) => {
+    // 清理旧的轮询
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+    
+    console.log('[Polling] 启动轮询, batchId:', batchId);
+    
+    pollingIntervalRef.current = setInterval(async () => {
+      const status = await fetchBatchStatus(batchId);
+      if (!status) {
+        console.error('[Polling] 查询失败，停止轮询');
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+        return;
+      }
+      
+      updateStateFromBatchStatus(status);
+      
+      if (status.status === 'completed' || status.status === 'failed' || status.status === 'stopped') {
+        console.log('[Polling] 批次完成，停止轮询');
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+        setIsGenerating(false);
+      }
+    }, 3000); // 每3秒查询一次
+  }, [fetchBatchStatus, updateStateFromBatchStatus]);
+
+  // 组件卸载时清理轮询
+  React.useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
   const handleStart = useCallback(async () => {
     // 验证参数
     const start = parseInt(startNumber);
@@ -716,9 +830,21 @@ export function BatchProcess() {
       
       // 事件类型在循环外部跟踪（V45b 教训）
       let currentEventType = '';
+      
+      // 超时检测机制
+      let lastEventTime = Date.now();
+      const timeoutChecker = setInterval(() => {
+        const elapsed = Date.now() - lastEventTime;
+        if (elapsed > 30000) { // 30秒无事件
+          console.warn('[SSE] 超过30秒未收到事件，可能连接已断开');
+        }
+      }, 5000); // 每5秒检查一次
 
+      try {
       while (true) {
         const { done, value } = await reader.read();
+        // 更新最后一次收到事件的时间
+        lastEventTime = Date.now();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -784,6 +910,8 @@ export function BatchProcess() {
                   })) : undefined,
                 });
                 console.log('[BatchProcess] 参数快照已保存, batchId:', data.batchId);
+                // 保存当前批次 ID，用于降级查询
+                setCurrentBatchId(data.batchId);
               } else if (currentEventType === 'task-start') {
                 setTasks(prev => {
                   const newTasks = new Map(prev);
@@ -858,17 +986,52 @@ export function BatchProcess() {
 
       // [SSE-DEBUG] SSE 流正常结束
       console.log(`[SSE-DEBUG] SSE 流结束, 时间: ${new Date().toISOString()}`);
+      } finally {
+        // 清理超时检测定时器
+        clearInterval(timeoutChecker);
+      }
 
     } catch (error: any) {
       // [SSE-DEBUG] 连接错误调试日志
       console.error(`[SSE-DEBUG] 连接错误, 时间: ${new Date().toISOString()}, 错误:`, error);
-      console.error('批量处理失败:', error);
+      console.error('批量处理连接异常:', error);
+      
+      // 不要立即显示错误，先尝试查询实际状态
+      if (currentBatchId) {
+        console.log('[SSE] 连接异常，尝试查询批次状态...');
+        const status = await fetchBatchStatus(currentBatchId);
+        
+        if (status) {
+          // 根据查询结果更新状态
+          if (status.status === 'completed' || status.status === 'stopped') {
+            // 批次已完成，更新所有任务状态
+            console.log('[SSE] 批次实际已完成，恢复状态');
+            updateStateFromBatchStatus(status);
+            setIsGenerating(false);
+            setIsStopping(false);
+            return; // 不显示错误
+          } else if (status.status === 'running') {
+            // 批次还在运行，显示提示并启动轮询
+            console.log('[SSE] 批次仍在运行，启动轮询');
+            updateStateFromBatchStatus(status);
+            startPolling(currentBatchId);
+            // 不设置 isGenerating = false，继续显示进度
+            return; // 不显示错误
+          }
+        }
+      }
+      
+      // 查询失败或状态确实有问题，才显示错误提示
       alert(`批量处理失败: ${error.message}`);
+      setIsGenerating(false);
+      setIsStopping(false);
     } finally {
+      // 正常结束时设置状态
+      // 注意：如果在 catch 中 return 了，这里不会执行
       setIsGenerating(false);
       setIsStopping(false);
     }
-  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix, templateType, namingMethod, parsedNames, uploadedFiles, sharedFiles]);
+  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix, templateType, namingMethod, parsedNames, uploadedFiles, sharedFiles, currentBatchId, fetchBatchStatus, updateStateFromBatchStatus, startPolling]);
 
   // 渲染单个任务卡片
   const renderTaskCard = (task: TaskState) => {
