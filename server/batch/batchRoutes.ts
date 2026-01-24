@@ -21,11 +21,35 @@ const router = Router();
 // 最大重试次数
 const MAX_RETRIES = 1;
 
-// 活跃批次管理（用于停止功能）
-const activeBatches = new Map<string, {
+/**
+ * 批次任务状态
+ */
+interface TaskStatus {
+  taskNumber: number;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  fileName?: string;
+  fileUrl?: string;
+  error?: string;
+  chars?: number;
+}
+
+/**
+ * 批次状态（用于状态查询接口）
+ */
+interface BatchStatus {
+  batchId: string;
+  totalTasks: number;
+  completedTasks: number;
+  failedTasks: number;
+  startTime: number;
+  status: 'running' | 'completed' | 'failed' | 'stopped';
+  tasks: TaskStatus[];
   pool: ConcurrencyPool<any>;
   stopped: boolean;
-}>();
+}
+
+// 活跃批次管理（用于停止功能和状态查询）
+const activeBatches = new Map<string, BatchStatus>();
 
 /**
  * 生成批次 ID（格式：YYYYMMDD-HHmmss，使用北京时间 UTC+8）
@@ -92,6 +116,54 @@ router.post("/stop", async (req: Request, res: Response) => {
     success: true, 
     message: "停止信号已发送，等待当前任务完成",
     batchId 
+  });
+});
+
+/**
+ * GET /api/batch/status/:batchId
+ * 查询批次状态（用于前端连接断开后的降级查询）
+ * 
+ * 返回：
+ * - success: 是否成功
+ * - data: 批次状态信息（包括每个任务的状态）
+ * - error: 错误信息（如果批次不存在）
+ */
+router.get("/status/:batchId", async (req: Request, res: Response) => {
+  const { batchId } = req.params;
+
+  if (!batchId) {
+    res.status(400).json({ 
+      success: false, 
+      error: "缺少 batchId 参数" 
+    });
+    return;
+  }
+
+  const batchStatus = activeBatches.get(batchId);
+
+  if (!batchStatus) {
+    // 批次不存在或已结束（超过5分钟）
+    res.json({
+      success: false,
+      error: "批次不存在或已结束",
+      batchId
+    });
+    return;
+  }
+
+  // 返回批次状态（不包含 pool 引用）
+  res.json({
+    success: true,
+    data: {
+      batchId: batchStatus.batchId,
+      totalTasks: batchStatus.totalTasks,
+      completedTasks: batchStatus.completedTasks,
+      failedTasks: batchStatus.failedTasks,
+      startTime: batchStatus.startTime,
+      status: batchStatus.status,
+      stopped: batchStatus.stopped,
+      tasks: batchStatus.tasks,
+    }
   });
 });
 
@@ -175,8 +247,24 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   const pool = new ConcurrencyPool<BatchTaskResult>(concurrencyNum);
   pool.addTasks(taskNumbers);
 
-  // 注册到活跃批次（用于停止功能）
-  activeBatches.set(batchId, { pool, stopped: false });
+  // 初始化任务状态列表
+  const initialTasks: TaskStatus[] = taskNumbers.map(num => ({
+    taskNumber: num,
+    status: 'pending' as const,
+  }));
+
+  // 注册到活跃批次（用于停止功能和状态查询）
+  activeBatches.set(batchId, {
+    batchId,
+    totalTasks,
+    completedTasks: 0,
+    failedTasks: 0,
+    startTime: Date.now(),
+    status: 'running',
+    tasks: initialTasks,
+    pool,
+    stopped: false,
+  });
 
   // 发送批次开始事件
   sendSSEEvent(res, "batch-start", {
@@ -669,6 +757,15 @@ ${roadmapContent}
   ): Promise<BatchTaskResult> => {
     console.log(`[BatchRoutes] 任务 ${taskNumber} 开始执行`);
 
+    // 更新任务状态为 running
+    const batchStatus = activeBatches.get(batchId);
+    if (batchStatus) {
+      const task = batchStatus.tasks.find(t => t.taskNumber === taskNumber);
+      if (task) {
+        task.status = 'running';
+      }
+    }
+
     // 发送任务开始事件
     sendSSEEvent(res, "task-start", {
       taskNumber,
@@ -688,9 +785,22 @@ ${roadmapContent}
 
   // 完成回调
   const onComplete = (taskNumber: number, result: TaskResult<BatchTaskResult>) => {
+    // 获取批次状态
+    const batchStatus = activeBatches.get(batchId);
+    const task = batchStatus?.tasks.find(t => t.taskNumber === taskNumber);
+
     if (result.success && result.result) {
       completedCount++;
       
+      // 更新任务状态为 completed
+      if (batchStatus && task) {
+        task.status = 'completed';
+        task.fileName = result.result.filename;
+        task.fileUrl = result.result.url;
+        task.chars = result.result.content.length;
+        batchStatus.completedTasks = completedCount;
+      }
+
       // 发送任务完成事件
       sendSSEEvent(res, "task-complete", {
         taskNumber,
@@ -706,6 +816,13 @@ ${roadmapContent}
       console.log(`[BatchRoutes] 任务 ${taskNumber} 完成 (${completedCount}/${totalTasks})`);
     } else {
       failedCount++;
+
+      // 更新任务状态为 failed
+      if (batchStatus && task) {
+        task.status = 'failed';
+        task.error = result.error?.message || '未知错误';
+        batchStatus.failedTasks = failedCount;
+      }
 
       // 发送任务错误事件（重试后仍失败）
       sendSSEEvent(res, "task-error", {
@@ -755,8 +872,22 @@ ${roadmapContent}
   } finally {
     // 清理心跳定时器
     clearInterval(heartbeatInterval);
-    // 清理活跃批次
-    activeBatches.delete(batchId);
+    
+    // 更新批次状态为已完成，但延迟5分钟后再删除（让前端有机会查询）
+    const finalBatchStatus = activeBatches.get(batchId);
+    if (finalBatchStatus) {
+      finalBatchStatus.status = finalBatchStatus.stopped ? 'stopped' : 
+        (finalBatchStatus.failedTasks > 0 && finalBatchStatus.completedTasks === 0) ? 'failed' : 'completed';
+      // 移除 pool 引用，减少内存占用
+      finalBatchStatus.pool = null as any;
+    }
+    
+    // 5分钟后清理批次状态
+    setTimeout(() => {
+      activeBatches.delete(batchId);
+      console.log(`[Batch] 清理批次状态: ${batchId}`);
+    }, 5 * 60 * 1000);
+    
     res.end();
   }
 });
