@@ -1258,9 +1258,9 @@
 
 ## V64 Step 1: 添加 SSE 心跳机制
 
-- [ ] 后端: 在 batchRoutes.ts 添加心跳定时器（每15秒）
-- [ ] 后端: 在 sseHelper.ts 添加 safeSendSSEEvent 函数
-- [ ] 前端: 在 BatchProcess.tsx 添加心跳事件忽略
-- [ ] pnpm build 无报错
-- [ ] 测试: 4个任务，并发2，验证心跳发送和接收
-- [ ] git push 成功
+- [x] 后端: 在 batchRoutes.ts 添加心跳定时器（每15秒）
+- [x] 后端: 在 sseHelper.ts 添加 safeSendSSEEvent 函数
+- [x] 前端: 在 BatchProcess.tsx 添加心跳事件忽略
+- [x] pnpm build 无报错
+- [x] 测试: 4个任务，并发2，验证心跳发送和接收 (共收到8次心跳)
+- [x] git push 成功 (commit: 07680da)
