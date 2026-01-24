@@ -862,12 +862,8 @@ export function BatchProcess() {
             try {
               const data = JSON.parse(line.slice(6));
 
-              // [SSE-DEBUG] 调试日志
-              console.log(`[SSE-DEBUG] 收到事件: ${currentEventType}, 数据:`, data);
-
               // 忽略心跳事件，不影响业务逻辑
               if (currentEventType === 'heartbeat') {
-                console.log('[SSE] 收到心跳');
                 continue;
               }
 
@@ -984,16 +980,13 @@ export function BatchProcess() {
         }
       }
 
-      // [SSE-DEBUG] SSE 流正常结束
-      console.log(`[SSE-DEBUG] SSE 流结束, 时间: ${new Date().toISOString()}`);
+
       } finally {
         // 清理超时检测定时器
         clearInterval(timeoutChecker);
       }
 
     } catch (error: any) {
-      // [SSE-DEBUG] 连接错误调试日志
-      console.error(`[SSE-DEBUG] 连接错误, 时间: ${new Date().toISOString()}, 错误:`, error);
       console.error('批量处理连接异常:', error);
       
       // 不要立即显示错误，先尝试查询实际状态

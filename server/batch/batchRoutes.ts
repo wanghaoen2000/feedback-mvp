@@ -300,9 +300,9 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   let completedCount = 0;
   let failedCount = 0;
 
-  // [SSE-DEBUG] 监听连接关闭
+  // 监听连接关闭
   res.on('close', () => {
-    console.log(`[SSE-DEBUG] 连接关闭, 时间: ${new Date().toISOString()}, 已完成任务数: ${completedCount}/${totalTasks}, 失败: ${failedCount}`);
+    console.log(`[SSE] 连接关闭, batchId: ${batchId}, 完成: ${completedCount}/${totalTasks}, 失败: ${failedCount}`);
   });
 
   // 心跳定时器：每15秒发送一次心跳事件，保持连接活跃

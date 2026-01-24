@@ -22,10 +22,6 @@ export function setupSSEHeaders(res: Response): void {
  * @param data 事件数据对象
  */
 export function sendSSEEvent(res: Response, eventType: string, data: any): void {
-  // [SSE-DEBUG] 调试日志
-  const taskId = data.taskNumber ?? data.batchId ?? 'N/A';
-  console.log(`[SSE-DEBUG] 发送事件: ${eventType}, 任务ID: ${taskId}, 时间: ${new Date().toISOString()}`);
-  
   res.write(`event: ${eventType}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
