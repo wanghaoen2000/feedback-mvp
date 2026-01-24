@@ -212,6 +212,24 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   let completedCount = 0;
   let failedCount = 0;
 
+  // [SSE-DEBUG] 监听连接关闭
+  res.on('close', () => {
+    console.log(`[SSE-DEBUG] 连接关闭, 时间: ${new Date().toISOString()}, 已完成任务数: ${completedCount}/${totalTasks}, 失败: ${failedCount}`);
+  });
+
+  // 心跳定时器：每15秒发送一次心跳事件，保持连接活跃
+  const heartbeatInterval = setInterval(() => {
+    try {
+      if (!res.writableEnded) {
+        sendSSEEvent(res, "heartbeat", { timestamp: Date.now() });
+        console.log(`[SSE] 心跳发送, batchId: ${batchId}`);
+      }
+    } catch (e) {
+      console.error('[SSE] 心跳发送失败:', e);
+      clearInterval(heartbeatInterval);
+    }
+  }, 15000); // 每15秒
+
   /**
    * 执行单个任务（带重试）
    */
@@ -735,6 +753,8 @@ ${roadmapContent}
       timestamp: Date.now(),
     });
   } finally {
+    // 清理心跳定时器
+    clearInterval(heartbeatInterval);
     // 清理活跃批次
     activeBatches.delete(batchId);
     res.end();

@@ -22,8 +22,33 @@ export function setupSSEHeaders(res: Response): void {
  * @param data 事件数据对象
  */
 export function sendSSEEvent(res: Response, eventType: string, data: any): void {
+  // [SSE-DEBUG] 调试日志
+  const taskId = data.taskNumber ?? data.batchId ?? 'N/A';
+  console.log(`[SSE-DEBUG] 发送事件: ${eventType}, 任务ID: ${taskId}, 时间: ${new Date().toISOString()}`);
+  
   res.write(`event: ${eventType}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+/**
+ * 安全发送 SSE 事件（带错误处理）
+ * @param res Express Response 对象
+ * @param eventType 事件类型
+ * @param data 事件数据对象
+ * @returns 是否发送成功
+ */
+export function safeSendSSEEvent(res: Response, eventType: string, data: any): boolean {
+  try {
+    if (res.writableEnded) {
+      console.warn(`[SSE] 连接已关闭，无法发送事件: ${eventType}`);
+      return false;
+    }
+    sendSSEEvent(res, eventType, data);
+    return true;
+  } catch (e) {
+    console.error(`[SSE] 发送事件失败: ${eventType}`, e);
+    return false;
+  }
 }
 
 /**

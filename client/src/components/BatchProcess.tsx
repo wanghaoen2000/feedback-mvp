@@ -736,6 +736,15 @@ export function BatchProcess() {
             try {
               const data = JSON.parse(line.slice(6));
 
+              // [SSE-DEBUG] 调试日志
+              console.log(`[SSE-DEBUG] 收到事件: ${currentEventType}, 数据:`, data);
+
+              // 忽略心跳事件，不影响业务逻辑
+              if (currentEventType === 'heartbeat') {
+                console.log('[SSE] 收到心跳');
+                continue;
+              }
+
               // 根据事件类型处理
               if (currentEventType === 'batch-start') {
                 setBatchState({
@@ -847,7 +856,12 @@ export function BatchProcess() {
         }
       }
 
+      // [SSE-DEBUG] SSE 流正常结束
+      console.log(`[SSE-DEBUG] SSE 流结束, 时间: ${new Date().toISOString()}`);
+
     } catch (error: any) {
+      // [SSE-DEBUG] 连接错误调试日志
+      console.error(`[SSE-DEBUG] 连接错误, 时间: ${new Date().toISOString()}, 错误:`, error);
       console.error('批量处理失败:', error);
       alert(`批量处理失败: ${error.message}`);
     } finally {

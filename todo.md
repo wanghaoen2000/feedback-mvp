@@ -1243,3 +1243,24 @@
 - [x] 重做失败后显示错误信息
 - [x] pnpm build 无报错
 - [x] git push 成功 (commit: 3fe2a13)
+
+
+## V64 排查：批量处理 SSE 连接断开问题
+
+- [x] 排查后端 SSE 端点（心跳机制、事件发送、连接关闭处理）
+- [x] 排查前端 SSE 解析（onerror 处理、状态更新、完成判断）
+- [x] 添加调试日志
+- [x] 测试并收集日志
+- [x] 汇总排查结果和修复建议
+
+排查结果见: sse_investigation_report.md
+
+
+## V64 Step 1: 添加 SSE 心跳机制
+
+- [ ] 后端: 在 batchRoutes.ts 添加心跳定时器（每15秒）
+- [ ] 后端: 在 sseHelper.ts 添加 safeSendSSEEvent 函数
+- [ ] 前端: 在 BatchProcess.tsx 添加心跳事件忽略
+- [ ] pnpm build 无报错
+- [ ] 测试: 4个任务，并发2，验证心跳发送和接收
+- [ ] git push 成功
