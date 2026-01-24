@@ -1268,10 +1268,10 @@
 
 ## V64 Step 2: 添加批次状态查询接口（降级方案）
 
-- [ ] 扩展 BatchStatus 接口，存储每个任务的完成状态
-- [ ] 在任务完成时更新 activeBatches 中的任务状态
-- [ ] 新增 GET /api/batch/status/:batchId 接口
-- [ ] 批次完成后延迟5分钟清理状态
-- [ ] pnpm build 无报错
-- [ ] 测试接口返回正确的批次状态
-- [ ] git push 成功
+- [x] 扩展 BatchStatus 接口，存储每个任务的完成状态
+- [x] 在任务完成时更新 activeBatches 中的任务状态
+- [x] 新增 GET /api/batch/status/:batchId 接口
+- [x] 批次完成后延迟5分钟清理状态
+- [x] pnpm build 无报错
+- [x] 测试接口返回正确的批次状态
+- [x] git push 成功 (commit: dd61360)
