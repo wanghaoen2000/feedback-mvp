@@ -1298,3 +1298,27 @@
 - [x] 测试场景1：4个任务，并发2，正常完成 ✅
 - [x] git push 成功 (commit: 19fe578)
 - [x] git tag v64 推送成功
+
+
+## V65 Step 1: 后端新增单任务重做端点
+
+- [x] 阅读 batchRoutes.ts 了解现有任务处理逻辑
+- [x] POST /api/batch/retry-task 端点已存在（V64 中实现）
+- [x] SSE 流式响应已实现（retry-start, task-progress, retry-complete, retry-error）
+- [x] 前端 handleRetryTask 函数已实现
+- [x] 前端重做按钮已添加
+- [x] pnpm build 无报错
+- [x] curl 测试端点能响应（返回 401 需要登录）
+
+ℹ️ 此功能已在 V64 中完整实现，无需重复开发
+
+
+## 指定任务功能 Step 1: 前端新增模式切换
+
+- [x] 新增 taskMode 和 specificTasks state 变量
+- [x] 新增模式切换 UI（Radio 按钮）
+- [x] 条件渲染：连续范围 vs 指定任务输入框
+- [x] 新增 parseSpecificTasks 解析函数
+- [x] 修改提交逻辑，支持 taskNumbers 数组
+- [x] 输入验证：空数组时提示用户
+- [x] pnpm build 无报错
