@@ -642,21 +642,25 @@ ${roadmapContent}
       // AI代码生成模式：AI生成 docx-js 代码，沙箱执行生成 Word
       console.log(`[BatchRoutes] 任务 ${taskNumber} 进入 ai_code 模式`);
       
+      // V66: 发送内容生成完成状态（阶段1/5）
+      sendSSEEvent(res, "task-progress", {
+        taskNumber,
+        chars: content.length,
+        message: "内容生成完成",
+        phase: 'content',
+        phaseIndex: 1,
+        totalPhases: 5,
+        phaseComplete: true,
+        timestamp: Date.now(),
+      });
+      
       // 构建用户提示词（包含任务编号和原始内容）
       const aiCodePrompt = `任务编号: ${taskNumber}\n\n${content}`;
       
       // 创建独立的输出目录
       const outputDir = `/tmp/docx-output-${batchId}-${taskNumber}`;
       
-      // 发送进度：开始AI代码生成
-      sendSSEEvent(res, "task-progress", {
-        taskNumber,
-        chars: content.length,
-        message: "AI正在生成代码...",
-        timestamp: Date.now(),
-      });
-      
-      // 调用AI代码处理器
+      // 调用AI代码处理器（V66: 使用增强的进度回调）
       const aiCodeResult = await processAICodeGeneration(
         aiCodePrompt,
         {
@@ -670,12 +674,20 @@ ${roadmapContent}
           maxAttempts: 3,
           validateStructure: true,
         },
-        (message) => {
-          // 进度回调
+        (progressInfo) => {
+          // V66: 增强的进度回调，透传详细状态
           sendSSEEvent(res, "task-progress", {
             taskNumber,
             chars: content.length,
-            message,
+            message: progressInfo.message,
+            phase: progressInfo.phase,
+            phaseIndex: progressInfo.phaseIndex,
+            totalPhases: progressInfo.totalPhases,
+            attempt: progressInfo.attempt,
+            maxAttempts: progressInfo.maxAttempts,
+            error: progressInfo.error,
+            phaseComplete: progressInfo.phaseComplete,
+            codeLength: progressInfo.codeLength,
             timestamp: Date.now(),
           });
         }
@@ -685,6 +697,14 @@ ${roadmapContent}
       if (!aiCodeResult.success || !aiCodeResult.outputPath) {
         const errorMsg = aiCodeResult.errors.join('; ');
         console.error(`[BatchRoutes] 任务 ${taskNumber} AI代码生成失败:`, errorMsg);
+        // V66: 发送详细的错误信息
+        sendSSEEvent(res, "task-error", {
+          taskNumber,
+          batchId,
+          error: errorMsg,
+          attempts: aiCodeResult.totalAttempts,
+          maxAttempts: 3,
+        });
         throw new Error(`AI代码生成失败 (尝试${aiCodeResult.totalAttempts}次): ${errorMsg}`);
       }
       
@@ -734,12 +754,19 @@ ${roadmapContent}
     let uploadPath: string | undefined;
 
     if (batchFolderPath) {
-      sendSSEEvent(res, "task-progress", {
+      // V66: 对 ai_code 模式添加阶段信息
+      const uploadProgressData: any = {
         taskNumber,
         chars: content.length,
         message: "正在上传到 Google Drive...",
         timestamp: Date.now(),
-      });
+      };
+      if (templateType === 'ai_code') {
+        uploadProgressData.phase = 'upload';
+        uploadProgressData.phaseIndex = 5;
+        uploadProgressData.totalPhases = 5;
+      }
+      sendSSEEvent(res, "task-progress", uploadProgressData);
 
       // 使用预创建的批次文件夹路径（避免并发竞争）
       console.log(`[BatchRoutes] 任务 ${taskNumber} 上传到: ${batchFolderPath}/${filename}`);
