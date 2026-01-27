@@ -15,6 +15,7 @@ import { uploadBinaryToGoogleDrive, ensureFolderExists } from "../gdrive";
 import { ConcurrencyPool, TaskResult } from "../core/concurrencyPool";
 import { parseDocumentToText, isParseableDocument } from "../utils/documentParser";
 import { processAICodeGeneration } from "../core/aiCodeProcessor";
+import { executeInSandbox, cleanOutputDir } from "../core/codeSandbox";
 
 const router = Router();
 
@@ -369,6 +370,82 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   };
 
   /**
+   * V66 Step2: 构建 AI 代码模式的提示词
+   * 直接要求 AI 输出 docx-js 代码，不再先生成内容
+   */
+  const buildCodePrompt = (
+    taskNumber: number,
+    roadmapContent: string,
+    sharedFileList: FileInfo[] | undefined,
+    independentFile: FileInfo | undefined
+  ): string => {
+    const taskNumStr = taskNumber.toString().padStart(2, '0');
+    
+    let prompt = `你是一个专业的 Word 文档生成器。请直接输出 Node.js 代码，使用 docx 库生成 Word 文档。
+
+【任务编号】${taskNumber}
+
+【路书要求】
+${roadmapContent}
+
+`;
+
+    // 添加共享文档内容
+    const sharedDocTexts: string[] = [];
+    if (sharedFileList && sharedFileList.length > 0) {
+      for (const file of sharedFileList) {
+        if (file.type === 'document' && file.extractedText) {
+          sharedDocTexts.push(file.extractedText);
+        }
+      }
+    }
+    if (sharedDocTexts.length > 0) {
+      prompt += `【共享参考内容】
+${sharedDocTexts.join('\n---\n')}
+
+`;
+    }
+
+    // 添加独立文档内容
+    if (independentFile?.type === 'document' && independentFile.extractedText) {
+      prompt += `【本任务专属内容】
+${independentFile.extractedText}
+
+`;
+    }
+
+    prompt += `【代码要求】
+1. docx、fs、path 已作为全局变量注入，直接使用，不要使用 require()
+2. 最后必须调用 Packer.toBuffer(doc) 并写入文件
+3. 文件必须保存到 __outputDir 目录（变量已定义）
+4. 文件名格式：任务${taskNumStr}_[你自定义的名称].docx
+5. 只输出代码，不要输出任何解释或 Markdown 标记
+
+【代码模板】
+// docx、fs、path 已作为全局变量注入，无需 require
+const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, 
+        WidthType, BorderStyle, AlignmentType, HeadingLevel } = docx;
+
+const doc = new Document({
+  sections: [{
+    children: [
+      // 你的文档内容
+    ]
+  }]
+});
+
+// 保存文件（必须）
+Packer.toBuffer(doc).then(buffer => {
+  const fileName = '任务${taskNumStr}_xxx.docx';
+  fs.writeFileSync(path.join(__outputDir, fileName), buffer);
+  console.log('文件已生成:', fileName);
+});
+`;
+
+    return prompt;
+  };
+
+  /**
    * 执行单个任务（核心逻辑）
    */
   /**
@@ -639,84 +716,103 @@ ${roadmapContent}
       filename = result.filename;
       console.log(`[BatchRoutes] 任务 ${taskNumber} 通用文档生成完成: ${filename}`);
     } else if (templateType === 'ai_code') {
-      // AI代码生成模式：AI生成 docx-js 代码，沙箱执行生成 Word
-      console.log(`[BatchRoutes] 任务 ${taskNumber} 进入 ai_code 模式`);
+      // V66 Step2: AI代码生成模式（简化版：单次AI调用，不重试）
+      console.log(`[BatchRoutes] 任务 ${taskNumber} 进入 ai_code 模式（单次调用）`);
       
-      // V66: 发送内容生成完成状态（阶段1/5）
+      // 发送状态：开始生成代码
       sendSSEEvent(res, "task-progress", {
         taskNumber,
-        chars: content.length,
-        message: "内容生成完成",
-        phase: 'content',
+        chars: 0,
+        message: "AI正在生成代码...",
+        phase: 'code',
         phaseIndex: 1,
-        totalPhases: 5,
-        phaseComplete: true,
+        totalPhases: 3,  // 代码生成 → 执行 → 上传
         timestamp: Date.now(),
       });
       
-      // 构建用户提示词（包含任务编号和原始内容）
-      const aiCodePrompt = `任务编号: ${taskNumber}\n\n${content}`;
+      // 构建提示词：直接要求输出 docx-js 代码
+      const codePrompt = buildCodePrompt(taskNumber, roadmap, sharedFileList, independentFile);
+      
+      // 一次 AI 调用，直接生成代码
+      let generatedCode = '';
+      let lastReportedCodeLen = 0;
+      const codeResult = await invokeAIStream(
+        '', // 空的 system prompt，所有内容都在 user message 中
+        codePrompt,
+        (chars) => {
+          // 每增加 500 字符发送一次进度
+          if (chars - lastReportedCodeLen >= 500 || lastReportedCodeLen === 0) {
+            sendSSEEvent(res, "task-progress", {
+              taskNumber,
+              chars: chars,
+              message: `AI生成代码中... ${chars} 字`,
+              phase: 'code',
+              phaseIndex: 1,
+              totalPhases: 3,
+              timestamp: Date.now(),
+            });
+            lastReportedCodeLen = chars;
+          }
+        },
+        { config, maxTokens: config.maxTokens || 16000 }
+      );
+      
+      generatedCode = codeResult.content;
+      console.log(`[BatchRoutes] 任务 ${taskNumber} AI返回代码，长度: ${generatedCode.length} 字符`);
+      
+      // 清理代码（去除 markdown 标记）
+      let cleanedCode = generatedCode.trim();
+      cleanedCode = cleanedCode.replace(/^```(?:javascript|js)?\s*\n?/i, '');
+      cleanedCode = cleanedCode.replace(/\n?```\s*$/i, '');
+      cleanedCode = cleanedCode.trim();
+      
+      // 发送状态：代码生成完成，开始执行
+      sendSSEEvent(res, "task-progress", {
+        taskNumber,
+        chars: cleanedCode.length,
+        message: "代码执行中...",
+        phase: 'execute',
+        phaseIndex: 2,
+        totalPhases: 3,
+        codeLength: cleanedCode.length,
+        timestamp: Date.now(),
+      });
       
       // 创建独立的输出目录
       const outputDir = `/tmp/docx-output-${batchId}-${taskNumber}`;
+      cleanOutputDir(outputDir);
       
-      // 调用AI代码处理器（V66: 使用增强的进度回调）
-      const aiCodeResult = await processAICodeGeneration(
-        aiCodePrompt,
-        {
-          aiConfig: {
-            apiUrl: config.apiUrl,
-            apiKey: config.apiKey,
-            model: config.apiModel,
-            maxTokens: config.maxTokens,
-          },
-          outputDir,
-          maxAttempts: 3,
-          validateStructure: true,
-        },
-        (progressInfo) => {
-          // V66: 增强的进度回调，透传详细状态
-          sendSSEEvent(res, "task-progress", {
-            taskNumber,
-            chars: content.length,
-            message: progressInfo.message,
-            phase: progressInfo.phase,
-            phaseIndex: progressInfo.phaseIndex,
-            totalPhases: progressInfo.totalPhases,
-            attempt: progressInfo.attempt,
-            maxAttempts: progressInfo.maxAttempts,
-            error: progressInfo.error,
-            phaseComplete: progressInfo.phaseComplete,
-            codeLength: progressInfo.codeLength,
-            timestamp: Date.now(),
-          });
-        }
-      );
+      // 沙箱执行代码（不重试）
+      const executeResult = await executeInSandbox(cleanedCode, { outputDir });
       
-      // 检查结果
-      if (!aiCodeResult.success || !aiCodeResult.outputPath) {
-        const errorMsg = aiCodeResult.errors.join('; ');
-        console.error(`[BatchRoutes] 任务 ${taskNumber} AI代码生成失败:`, errorMsg);
-        // V66: 发送详细的错误信息
+      if (!executeResult.success || !executeResult.outputPath) {
+        // 执行失败，直接报错，不重试
+        const errorMsg = executeResult.error 
+          ? `代码执行失败: ${executeResult.error.type} - ${executeResult.error.message}` 
+          : '代码执行失败: 未生成文件';
+        console.error(`[BatchRoutes] 任务 ${taskNumber} ${errorMsg}`);
+        
+        // 发送错误事件
         sendSSEEvent(res, "task-error", {
           taskNumber,
           batchId,
           error: errorMsg,
-          attempts: aiCodeResult.totalAttempts,
-          maxAttempts: 3,
+          codeLength: cleanedCode.length,
+          errorDetail: executeResult.error,
+          timestamp: Date.now(),
         });
-        throw new Error(`AI代码生成失败 (尝试${aiCodeResult.totalAttempts}次): ${errorMsg}`);
+        throw new Error(errorMsg);
       }
       
-      console.log(`[BatchRoutes] 任务 ${taskNumber} AI代码生成成功，尝试次数: ${aiCodeResult.totalAttempts}`);
+      console.log(`[BatchRoutes] 任务 ${taskNumber} 代码执行成功，文件: ${executeResult.outputPath}`);
       
       // 读取生成的文件
-      const fs = await import('fs');
+      const fsModule = await import('fs');
       const pathModule = await import('path');
-      buffer = fs.readFileSync(aiCodeResult.outputPath);
+      buffer = fsModule.readFileSync(executeResult.outputPath);
       
       // AI代码模式：根据 namingMethod 决定文件名
-      const aiGeneratedFilename = pathModule.basename(aiCodeResult.outputPath);
+      const aiGeneratedFilename = pathModule.basename(executeResult.outputPath);
       const taskNumStr = taskNumber.toString().padStart(2, '0');
       const prefix = filePrefix.trim() || '任务';
       
@@ -740,7 +836,7 @@ ${roadmapContent}
         }
       }
       
-      console.log(`[BatchRoutes] 任务 ${taskNumber} AI代码模式完成: ${filename}, 耗时: ${aiCodeResult.executionTime}ms`);
+      console.log(`[BatchRoutes] 任务 ${taskNumber} AI代码模式完成: ${filename}, 代码长度: ${cleanedCode.length} 字符`);
     } else {
       // 默认模板（markdown_styled）：教学材料（带样式）
       const result = await generateBatchDocument(content, taskNumber, filePrefix, true, customName);
