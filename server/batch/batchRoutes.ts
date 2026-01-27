@@ -769,12 +769,21 @@ ${roadmapContent}
       
       generatedCode = codeResult.content;
       console.log(`[BatchRoutes] 任务 ${taskNumber} AI返回代码，长度: ${generatedCode.length} 字符`);
+      console.log('[AI_CODE_DEBUG] AI 返回的完整代码:');
+      console.log('========== 代码开始 ==========');
+      console.log(generatedCode);
+      console.log('========== 代码结束 ==========');
       
       // 清理代码（去除 markdown 标记）
       let cleanedCode = generatedCode.trim();
       cleanedCode = cleanedCode.replace(/^```(?:javascript|js)?\s*\n?/i, '');
       cleanedCode = cleanedCode.replace(/\n?```\s*$/i, '');
       cleanedCode = cleanedCode.trim();
+      
+      console.log('[AI_CODE_DEBUG] 清理后的代码:');
+      console.log('========== 清理后代码开始 ==========');
+      console.log(cleanedCode);
+      console.log('========== 清理后代码结束 ==========');
       
       // 发送状态：代码生成完成，开始执行
       sendSSEEvent(res, "task-progress", {
