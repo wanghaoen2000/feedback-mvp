@@ -1322,3 +1322,11 @@
 - [x] 修改提交逻辑，支持 taskNumbers 数组
 - [x] 输入验证：空数组时提示用户
 - [x] pnpm build 无报错
+
+
+## 指定任务功能 Step 2: 后端支持 taskNumbers 数组
+
+- [ ] 修改 req.body 解构，新增 taskNumbers 参数
+- [ ] 修改任务列表生成逻辑，兼容两种模式
+- [ ] pnpm build 无报错
+- [ ] git push 成功

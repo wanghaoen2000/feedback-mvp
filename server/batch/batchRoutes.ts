@@ -182,6 +182,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   const { 
     startNumber, 
     endNumber, 
+    taskNumbers: inputTaskNumbers,  // 新增：可选的任务编号数组
     concurrency = 5, 
     roadmap, 
     storagePath,
@@ -194,34 +195,46 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   } = req.body;
 
   // 参数验证
-  if (startNumber === undefined || startNumber === null) {
-    res.status(400).json({ error: "缺少 startNumber 参数" });
-    return;
-  }
-
-  if (endNumber === undefined || endNumber === null) {
-    res.status(400).json({ error: "缺少 endNumber 参数" });
-    return;
-  }
-
   if (!roadmap || typeof roadmap !== "string") {
     res.status(400).json({ error: "缺少 roadmap 参数或格式错误" });
     return;
   }
 
-  const start = Number(startNumber);
-  const end = Number(endNumber);
   const concurrencyNum = Math.max(1, Math.min(40, Number(concurrency) || 5));
 
-  if (isNaN(start) || isNaN(end) || start > end) {
-    res.status(400).json({ error: "任务编号范围无效" });
-    return;
-  }
-
-  // 生成任务编号列表
-  const taskNumbers: number[] = [];
-  for (let i = start; i <= end; i++) {
-    taskNumbers.push(i);
+  // 生成任务编号列表：支持两种模式
+  let taskNumbers: number[];
+  
+  if (inputTaskNumbers && Array.isArray(inputTaskNumbers) && inputTaskNumbers.length > 0) {
+    // 指定任务模式：直接使用前端传来的数组
+    taskNumbers = inputTaskNumbers.filter((n: unknown) => typeof n === 'number' && n > 0);
+    if (taskNumbers.length === 0) {
+      res.status(400).json({ error: "任务编号数组无效" });
+      return;
+    }
+  } else {
+    // 连续范围模式：用 startNumber/endNumber 生成
+    if (startNumber === undefined || startNumber === null) {
+      res.status(400).json({ error: "缺少 startNumber 参数" });
+      return;
+    }
+    if (endNumber === undefined || endNumber === null) {
+      res.status(400).json({ error: "缺少 endNumber 参数" });
+      return;
+    }
+    
+    const start = Number(startNumber);
+    const end = Number(endNumber);
+    
+    if (isNaN(start) || isNaN(end) || start > end) {
+      res.status(400).json({ error: "任务编号范围无效" });
+      return;
+    }
+    
+    taskNumbers = [];
+    for (let i = start; i <= end; i++) {
+      taskNumbers.push(i);
+    }
   }
 
   const totalTasks = taskNumbers.length;
