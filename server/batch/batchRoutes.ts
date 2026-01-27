@@ -539,18 +539,27 @@ ${roadmapContent}
     // 日志输出
     console.log(`[BatchRoutes] 任务${taskNumber}：共享文件${sharedFileList?.length || 0}个，独立文件${independentFile ? 1 : 0}个，共${taskFileInfos.length}个`);
     
-    // 使用 buildMessageContent 构建带来源标签的消息
-    const { systemPrompt, userMessage } = buildMessageContent(
-      taskNumber,
-      roadmap,
-      sharedFileList,
-      independentFile
-    );
+    // V67: ai_code 模式跳过通用 AI 调用，直接在 ai_code 分支内部调用
+    let content = '';
+    let isTruncated = false;
+    
+    if (templateType === 'ai_code') {
+      // ai_code 模式：跳过通用 AI 调用
+      // 后面的 ai_code 分支会自己调用 AI 生成代码
+      console.log(`[BatchRoutes] 任务 ${taskNumber} 是 ai_code 模式，跳过通用 AI 调用`);
+    } else {
+      // 其他模式：正常调用 AI 生成内容
+      // 使用 buildMessageContent 构建带来源标签的消息
+      const { systemPrompt, userMessage } = buildMessageContent(
+        taskNumber,
+        roadmap,
+        sharedFileList,
+        independentFile
+      );
 
+      let lastReportedChars = 0;
 
-    let lastReportedChars = 0;
-
-    const aiResult = await invokeAIStream(
+      const aiResult = await invokeAIStream(
       systemPrompt,
       userMessage,
       (chars) => {
@@ -567,40 +576,41 @@ ${roadmapContent}
           lastReportedChars = chars;
         }
       },
-      { config, fileInfos: taskFileInfos.length > 0 ? taskFileInfos : undefined }  // 传递多文件信息
-    );
-    
-    const content = aiResult.content;
-    const isTruncated = aiResult.truncated;
+        { config, fileInfos: taskFileInfos.length > 0 ? taskFileInfos : undefined }  // 传递多文件信息
+      );
+      
+      content = aiResult.content;
+      isTruncated = aiResult.truncated;
 
-    // 检查内容是否有效
-    if (!content || content.length === 0) {
-      throw new Error("AI 返回内容为空");
-    }
-    
-    // 如果内容被截断，记录警告
-    if (isTruncated) {
-      console.log(`[BatchRoutes] ⚠️ 任务 ${taskNumber} 内容因token上限被截断，stop_reason: ${aiResult.stopReason}`);
-    }
+      // 检查内容是否有效
+      if (!content || content.length === 0) {
+        throw new Error("AI 返回内容为空");
+      }
+      
+      // 如果内容被截断，记录警告
+      if (isTruncated) {
+        console.log(`[BatchRoutes] ⚠️ 任务 ${taskNumber} 内容因token上限被截断，stop_reason: ${aiResult.stopReason}`);
+      }
 
-    // 发送最终进度
-    if (content.length !== lastReportedChars) {
+      // 发送最终进度
+      if (content.length !== lastReportedChars) {
+        sendSSEEvent(res, "task-progress", {
+          taskNumber,
+          chars: content.length,
+          timestamp: Date.now(),
+        });
+      }
+
+      console.log(`[BatchRoutes] 任务 ${taskNumber} AI 生成完成，内容长度: ${content.length} 字符`);
+
+      // 生成 Word 文档
       sendSSEEvent(res, "task-progress", {
         taskNumber,
         chars: content.length,
+        message: "正在生成 Word 文档...",
         timestamp: Date.now(),
       });
     }
-
-    console.log(`[BatchRoutes] 任务 ${taskNumber} AI 生成完成，内容长度: ${content.length} 字符`);
-
-    // 生成 Word 文档
-    sendSSEEvent(res, "task-progress", {
-      taskNumber,
-      chars: content.length,
-      message: "正在生成 Word 文档...",
-      timestamp: Date.now(),
-    });
 
     let buffer: Buffer;
     let filename: string;
