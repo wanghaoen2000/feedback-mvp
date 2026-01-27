@@ -108,7 +108,7 @@ export async function invokeWhatAI(
   const max_tokens = options?.max_tokens || 32000;
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
-  const maxRetries = options?.retries ?? 2; // 默认重试2次
+  const maxRetries = options?.retries ?? 0; // V67: 禁用重试，默认为0
 
   console.log(`[WhatAI] 调用模型: ${model}`);
   console.log(`[WhatAI] API地址: ${baseUrl}`);
@@ -207,7 +207,7 @@ export async function invokeWhatAIStream(
   const max_tokens = options?.max_tokens || 32000;
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
-  const maxRetries = options?.retries ?? 2;
+  const maxRetries = options?.retries ?? 0;  // V67: 禁用重试，默认为0
 
   console.log(`[WhatAI流式] 调用模型: ${model}`);
   console.log(`[WhatAI流式] API地址: ${baseUrl}`);

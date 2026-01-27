@@ -19,8 +19,8 @@ import { executeInSandbox, cleanOutputDir } from "../core/codeSandbox";
 
 const router = Router();
 
-// 最大重试次数
-const MAX_RETRIES = 1;
+// 最大重试次数（V67: 禁用重试，设为0）
+const MAX_RETRIES = 0;
 
 /**
  * 批次任务状态

@@ -128,7 +128,7 @@ export async function invokeAIStream(
   const maxTokens = options?.maxTokens || config.maxTokens || 64000;
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
-  const maxRetries = options?.retries ?? 2;
+  const maxRetries = options?.retries ?? 0;  // V67: 禁用重试，默认为0
   
   // 兼容单文件和多文件
   const fileInfos = options?.fileInfos || (options?.fileInfo ? [options.fileInfo] : []);
