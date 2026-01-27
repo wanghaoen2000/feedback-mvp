@@ -242,7 +242,9 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
 
   console.log(`[BatchRoutes] 开始批量处理`);
   console.log(`[BatchRoutes] 批次 ID: ${batchId}`);
-  console.log(`[BatchRoutes] 任务范围: ${start} - ${end} (共 ${totalTasks} 个)`);
+  const firstTask = taskNumbers[0];
+  const lastTask = taskNumbers[taskNumbers.length - 1];
+  console.log(`[BatchRoutes] 任务范围: ${firstTask} - ${lastTask} (共 ${totalTasks} 个)`);
   console.log(`[BatchRoutes] 并发数: ${concurrencyNum}`);
   console.log(`[BatchRoutes] 模板类型: ${templateType}`);
   console.log(`[BatchRoutes] 路书长度: ${roadmap.length} 字符`);
@@ -284,8 +286,8 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     batchId,
     totalTasks,
     concurrency: concurrencyNum,
-    startNumber: start,
-    endNumber: end,
+    startNumber: firstTask,
+    endNumber: lastTask,
     timestamp: Date.now(),
   });
 
