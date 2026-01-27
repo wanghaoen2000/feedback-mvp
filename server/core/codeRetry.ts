@@ -43,7 +43,7 @@ export async function executeWithRetry(
   config: RetryConfig = {}
 ): Promise<RetryResult> {
   const startTime = Date.now();
-  const maxAttempts = config.maxAttempts || 3;
+  const maxAttempts = config.maxAttempts || 1;  // V67: 禁用重试，默认只尝试1次
   const errors: string[] = [];
   
   let currentCode = initialCode;

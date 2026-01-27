@@ -338,7 +338,7 @@ export async function invokeWhatAISimple(
     model: config?.apiModel || MODELS.HAIKU,
     max_tokens: max_tokens || 32000,
     timeout: 180000, // 简单任务3分钟超时
-    retries: 1,
+    retries: 0,  // V67: 禁用重试
   }, config);
 }
 
@@ -354,6 +354,6 @@ export async function invokeWhatAIComplex(
     model: config?.apiModel || MODELS.DEFAULT,
     max_tokens: max_tokens || 32000,
     timeout: 600000, // 复杂任务10分钟超时
-    retries: 2,
+    retries: 0,  // V67: 禁用重试
   }, config);
 }

@@ -101,7 +101,7 @@ export async function processAICodeGeneration(
 ): Promise<ProcessResult> {
   const startTime = Date.now();
   const outputDir = config.outputDir || '/tmp/docx-output';
-  const maxAttempts = config.maxAttempts || 3;
+  const maxAttempts = config.maxAttempts || 1;  // V67: 禁用重试，默认只尝试1次
   const validateStructure = config.validateStructure ?? true;
 
   // 清理输出目录
