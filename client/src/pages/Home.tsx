@@ -530,6 +530,7 @@ export default function Home() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
+              console.log('[SSE-CLIENT] 收到事件:', currentEventType, data);
               if (currentEventType === 'progress' && data.chars) {
                 const progressMsg = data.message || `正在生成学情反馈... 已生成 ${data.chars} 字符`;
                 updateStep(0, { status: 'running', message: progressMsg });

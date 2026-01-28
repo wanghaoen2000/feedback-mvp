@@ -151,10 +151,8 @@ export function registerClassStreamRoutes(app: Express): void {
     const sendEvent = (event: string, data: any) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
-      // V68.2: 强制刷新缓冲区，确保数据立即发送
-      if (typeof (res as any).flush === 'function') {
-        (res as any).flush();
-      }
+      // V68.3: 强制刷新 - 写入 2KB 的注释填充数据，强制触发缓冲区刷新
+      res.write(`: ${'x'.repeat(2048)}\n\n`);
     };
     
     // 创建日志会话
@@ -261,6 +259,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
           // 每秒最多发送一次进度更新，避免过于频繁
           const now = Date.now();
           if (now - lastProgressTime >= 1000) {
+            console.log('[SSE-SERVER] 发送 progress 事件, chars:', charCount);
             sendEvent("progress", { chars: charCount });
             lastProgressTime = now;
           }
@@ -365,10 +364,8 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
     const sendEvent = (event: string, data: any) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
-      // V68.2: 强制刷新缓冲区，确保数据立即发送
-      if (typeof (res as any).flush === 'function') {
-        (res as any).flush();
-      }
+      // V68.3: 强制刷新 - 写入 2KB 的注释填充数据，强制触发缓冲区刷新
+      res.write(`: ${'x'.repeat(2048)}\n\n`);
     };
     
     // 创建日志会话
@@ -467,6 +464,7 @@ ${input.transcript}
           // 每秒最多发送一次进度更新，避免过于频繁
           const now = Date.now();
           if (now - lastProgressTime >= 1000) {
+            console.log('[SSE-SERVER] 发送 progress 事件, chars:', charCount);
             sendEvent("progress", { chars: charCount });
             lastProgressTime = now;
           }
@@ -629,10 +627,8 @@ ${input.transcript}
     const sendEvent = (event: string, data: any) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
-      // V68.2: 强制刷新缓冲区，确保数据立即发送
-      if (typeof (res as any).flush === 'function') {
-        (res as any).flush();
-      }
+      // V68.3: 强制刷新 - 写入 2KB 的注释填充数据，强制触发缓冲区刷新
+      res.write(`: ${'x'.repeat(2048)}\n\n`);
     };
     
     // 创建日志会话
@@ -825,10 +821,8 @@ ${input.feedbackContent}
     const sendEvent = (event: string, data: any) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
-      // V68.2: 强制刷新缓冲区，确保数据立即发送
-      if (typeof (res as any).flush === 'function') {
-        (res as any).flush();
-      }
+      // V68.3: 强制刷新 - 写入 2KB 的注释填充数据，强制触发缓冲区刷新
+      res.write(`: ${'x'.repeat(2048)}\n\n`);
     };
     
     // 创建日志会话

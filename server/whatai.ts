@@ -294,6 +294,7 @@ export async function invokeWhatAIStream(
               const content = parsed.choices?.[0]?.delta?.content || '';
               if (content) {
                 fullContent += content;
+                console.log('[AI-CHUNK] 收到 chunk, 长度:', content.length, '当前总长度:', fullContent.length);
                 if (onChunk) {
                   onChunk(content);
                 }
