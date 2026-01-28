@@ -151,6 +151,10 @@ export function registerClassStreamRoutes(app: Express): void {
     const sendEvent = (event: string, data: any) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
+      // V68.2: 强制刷新缓冲区，确保数据立即发送
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
     };
     
     // 创建日志会话
@@ -361,6 +365,10 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
     const sendEvent = (event: string, data: any) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
+      // V68.2: 强制刷新缓冲区，确保数据立即发送
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
     };
     
     // 创建日志会话
@@ -621,6 +629,10 @@ ${input.transcript}
     const sendEvent = (event: string, data: any) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
+      // V68.2: 强制刷新缓冲区，确保数据立即发送
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
     };
     
     // 创建日志会话
@@ -813,6 +825,10 @@ ${input.feedbackContent}
     const sendEvent = (event: string, data: any) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
+      // V68.2: 强制刷新缓冲区，确保数据立即发送
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
     };
     
     // 创建日志会话
