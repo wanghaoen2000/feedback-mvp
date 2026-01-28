@@ -537,12 +537,22 @@ export default function Home() {
                 // 分块内容
                 contentChunks[data.index] = data.text;
               } else if (currentEventType === 'complete') {
-                // 完成事件
-                if (data.chunked && contentChunks.length > 0) {
-                  // 从分块拼接内容
-                  feedbackContent = contentChunks.join('');
+                // 完成事件 (V68: 添加防御性检查)
+                if (data.chunked) {
+                  if (contentChunks.length > 0) {
+                    // 从分块拼接内容
+                    feedbackContent = contentChunks.join('');
+                    console.log('[SSE] 从分块拼接内容，长度:', feedbackContent.length);
+                  } else {
+                    // 分块模式但没收到分块内容
+                    console.error('[SSE] 分块模式但未收到分块内容，chunked:', data.chunked);
+                    sseError = '内容传输不完整，请重试';
+                  }
                 } else if (data.feedback) {
                   feedbackContent = data.feedback;
+                } else {
+                  console.error('[SSE] complete 事件既没有 chunks 也没有 feedback');
+                  sseError = '未收到生成内容，请重试';
                 }
                 // 从 complete 事件中获取日期和上传结果
                 if (data.dateStr) {
@@ -1018,12 +1028,22 @@ export default function Home() {
                 // 分块内容
                 contentChunks[data.index] = data.text;
               } else if (currentEventType === 'complete') {
-                // 完成事件
-                if (data.chunked && contentChunks.length > 0) {
-                  // 从分块拼接内容
-                  feedbackContent = contentChunks.join('');
+                // 完成事件 (V68: 添加防御性检查)
+                if (data.chunked) {
+                  if (contentChunks.length > 0) {
+                    // 从分块拼接内容
+                    feedbackContent = contentChunks.join('');
+                    console.log('[SSE] 从分块拼接内容，长度:', feedbackContent.length);
+                  } else {
+                    // 分块模式但没收到分块内容
+                    console.error('[SSE] 分块模式但未收到分块内容，chunked:', data.chunked);
+                    sseError = '内容传输不完整，请重试';
+                  }
                 } else if (data.feedback) {
                   feedbackContent = data.feedback;
+                } else {
+                  console.error('[SSE] complete 事件既没有 chunks 也没有 feedback');
+                  sseError = '未收到生成内容，请重试';
                 }
               } else if (currentEventType === 'error' && data.message) {
                 // 错误事件

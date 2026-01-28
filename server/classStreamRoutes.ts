@@ -273,8 +273,8 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       endLogSession(log);
       
       // 发送完成事件
-      // 如果内容超过 15000 字符，分块发送避免 SSE 数据包过大
-      const CHUNK_SIZE = 15000;
+      // 如果内容超过 50000 字符，分块发送避免 SSE 数据包过大（V68: 增大阈值减少分块触发）
+      const CHUNK_SIZE = 50000;
       if (cleanedContent.length > CHUNK_SIZE) {
         const totalChunks = Math.ceil(cleanedContent.length / CHUNK_SIZE);
         for (let i = 0; i < totalChunks; i++) {
@@ -502,8 +502,8 @@ ${input.transcript}
       endLogSession(log);
       
       // 发送完成事件
-      // 如果内容超过 15000 字符，分块发送避免 SSE 数据包过大
-      const CHUNK_SIZE = 15000;
+      // 如果内容超过 50000 字符，分块发送避免 SSE 数据包过大（V68: 增大阈值减少分块触发）
+      const CHUNK_SIZE = 50000;
       if (cleanedContent.length > CHUNK_SIZE) {
         const totalChunks = Math.ceil(cleanedContent.length / CHUNK_SIZE);
         for (let i = 0; i < totalChunks; i++) {
