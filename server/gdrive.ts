@@ -143,10 +143,9 @@ async function uploadFileWithOAuth(
 /**
  * 带重试机制的上传函数
  */
-// V67: 禁用重试，maxRetries 默认为1（只尝试一次）
 async function uploadWithRetry<T>(
   uploadFn: () => Promise<T>,
-  maxRetries: number = 1,
+  maxRetries: number = 3,
   retryDelay: number = 2000,
   onRetry?: (attempt: number, error: Error) => void
 ): Promise<T> {
@@ -181,7 +180,7 @@ export async function uploadToGoogleDrive(
   fileName: string,
   folderPath: string,
   onStatus?: (status: UploadStatus) => void,
-  maxRetries: number = 1  // V67: 禁用重试，默认为1
+  maxRetries: number = 3
 ): Promise<UploadStatus> {
   const status: UploadStatus = {
     fileName,
@@ -300,7 +299,7 @@ export async function uploadBinaryToGoogleDrive(
   fileName: string,
   folderPath: string,
   onStatus?: (status: UploadStatus) => void,
-  maxRetries: number = 1  // V67: 禁用重试，默认为1
+  maxRetries: number = 3
 ): Promise<UploadStatus> {
   const status: UploadStatus = {
     fileName,

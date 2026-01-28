@@ -108,7 +108,7 @@ export async function invokeWhatAI(
   const max_tokens = options?.max_tokens || 32000;
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
-  const maxRetries = options?.retries ?? 0; // V67: 禁用重试，默认为0
+  const maxRetries = options?.retries ?? 2; // 默认重试2次
 
   console.log(`[WhatAI] 调用模型: ${model}`);
   console.log(`[WhatAI] API地址: ${baseUrl}`);
@@ -207,7 +207,7 @@ export async function invokeWhatAIStream(
   const max_tokens = options?.max_tokens || 32000;
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
-  const maxRetries = options?.retries ?? 0;  // V67: 禁用重试，默认为0
+  const maxRetries = options?.retries ?? 2;
 
   console.log(`[WhatAI流式] 调用模型: ${model}`);
   console.log(`[WhatAI流式] API地址: ${baseUrl}`);
@@ -294,7 +294,6 @@ export async function invokeWhatAIStream(
               const content = parsed.choices?.[0]?.delta?.content || '';
               if (content) {
                 fullContent += content;
-                console.log('[AI-CHUNK] 收到 chunk, 长度:', content.length, '当前总长度:', fullContent.length);
                 if (onChunk) {
                   onChunk(content);
                 }
@@ -339,7 +338,7 @@ export async function invokeWhatAISimple(
     model: config?.apiModel || MODELS.HAIKU,
     max_tokens: max_tokens || 32000,
     timeout: 180000, // 简单任务3分钟超时
-    retries: 0,  // V67: 禁用重试
+    retries: 1,
   }, config);
 }
 
@@ -355,6 +354,6 @@ export async function invokeWhatAIComplex(
     model: config?.apiModel || MODELS.DEFAULT,
     max_tokens: max_tokens || 32000,
     timeout: 600000, // 复杂任务10分钟超时
-    retries: 0,  // V67: 禁用重试
+    retries: 2,
   }, config);
 }

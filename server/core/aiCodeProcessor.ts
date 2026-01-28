@@ -31,19 +31,6 @@ export interface ProcessResult {
   executionTime: number;        // 总耗时
 }
 
-// 进度信息类型（V66新增）
-export interface ProgressInfo {
-  message: string;              // 可读消息
-  phase: 'code' | 'execute' | 'validate';  // 当前阶段
-  phaseIndex: number;           // 阶段序号 (2-4，1是内容生成，5是上传，由调用方处理)
-  totalPhases: number;          // 总阶段数 (5)
-  attempt?: number;             // 当前尝试次数
-  maxAttempts?: number;         // 最大尝试次数
-  error?: string;               // 错误信息（如果有）
-  phaseComplete?: boolean;      // 当前阶段是否完成
-  codeLength?: number;          // 代码长度（代码生成阶段）
-}
-
 // AI代码生成的系统提示词
 const AI_CODE_SYSTEM_PROMPT = `你是一个专业的 JavaScript/docx-js 代码专家。
 用户会给你一个文档生成需求，你需要编写 docx-js 代码来生成 Word 文档。
@@ -92,60 +79,36 @@ Packer.toBuffer(doc).then(buffer => {
  * 处理AI代码生成请求
  * @param userPrompt - 用户的文档生成需求（路书）
  * @param config - 处理配置
- * @param onProgress - 进度回调（V66增强：携带详细状态信息）
+ * @param onProgress - 进度回调
  */
 export async function processAICodeGeneration(
   userPrompt: string,
   config: AICodeProcessorConfig,
-  onProgress?: (info: ProgressInfo) => void
+  onProgress?: (message: string) => void
 ): Promise<ProcessResult> {
   const startTime = Date.now();
   const outputDir = config.outputDir || '/tmp/docx-output';
-  const maxAttempts = config.maxAttempts || 1;  // V67: 禁用重试，默认只尝试1次
+  const maxAttempts = config.maxAttempts || 3;
   const validateStructure = config.validateStructure ?? true;
 
   // 清理输出目录
   cleanOutputDir(outputDir);
 
-  // 进度回调辅助函数
-  const sendProgress = (info: ProgressInfo) => {
-    console.log(`[AICodeProcessor] ${info.message}`);
-    if (onProgress) onProgress(info);
+  // 进度回调
+  const log = (msg: string) => {
+    console.log(`[AICodeProcessor] ${msg}`);
+    if (onProgress) onProgress(msg);
   };
 
-  // 1. 开始代码生成阶段
-  sendProgress({
-    message: 'AI正在生成代码...',
-    phase: 'code',
-    phaseIndex: 2,
-    totalPhases: 5,
-  });
+  log('开始生成代码...');
 
-  // 2. 第一次调用AI生成代码
+  // 1. 第一次调用AI生成代码
   let initialCode: string;
   try {
     const response = await callAIForCode(config.aiConfig, userPrompt);
     initialCode = response;
-    
-    // 代码生成完成
-    sendProgress({
-      message: `代码生成完成，长度: ${initialCode.length} 字符`,
-      phase: 'code',
-      phaseIndex: 2,
-      totalPhases: 5,
-      phaseComplete: true,
-      codeLength: initialCode.length,
-    });
+    log(`AI返回代码，长度: ${initialCode.length} 字符`);
   } catch (err: any) {
-    // 代码生成失败
-    sendProgress({
-      message: `代码生成失败: ${err.message}`,
-      phase: 'code',
-      phaseIndex: 2,
-      totalPhases: 5,
-      error: err.message,
-    });
-    
     return {
       success: false,
       totalAttempts: 0,
@@ -154,63 +117,24 @@ export async function processAICodeGeneration(
     };
   }
 
-  // 3. 创建AI修正函数
+  // 2. 创建AI修正函数
   const aiFixer = createAICodeFixer(config.aiConfig, AI_CODE_SYSTEM_PROMPT);
 
-  // 4. 开始代码执行阶段
-  sendProgress({
-    message: `开始执行代码 (尝试 1/${maxAttempts})...`,
-    phase: 'execute',
-    phaseIndex: 3,
-    totalPhases: 5,
-    attempt: 1,
-    maxAttempts,
-  });
-
-  // 5. 执行代码（带重试）
+  // 3. 执行代码（带重试）
+  log('开始执行代码...');
   const retryResult = await executeWithRetry(
     initialCode,
     aiFixer,
     {
       maxAttempts,
       sandboxConfig: { outputDir },
-      onAttempt: (attempt) => {
-        sendProgress({
-          message: `代码执行中 (尝试 ${attempt}/${maxAttempts})...`,
-          phase: 'execute',
-          phaseIndex: 3,
-          totalPhases: 5,
-          attempt,
-          maxAttempts,
-        });
-      },
-      onError: (attempt, error) => {
-        sendProgress({
-          message: `执行失败 (尝试 ${attempt}/${maxAttempts}): ${error}`,
-          phase: 'execute',
-          phaseIndex: 3,
-          totalPhases: 5,
-          attempt,
-          maxAttempts,
-          error,
-        });
-      }
+      onAttempt: (attempt) => log(`第 ${attempt} 次尝试...`),
+      onError: (attempt, error) => log(`第 ${attempt} 次失败: ${error}`)
     }
   );
 
-  // 6. 如果执行失败
+  // 4. 如果执行失败
   if (!retryResult.success || !retryResult.outputPath) {
-    const errorMsg = retryResult.errors.join('; ');
-    sendProgress({
-      message: `代码执行全部失败 (共尝试 ${retryResult.totalAttempts} 次): ${errorMsg}`,
-      phase: 'execute',
-      phaseIndex: 3,
-      totalPhases: 5,
-      attempt: retryResult.totalAttempts,
-      maxAttempts,
-      error: errorMsg,
-    });
-    
     return {
       success: false,
       totalAttempts: retryResult.totalAttempts,
@@ -219,38 +143,15 @@ export async function processAICodeGeneration(
     };
   }
 
-  // 代码执行成功
-  sendProgress({
-    message: `代码执行成功，文件: ${path.basename(retryResult.outputPath)}`,
-    phase: 'execute',
-    phaseIndex: 3,
-    totalPhases: 5,
-    attempt: retryResult.totalAttempts,
-    maxAttempts,
-    phaseComplete: true,
-  });
+  log(`代码执行成功，文件: ${retryResult.outputPath}`);
 
-  // 7. 开始文件验证阶段
-  sendProgress({
-    message: '验证文件结构...',
-    phase: 'validate',
-    phaseIndex: 4,
-    totalPhases: 5,
-  });
-
+  // 5. 验证生成的文件
+  log('验证文件...');
   const validation = validateDocx(retryResult.outputPath, {
     checkStructure: validateStructure
   });
 
   if (!validation.valid) {
-    sendProgress({
-      message: `文件验证失败: ${validation.error}`,
-      phase: 'validate',
-      phaseIndex: 4,
-      totalPhases: 5,
-      error: validation.error,
-    });
-    
     return {
       success: false,
       outputPath: retryResult.outputPath,
@@ -264,16 +165,9 @@ export async function processAICodeGeneration(
     };
   }
 
-  // 验证通过
-  sendProgress({
-    message: '文件验证通过',
-    phase: 'validate',
-    phaseIndex: 4,
-    totalPhases: 5,
-    phaseComplete: true,
-  });
+  log('文件验证通过');
 
-  // 8. 成功
+  // 6. 成功
   return {
     success: true,
     outputPath: retryResult.outputPath,

@@ -254,12 +254,6 @@ export function BatchProcess() {
   const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material' | 'ai_code'>('markdown_styled');
   const [startNumber, setStartNumber] = useState("");
   const [endNumber, setEndNumber] = useState("");
-  
-  // 任务编号模式：'range'（连续范围）或 'specific'（指定任务）
-  const [taskMode, setTaskMode] = useState<'range' | 'specific'>('range');
-  // 指定任务的输入内容
-  const [specificTasks, setSpecificTasks] = useState("");
-  
   const [concurrency, setConcurrency] = useState("5");
   const [storagePath, setStoragePath] = useState("Mac(online)/Documents/XDF/批量任务");
   const [isPathSaving, setIsPathSaving] = useState(false);
@@ -745,49 +739,20 @@ export function BatchProcess() {
     };
   }, []);
 
-  // 解析指定任务编号字符串
-  const parseSpecificTasks = (input: string): number[] => {
-    return input
-      .split(',')
-      .map(s => s.trim())
-      .filter(s => s !== '')
-      .map(s => parseInt(s, 10))
-      .filter(n => !isNaN(n) && n > 0);
-  };
-
   const handleStart = useCallback(async () => {
+    // 验证参数
+    const start = parseInt(startNumber);
+    const end = parseInt(endNumber);
     const concurrencyNum = parseInt(concurrency) || 5;
-    
-    // 根据模式验证参数并生成任务编号列表
-    let taskNumbers: number[] = [];
-    
-    if (taskMode === 'range') {
-      const start = parseInt(startNumber);
-      const end = parseInt(endNumber);
-      
-      if (isNaN(start) || isNaN(end)) {
-        alert("请输入有效的任务编号范围");
-        return;
-      }
-      if (start > end) {
-        alert("起始编号不能大于结束编号");
-        return;
-      }
-      
-      // 生成连续编号列表
-      for (let i = start; i <= end; i++) {
-        taskNumbers.push(i);
-      }
-    } else {
-      // 指定任务模式
-      taskNumbers = parseSpecificTasks(specificTasks);
-      
-      if (taskNumbers.length === 0) {
-        alert("请输入有效的任务编号");
-        return;
-      }
+
+    if (isNaN(start) || isNaN(end)) {
+      alert("请输入有效的任务编号范围");
+      return;
     }
-    
+    if (start > end) {
+      alert("起始编号不能大于结束编号");
+      return;
+    }
     if (!roadmap.trim()) {
       alert("请输入路书内容");
       return;
@@ -795,9 +760,9 @@ export function BatchProcess() {
 
     // 初始化任务列表
     const initialTasks = new Map<number, TaskState>();
-    for (const taskNum of taskNumbers) {
-      initialTasks.set(taskNum, {
-        taskNumber: taskNum,
+    for (let i = start; i <= end; i++) {
+      initialTasks.set(i, {
+        taskNumber: i,
         status: 'waiting',
         chars: 0,
       });
@@ -810,49 +775,44 @@ export function BatchProcess() {
     setTasks(initialTasks);
 
     try {
-      // 构建请求参数
-      const requestBody: Record<string, unknown> = {
-        concurrency: concurrencyNum,
-        roadmap: roadmap.trim(),
-        storagePath: storagePath.trim() || undefined,
-        filePrefix: filePrefix.trim() || '任务',
-        templateType: templateType,
-        namingMethod: namingMethod,
-        customFileNames: namingMethod === 'custom' ? Object.fromEntries(parsedNames) : undefined,
-        files: uploadedFiles.size > 0 ? Object.fromEntries(
-          Array.from(uploadedFiles.entries()).map(([taskNum, file]) => [
-            taskNum,
-            {
-              type: file.type,
-              url: file.url,
-              base64DataUri: file.base64DataUri,
-              mimeType: file.mimeType,
-              extractedText: file.extractedText,
-            }
-          ])
-        ) : undefined,
-        sharedFiles: sharedFiles.length > 0 ? sharedFiles.map(file => ({
-          type: file.type,
-          url: file.url,
-          base64DataUri: file.base64DataUri,
-          mimeType: file.mimeType,
-          extractedText: file.extractedText,
-        })) : undefined,
-      };
-      
-      // 根据模式添加任务编号参数
-      if (taskMode === 'range') {
-        requestBody.startNumber = taskNumbers[0];
-        requestBody.endNumber = taskNumbers[taskNumbers.length - 1];
-      } else {
-        requestBody.taskNumbers = taskNumbers;
-      }
-      
       // 调用 SSE 端点
       const response = await fetch('/api/batch/generate-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          startNumber: start,
+          endNumber: end,
+          concurrency: concurrencyNum,
+          roadmap: roadmap.trim(),
+          storagePath: storagePath.trim() || undefined,
+          filePrefix: filePrefix.trim() || '任务',
+          templateType: templateType,
+          // 传递命名方式
+          namingMethod: namingMethod,
+          // 如果使用自定义命名，传递 customFileNames
+          customFileNames: namingMethod === 'custom' ? Object.fromEntries(parsedNames) : undefined,
+          // 传递上传的独立文件信息
+          files: uploadedFiles.size > 0 ? Object.fromEntries(
+            Array.from(uploadedFiles.entries()).map(([taskNum, file]) => [
+              taskNum,
+              {
+                type: file.type,
+                url: file.url,
+                base64DataUri: file.base64DataUri,
+                mimeType: file.mimeType,
+                extractedText: file.extractedText,  // 文档提取的纯文本
+              }
+            ])
+          ) : undefined,
+          // 传递共享文件信息
+          sharedFiles: sharedFiles.length > 0 ? sharedFiles.map(file => ({
+            type: file.type,
+            url: file.url,
+            base64DataUri: file.base64DataUri,
+            mimeType: file.mimeType,
+            extractedText: file.extractedText,  // 文档提取的纯文本
+          })) : undefined,
+        }),
       });
 
       if (!response.ok) {
@@ -1064,7 +1024,7 @@ export function BatchProcess() {
       setIsGenerating(false);
       setIsStopping(false);
     }
-  }, [taskMode, startNumber, endNumber, specificTasks, concurrency, roadmap, storagePath, filePrefix, templateType, namingMethod, parsedNames, uploadedFiles, sharedFiles, currentBatchId, fetchBatchStatus, updateStateFromBatchStatus, startPolling]);
+  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix, templateType, namingMethod, parsedNames, uploadedFiles, sharedFiles, currentBatchId, fetchBatchStatus, updateStateFromBatchStatus, startPolling]);
 
   // 渲染单个任务卡片
   const renderTaskCard = (task: TaskState) => {
@@ -1209,77 +1169,31 @@ export function BatchProcess() {
             </div>
           </div>
 
-          {/* 任务编号模式选择 */}
-          <div className="space-y-3">
-            <Label>任务编号模式</Label>
-            <div className="flex gap-6">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="taskMode"
-                  value="range"
-                  checked={taskMode === 'range'}
-                  onChange={() => setTaskMode('range')}
-                  disabled={isGenerating}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="text-sm">连续范围</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="taskMode"
-                  value="specific"
-                  checked={taskMode === 'specific'}
-                  onChange={() => setTaskMode('specific')}
-                  disabled={isGenerating}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span className="text-sm">指定任务</span>
-              </label>
-            </div>
-          </div>
-
-          {/* 任务编号输入 */}
-          {taskMode === 'range' ? (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="startNumber">起始任务编号</Label>
-                <Input
-                  id="startNumber"
-                  type="number"
-                  placeholder="例如：1"
-                  value={startNumber}
-                  onChange={(e) => setStartNumber(e.target.value)}
-                  disabled={isGenerating}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="endNumber">结束任务编号</Label>
-                <Input
-                  id="endNumber"
-                  type="number"
-                  placeholder="例如：10"
-                  value={endNumber}
-                  onChange={(e) => setEndNumber(e.target.value)}
-                  disabled={isGenerating}
-                />
-              </div>
-            </div>
-          ) : (
+          {/* 任务编号范围 */}
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="specificTasks">指定任务编号</Label>
+              <Label htmlFor="startNumber">起始任务编号</Label>
               <Input
-                id="specificTasks"
-                type="text"
-                placeholder="例如：3,6,8,11,14"
-                value={specificTasks}
-                onChange={(e) => setSpecificTasks(e.target.value)}
+                id="startNumber"
+                type="number"
+                placeholder="例如：1"
+                value={startNumber}
+                onChange={(e) => setStartNumber(e.target.value)}
                 disabled={isGenerating}
               />
-              <p className="text-xs text-gray-500">输入逗号分隔的任务编号，例如：3,6,8,11,14</p>
             </div>
-          )}
+            <div className="space-y-2">
+              <Label htmlFor="endNumber">结束任务编号</Label>
+              <Input
+                id="endNumber"
+                type="number"
+                placeholder="例如：10"
+                value={endNumber}
+                onChange={(e) => setEndNumber(e.target.value)}
+                disabled={isGenerating}
+              />
+            </div>
+          </div>
 
           {/* 并发数和文件名前缀 */}
           <div className="grid grid-cols-2 gap-4">
