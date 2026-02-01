@@ -309,7 +309,15 @@ export default function Home() {
     url?: string;
   } | null>(null); // 导出结果
   const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
-  
+
+  // 生成中每秒触发重渲染，驱动耗时秒数实时刷新
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!isGenerating) return;
+    const timer = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(timer);
+  }, [isGenerating]);
+
   // Google Drive OAuth状态
   const [gdriveStatus, setGdriveStatus] = useState<{
     connected: boolean;
@@ -3042,8 +3050,8 @@ export default function Home() {
                               <div className="mt-1">
                                 <p className="text-xs text-blue-600">
                                   {step.message}
-                                  {/* V63.8/V63.11: 并行阶段显示实时耗时 */}
-                                  {(isParallelPhase || isClassParallelPhase) && step.startTime && (
+                                  {/* 所有运行中的步骤显示实时耗时 */}
+                                  {step.startTime && (
                                     <span className="ml-2 text-blue-400">
                                       (已{Math.round((Date.now() - step.startTime) / 1000)}秒)
                                     </span>
