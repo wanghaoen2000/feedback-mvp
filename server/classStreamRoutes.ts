@@ -766,6 +766,7 @@ ${input.feedbackContent}
     attendanceStudents: z.array(z.string()),
     currentNotes: z.string(),
     combinedFeedback: z.string().min(1),
+    taskId: z.string().optional(),
     apiModel: z.string().optional(),
     apiKey: z.string().optional(),
     apiUrl: z.string().optional(),
@@ -931,18 +932,25 @@ ${input.currentNotes}
       stepSuccess(log, 'review', cleanedContent.length);
       logInfo(log, 'review', `上传成功: ${uploadResult.path}`);
       endLogSession(log);
-      
-      sendEvent("complete", { 
+
+      const reviewUploadData = {
+        fileName: fileName,
+        url: uploadResult.url || '',
+        path: uploadResult.path || '',
+        folderUrl: uploadResult.folderUrl || '',
+      };
+
+      // 存入 contentStore，供前端 SSE 断连后轮询
+      const reviewTaskId = input.taskId || crypto.randomUUID();
+      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: cleanedContent.length });
+
+      sendEvent("complete", {
         success: true,
         chars: cleanedContent.length,
-        uploadResult: {
-          fileName: fileName,
-          url: uploadResult.url || '',
-          path: uploadResult.path || '',
-          folderUrl: uploadResult.folderUrl || '',
-        }
+        contentId: reviewTaskId,
+        uploadResult: reviewUploadData,
       });
-      
+
     } catch (error: any) {
       console.error("[SSE] 小班课复习文档生成失败:", error);
       
@@ -970,6 +978,7 @@ ${input.currentNotes}
     attendanceStudents: z.array(z.string()),
     currentNotes: z.string(),
     combinedFeedback: z.string().min(1),
+    taskId: z.string().optional(),
     apiModel: z.string().optional(),
     apiKey: z.string().optional(),
     apiUrl: z.string().optional(),
@@ -1045,14 +1054,19 @@ ${input.currentNotes}
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
       }
 
+      const testUploadData = {
+        fileName,
+        url: uploadResult.url || '',
+        path: uploadResult.path || '',
+        folderUrl: uploadResult.folderUrl || '',
+      };
+      const testTaskId = input.taskId || crypto.randomUUID();
+      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test' });
+
       sendEvent("complete", {
         success: true,
-        uploadResult: {
-          fileName,
-          url: uploadResult.url || '',
-          path: uploadResult.path || '',
-          folderUrl: uploadResult.folderUrl || '',
-        }
+        contentId: testTaskId,
+        uploadResult: testUploadData,
       });
     } catch (error: any) {
       console.error("[SSE] 小班课测试本生成失败:", error);
@@ -1072,6 +1086,7 @@ ${input.currentNotes}
     lessonDate: z.string().optional(),
     attendanceStudents: z.array(z.string()),
     combinedFeedback: z.string().min(1),
+    taskId: z.string().optional(),
     apiModel: z.string().optional(),
     apiKey: z.string().optional(),
     apiUrl: z.string().optional(),
@@ -1153,15 +1168,20 @@ ${input.currentNotes}
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
       }
 
+      const extractUploadData = {
+        fileName,
+        url: uploadResult.url || '',
+        path: uploadResult.path || '',
+        folderUrl: uploadResult.folderUrl || '',
+      };
+      const extractTaskId = input.taskId || crypto.randomUUID();
+      storeContent(extractTaskId, JSON.stringify(extractUploadData), { type: 'extraction', chars: extractionContent.length });
+
       sendEvent("complete", {
         success: true,
         chars: extractionContent.length,
-        uploadResult: {
-          fileName,
-          url: uploadResult.url || '',
-          path: uploadResult.path || '',
-          folderUrl: uploadResult.folderUrl || '',
-        }
+        contentId: extractTaskId,
+        uploadResult: extractUploadData,
       });
     } catch (error: any) {
       console.error("[SSE] 小班课课后信息提取生成失败:", error);
