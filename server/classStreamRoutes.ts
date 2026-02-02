@@ -560,6 +560,7 @@ ${input.transcript}
     apiUrl: z.string().optional(),
     roadmap: z.string().optional(),
     driveBasePath: z.string().optional(),
+    taskId: z.string().optional(),
   });
   
   // 复习文档 system prompt
@@ -725,17 +726,24 @@ ${input.feedbackContent}
       logInfo(log, 'review', `上传成功: ${uploadResult.path}`);
       endLogSession(log);
       
-      sendEvent("complete", { 
+      const reviewUploadData = {
+        fileName: fileName,
+        url: uploadResult.url || '',
+        path: uploadResult.path || '',
+        folderUrl: uploadResult.folderUrl || '',
+      };
+
+      // 存入 contentStore，供前端 SSE 断连后轮询
+      const reviewTaskId = input.taskId || crypto.randomUUID();
+      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: cleanedContent.length });
+
+      sendEvent("complete", {
         success: true,
         chars: cleanedContent.length,
-        uploadResult: {
-          fileName: fileName,
-          url: uploadResult.url || '',
-          path: uploadResult.path || '',
-          folderUrl: uploadResult.folderUrl || '',
-        }
+        contentId: reviewTaskId,
+        uploadResult: reviewUploadData,
       });
-      
+
     } catch (error: any) {
       console.error("[SSE] 复习文档生成失败:", error);
       

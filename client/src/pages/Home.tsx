@@ -635,180 +635,259 @@ export default function Home() {
 
       // 定义4个并行任务
       const parallelTasks = [
-        // 任务1: 复习文档 (SSE)
+        // 任务1: 复习文档 (SSE + taskId 轮询容错)
         (async () => {
           const taskStart = Date.now();
-          // V63.8: 实时更新复习文档状态
+          const reviewTaskId = crypto.randomUUID();
           setParallelTasks(prev => ({ ...prev, review: { ...prev.review, status: 'running', startTime: taskStart } }));
           try {
             checkAborted();
-            const reviewSseResponse = await fetch('/api/review-stream', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                studentName: studentSnapshot.studentName,
-                dateStr: date,
-                feedbackContent: content,
-                ...configSnapshot,
-              }),
-            });
-            
-            if (!reviewSseResponse.ok) {
-              throw new Error(`复习文档生成失败: HTTP ${reviewSseResponse.status}`);
-            }
-            
-            const reviewReader = reviewSseResponse.body?.getReader();
-            if (!reviewReader) {
-              throw new Error('无法读取响应流');
-            }
-            
-            const reviewDecoder = new TextDecoder();
-            let reviewBuffer = '';
-            let reviewSseError: string | null = null;
-            let reviewCurrentEventType = '';
             let reviewUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+            let reviewSseError: string | null = null;
             let reviewCharCount = 0;
-            
-            while (true) {
-              checkAborted();
-              const { done, value } = await reviewReader.read();
-              if (done) break;
-              
-              reviewBuffer += reviewDecoder.decode(value, { stream: true });
-              const reviewLines = reviewBuffer.split('\n');
-              reviewBuffer = reviewLines.pop() || '';
-              
-              for (const line of reviewLines) {
-                if (line.startsWith('event: ')) {
-                  reviewCurrentEventType = line.slice(7).trim();
-                  continue;
-                }
-                if (line.startsWith('data: ')) {
-                  try {
-                    const data = JSON.parse(line.slice(6));
-                    
-                    if (reviewCurrentEventType === 'progress' && data.chars) {
-                      reviewCharCount = data.chars;
-                      updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
-                      // V63.8: 更新并行任务状态
-                      setParallelTasks(prev => ({ ...prev, review: { ...prev.review, charCount: data.chars } }));
-                    } else if (reviewCurrentEventType === 'complete') {
-                      if (data.uploadResult) reviewUploadResult = data.uploadResult;
-                      if (data.chars) reviewCharCount = data.chars;
-                    } else if (reviewCurrentEventType === 'error' && data.message) {
-                      reviewSseError = data.message;
+
+            // SSE 请求（可能被代理断连）
+            try {
+              const reviewSseResponse = await fetch('/api/review-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  studentName: studentSnapshot.studentName,
+                  dateStr: date,
+                  feedbackContent: content,
+                  taskId: reviewTaskId,
+                  ...configSnapshot,
+                }),
+              });
+
+              if (!reviewSseResponse.ok) throw new Error(`复习文档生成失败: HTTP ${reviewSseResponse.status}`);
+
+              const reader = reviewSseResponse.body?.getReader();
+              if (reader) {
+                const decoder = new TextDecoder();
+                let buf = '';
+                let evt = '';
+                while (true) {
+                  checkAborted();
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buf += decoder.decode(value, { stream: true });
+                  const lines = buf.split('\n');
+                  buf = lines.pop() || '';
+                  for (const line of lines) {
+                    if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                    if (line.startsWith('data: ')) {
+                      try {
+                        const data = JSON.parse(line.slice(6));
+                        if (evt === 'progress' && data.chars) {
+                          reviewCharCount = data.chars;
+                          updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
+                          setParallelTasks(prev => ({ ...prev, review: { ...prev.review, charCount: data.chars } }));
+                        } else if (evt === 'complete') {
+                          if (data.uploadResult) reviewUploadResult = data.uploadResult;
+                          if (data.chars) reviewCharCount = data.chars;
+                        } else if (evt === 'error' && data.message) {
+                          reviewSseError = data.message;
+                        }
+                      } catch (e) { /* ignore */ }
                     }
-                  } catch (e) {
-                    // 忽略解析错误
                   }
                 }
               }
+            } catch (sseErr) {
+              console.log('[Review SSE] 连接断开，将轮询获取结果:', sseErr);
             }
-            
-            if (reviewSseError) {
-              throw new Error(reviewSseError);
-            }
-            
+
+            if (reviewSseError) throw new Error(reviewSseError);
+
+            // SSE 未收到结果 → 轮询 contentStore
             if (!reviewUploadResult) {
-              throw new Error('复习文档生成失败：未收到上传结果');
+              updateStep(1, { status: 'running', message: '等待后端完成上传...', detail: '复习文档' });
+              for (let poll = 0; poll < 60; poll++) {
+                if (poll > 0) await new Promise(r => setTimeout(r, 2000));
+                try {
+                  const res = await fetch(`/api/feedback-content/${reviewTaskId}`);
+                  if (res.ok) {
+                    const data = await res.json();
+                    reviewUploadResult = JSON.parse(data.content);
+                    if (data.meta?.chars) reviewCharCount = data.meta.chars;
+                    break;
+                  }
+                } catch (e) { /* continue */ }
+              }
             }
-            
+
+            if (!reviewUploadResult) throw new Error('复习文档生成失败：未收到上传结果（后端可能仍在处理，请稍后重试）');
+
             const taskEnd = Date.now();
-            // V63.8: 实时更新复习文档完成状态
-            setParallelTasks(prev => ({ ...prev, review: { status: 'success', startTime: taskStart, endTime: taskEnd, charCount: reviewCharCount, uploadResult: reviewUploadResult } }));
+            setParallelTasks(prev => ({ ...prev, review: { status: 'success', startTime: taskStart, endTime: taskEnd, charCount: reviewCharCount, uploadResult: reviewUploadResult || undefined } }));
             updateStep(1, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: reviewCharCount ? `共${reviewCharCount}字` : '复习文档已上传', endTime: taskEnd, uploadResult: reviewUploadResult });
             return { type: 'review', success: true, duration: taskEnd - taskStart, charCount: reviewCharCount, uploadResult: reviewUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
             const errorMsg = error instanceof Error ? error.message : '未知错误';
-            // V63.8: 实时更新复习文档失败状态
             setParallelTasks(prev => ({ ...prev, review: { status: 'failed', startTime: taskStart, endTime: taskEnd, error: errorMsg } }));
             updateStep(1, { status: 'error', error: errorMsg });
             return { type: 'review', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
 
-        // 任务2: 测试本 (tRPC)
+        // 任务2: 测试本 (tRPC + taskId 轮询容错)
         (async () => {
           const taskStart = Date.now();
-          // V63.8: 实时更新测试本状态
+          const testTaskId = crypto.randomUUID();
           setParallelTasks(prev => ({ ...prev, test: { ...prev.test, status: 'running', startTime: taskStart } }));
           try {
             checkAborted();
-            const result = await generateTestMutation.mutateAsync({
-              studentName: studentSnapshot.studentName,
-              dateStr: date,
-              feedbackContent: content,
-              ...configSnapshot,
-            });
+            let testUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+
+            try {
+              const result = await generateTestMutation.mutateAsync({
+                studentName: studentSnapshot.studentName,
+                dateStr: date,
+                feedbackContent: content,
+                taskId: testTaskId,
+                ...configSnapshot,
+              });
+              testUploadResult = result.uploadResult;
+            } catch (rpcErr) {
+              console.log('[Test tRPC] 请求失败，将轮询获取结果:', rpcErr);
+            }
+
+            // tRPC 未返回结果 → 轮询 contentStore
+            if (!testUploadResult) {
+              updateStep(2, { status: 'running', message: '等待后端完成上传...', detail: '测试本' });
+              for (let poll = 0; poll < 60; poll++) {
+                if (poll > 0) await new Promise(r => setTimeout(r, 2000));
+                try {
+                  const res = await fetch(`/api/feedback-content/${testTaskId}`);
+                  if (res.ok) {
+                    const data = await res.json();
+                    testUploadResult = JSON.parse(data.content);
+                    break;
+                  }
+                } catch (e) { /* continue */ }
+              }
+            }
+
+            if (!testUploadResult) throw new Error('测试本生成失败：未收到上传结果（后端可能仍在处理，请稍后重试）');
+
             const taskEnd = Date.now();
-            // V63.8: 实时更新测试本完成状态
-            setParallelTasks(prev => ({ ...prev, test: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: result.uploadResult } }));
-            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '测试本已上传', endTime: taskEnd, uploadResult: result.uploadResult });
-            return { type: 'test', success: true, duration: taskEnd - taskStart, uploadResult: result.uploadResult };
+            setParallelTasks(prev => ({ ...prev, test: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: testUploadResult || undefined } }));
+            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '测试本已上传', endTime: taskEnd, uploadResult: testUploadResult });
+            return { type: 'test', success: true, duration: taskEnd - taskStart, uploadResult: testUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
             const errorMsg = error instanceof Error ? error.message : '未知错误';
-            // V63.8: 实时更新测试本失败状态
             setParallelTasks(prev => ({ ...prev, test: { status: 'failed', startTime: taskStart, endTime: taskEnd, error: errorMsg } }));
             updateStep(2, { status: 'error', error: errorMsg });
             return { type: 'test', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
 
-        // 任务3: 课后信息提取 (tRPC)
+        // 任务3: 课后信息提取 (tRPC + taskId 轮询容错)
         (async () => {
           const taskStart = Date.now();
-          // V63.8: 实时更新课后信息状态
+          const extractionTaskId = crypto.randomUUID();
           setParallelTasks(prev => ({ ...prev, extraction: { ...prev.extraction, status: 'running', startTime: taskStart } }));
           try {
             checkAborted();
-            const result = await generateExtractionMutation.mutateAsync({
-              studentName: studentSnapshot.studentName,
-              dateStr: date,
-              feedbackContent: content,
-              ...configSnapshot,
-            });
+            let extractionUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+
+            try {
+              const result = await generateExtractionMutation.mutateAsync({
+                studentName: studentSnapshot.studentName,
+                dateStr: date,
+                feedbackContent: content,
+                taskId: extractionTaskId,
+                ...configSnapshot,
+              });
+              extractionUploadResult = result.uploadResult;
+            } catch (rpcErr) {
+              console.log('[Extraction tRPC] 请求失败，将轮询获取结果:', rpcErr);
+            }
+
+            // tRPC 未返回结果 → 轮询 contentStore
+            if (!extractionUploadResult) {
+              updateStep(3, { status: 'running', message: '等待后端完成上传...', detail: '课后信息提取' });
+              for (let poll = 0; poll < 60; poll++) {
+                if (poll > 0) await new Promise(r => setTimeout(r, 2000));
+                try {
+                  const res = await fetch(`/api/feedback-content/${extractionTaskId}`);
+                  if (res.ok) {
+                    const data = await res.json();
+                    extractionUploadResult = JSON.parse(data.content);
+                    break;
+                  }
+                } catch (e) { /* continue */ }
+              }
+            }
+
+            if (!extractionUploadResult) throw new Error('课后信息提取失败：未收到上传结果（后端可能仍在处理，请稍后重试）');
+
             const taskEnd = Date.now();
-            // V63.8: 实时更新课后信息完成状态
-            setParallelTasks(prev => ({ ...prev, extraction: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: result.uploadResult } }));
-            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '课后信息已上传', endTime: taskEnd, uploadResult: result.uploadResult });
-            return { type: 'extraction', success: true, duration: taskEnd - taskStart, uploadResult: result.uploadResult };
+            setParallelTasks(prev => ({ ...prev, extraction: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: extractionUploadResult || undefined } }));
+            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '课后信息已上传', endTime: taskEnd, uploadResult: extractionUploadResult });
+            return { type: 'extraction', success: true, duration: taskEnd - taskStart, uploadResult: extractionUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
             const errorMsg = error instanceof Error ? error.message : '未知错误';
-            // V63.8: 实时更新课后信息失败状态
             setParallelTasks(prev => ({ ...prev, extraction: { status: 'failed', startTime: taskStart, endTime: taskEnd, error: errorMsg } }));
             updateStep(3, { status: 'error', error: errorMsg });
             return { type: 'extraction', success: false, duration: taskEnd - taskStart, error: errorMsg };
           }
         })(),
 
-        // 任务4: 气泡图 (tRPC + 前端转换 + 上传)
+        // 任务4: 气泡图 (tRPC + taskId 轮询容错 + 前端转换 + 上传)
         (async () => {
           const taskStart = Date.now();
-          // V63.8: 实时更新气泡图状态
+          const bubbleTaskId = crypto.randomUUID();
           setParallelTasks(prev => ({ ...prev, bubble: { ...prev.bubble, status: 'running', startTime: taskStart } }));
           try {
             checkAborted();
-            // 步骤5a: 后端生成SVG
-            const svgResult = await generateBubbleChartMutation.mutateAsync({
-              studentName: studentSnapshot.studentName,
-              dateStr: date,
-              lessonNumber: studentSnapshot.lessonNumber,
-              feedbackContent: content,
-              ...configSnapshot,
-            });
-            
+            // 步骤5a: 后端生成SVG（可能被代理超时）
+            let svgContent: string | null = null;
+
+            try {
+              const svgResult = await generateBubbleChartMutation.mutateAsync({
+                studentName: studentSnapshot.studentName,
+                dateStr: date,
+                lessonNumber: studentSnapshot.lessonNumber,
+                feedbackContent: content,
+                taskId: bubbleTaskId,
+                ...configSnapshot,
+              });
+              svgContent = svgResult.svgContent;
+            } catch (rpcErr) {
+              console.log('[BubbleChart tRPC] 请求失败，将轮询获取结果:', rpcErr);
+            }
+
+            // tRPC 未返回 SVG → 轮询 contentStore
+            if (!svgContent) {
+              updateStep(4, { status: 'running', message: '等待后端生成SVG...', detail: '气泡图' });
+              for (let poll = 0; poll < 60; poll++) {
+                if (poll > 0) await new Promise(r => setTimeout(r, 2000));
+                try {
+                  const res = await fetch(`/api/feedback-content/${bubbleTaskId}`);
+                  if (res.ok) {
+                    const data = await res.json();
+                    const parsed = JSON.parse(data.content);
+                    svgContent = parsed.svgContent;
+                    break;
+                  }
+                } catch (e) { /* continue */ }
+              }
+            }
+
+            if (!svgContent) throw new Error('气泡图生成失败：未收到SVG（后端可能仍在处理，请稍后重试）');
+
             checkAborted();
             updateStep(4, { status: 'running', message: '正在转换PNG...', detail: '气泡图' });
-            // V63.8: 更新气泡图转换状态
             setParallelTasks(prev => ({ ...prev, bubble: { ...prev.bubble, status: 'running' } }));
-            
+
             // 步骤5b: 前端将SVG转换为PNG
-            const svgContent = svgResult.svgContent;
             const pngBase64 = await svgToPngBase64(svgContent);
-            
+
             // 步骤5c: 上传PNG到Google Drive
             const uploadResult = await uploadBubbleChartMutation.mutateAsync({
               studentName: studentSnapshot.studentName,
@@ -816,16 +895,14 @@ export default function Home() {
               pngBase64,
               driveBasePath: configSnapshot.driveBasePath,
             });
-            
+
             const taskEnd = Date.now();
-            // V63.8: 实时更新气泡图完成状态
             setParallelTasks(prev => ({ ...prev, bubble: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: uploadResult.uploadResult } }));
             updateStep(4, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '气泡图已上传', endTime: taskEnd, uploadResult: uploadResult.uploadResult });
             return { type: 'bubble', success: true, duration: taskEnd - taskStart, uploadResult: uploadResult.uploadResult };
           } catch (error) {
             const taskEnd = Date.now();
             const errorMsg = error instanceof Error ? error.message : '未知错误';
-            // V63.8: 实时更新气泡图失败状态
             setParallelTasks(prev => ({ ...prev, bubble: { status: 'failed', startTime: taskStart, endTime: taskEnd, error: errorMsg } }));
             updateStep(4, { status: 'error', error: errorMsg });
             return { type: 'bubble', success: false, duration: taskEnd - taskStart, error: errorMsg };
@@ -1870,74 +1947,88 @@ export default function Home() {
             updateStep(0, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
             break;
 
-          case 1: // 复习文档
-            if (!feedbackContent || !dateStr) {
-              throw new Error('请先生成学情反馈');
+          case 1: { // 复习文档 (tRPC + taskId 轮询容错)
+            if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
+            const revTaskId = crypto.randomUUID();
+            let revUpload: any = null;
+            try {
+              result = await generateReviewMutation.mutateAsync({
+                studentName: studentName.trim(), dateStr, feedbackContent, taskId: revTaskId, ...configSnapshot,
+              });
+              revUpload = result.uploadResult;
+            } catch (e) { console.log('[Review retry] tRPC失败，轮询:', e); }
+            if (!revUpload) {
+              updateStep(1, { status: 'running', message: '等待后端完成上传...' });
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${revTaskId}`); if (r.ok) { const d = await r.json(); revUpload = JSON.parse(d.content); break; } } catch(e){} }
             }
-            result = await generateReviewMutation.mutateAsync({
-              studentName: studentName.trim(),
-              dateStr,
-              feedbackContent,
-              ...configSnapshot,
-            });
-            updateStep(1, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+            if (!revUpload) throw new Error('复习文档生成失败：未收到上传结果');
+            updateStep(1, { status: 'success', message: '生成完成', uploadResult: revUpload });
             break;
+          }
 
-          case 2: // 测试本
-            if (!feedbackContent || !dateStr) {
-              throw new Error('请先生成学情反馈');
+          case 2: { // 测试本 (tRPC + taskId 轮询容错)
+            if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
+            const tstTaskId = crypto.randomUUID();
+            let tstUpload: any = null;
+            try {
+              result = await generateTestMutation.mutateAsync({
+                studentName: studentName.trim(), dateStr, feedbackContent, taskId: tstTaskId, ...configSnapshot,
+              });
+              tstUpload = result.uploadResult;
+            } catch (e) { console.log('[Test retry] tRPC失败，轮询:', e); }
+            if (!tstUpload) {
+              updateStep(2, { status: 'running', message: '等待后端完成上传...' });
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${tstTaskId}`); if (r.ok) { const d = await r.json(); tstUpload = JSON.parse(d.content); break; } } catch(e){} }
             }
-            result = await generateTestMutation.mutateAsync({
-              studentName: studentName.trim(),
-              dateStr,
-              feedbackContent,
-              ...configSnapshot,
-            });
-            updateStep(2, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+            if (!tstUpload) throw new Error('测试本生成失败：未收到上传结果');
+            updateStep(2, { status: 'success', message: '生成完成', uploadResult: tstUpload });
             break;
+          }
 
-          case 3: // 课后信息提取
-            if (!feedbackContent || !dateStr) {
-              throw new Error('请先生成学情反馈');
+          case 3: { // 课后信息提取 (tRPC + taskId 轮询容错)
+            if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
+            const extTaskId = crypto.randomUUID();
+            let extUpload: any = null;
+            try {
+              result = await generateExtractionMutation.mutateAsync({
+                studentName: studentName.trim(), dateStr, feedbackContent, taskId: extTaskId, ...configSnapshot,
+              });
+              extUpload = result.uploadResult;
+            } catch (e) { console.log('[Extraction retry] tRPC失败，轮询:', e); }
+            if (!extUpload) {
+              updateStep(3, { status: 'running', message: '等待后端完成上传...' });
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${extTaskId}`); if (r.ok) { const d = await r.json(); extUpload = JSON.parse(d.content); break; } } catch(e){} }
             }
-            result = await generateExtractionMutation.mutateAsync({
-              studentName: studentName.trim(),
-              dateStr,
-              feedbackContent,
-              ...configSnapshot,
-            });
-            updateStep(3, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+            if (!extUpload) throw new Error('课后信息提取失败：未收到上传结果');
+            updateStep(3, { status: 'success', message: '生成完成', uploadResult: extUpload });
             break;
+          }
 
-          case 4: // 气泡图
-            if (!feedbackContent || !dateStr) {
-              throw new Error('请先生成学情反馈');
-            }
-            // 步骤5a: 后端生成SVG
+          case 4: { // 气泡图 (tRPC + taskId 轮询容错 + 前端转换 + 上传)
+            if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
+            const bubTaskId = crypto.randomUUID();
+            let bubSvg: string | null = null;
             updateStep(4, { status: 'running', message: '正在生成SVG...' });
-            result = await generateBubbleChartMutation.mutateAsync({
-              studentName: studentName.trim(),
-              dateStr,
-              lessonNumber: lessonNumber.trim(),
-              feedbackContent,
-              ...configSnapshot,
-            });
-            
-            // 步骤5b: 前端转换SVG为PNG
+            try {
+              result = await generateBubbleChartMutation.mutateAsync({
+                studentName: studentName.trim(), dateStr, lessonNumber: lessonNumber.trim(), feedbackContent, taskId: bubTaskId, ...configSnapshot,
+              });
+              bubSvg = result.svgContent;
+            } catch (e) { console.log('[BubbleChart retry] tRPC失败，轮询:', e); }
+            if (!bubSvg) {
+              updateStep(4, { status: 'running', message: '等待后端生成SVG...' });
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${bubTaskId}`); if (r.ok) { const d = await r.json(); const parsed = JSON.parse(d.content); bubSvg = parsed.svgContent; break; } } catch(e){} }
+            }
+            if (!bubSvg) throw new Error('气泡图生成失败：未收到SVG');
             updateStep(4, { status: 'running', message: '正在转换并上传...' });
-            const svgContent = result.svgContent;
-            const pngBase64 = await svgToPngBase64(svgContent);
-            
-            // 步骤5c: 上传PNG到Google Drive
-            const uploadResult = await uploadBubbleChartMutation.mutateAsync({
-              studentName: studentName.trim(),
-              dateStr,
-              pngBase64,
-              driveBasePath: configSnapshot.driveBasePath,
+            const retrySvgContent = bubSvg;
+            const retryPngBase64 = await svgToPngBase64(retrySvgContent);
+            const retryUploadResult = await uploadBubbleChartMutation.mutateAsync({
+              studentName: studentName.trim(), dateStr, pngBase64: retryPngBase64, driveBasePath: configSnapshot.driveBasePath,
             });
-            
-            updateStep(4, { status: 'success', message: '生成完成', uploadResult: uploadResult.uploadResult });
+            updateStep(4, { status: 'success', message: '生成完成', uploadResult: retryUploadResult.uploadResult });
             break;
+          }
         }
       }
 
