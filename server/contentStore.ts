@@ -17,7 +17,7 @@ const store = new Map<string, StoredContent>();
 // 定期清理过期内容（每 5 分钟）
 setInterval(() => {
   const now = Date.now();
-  for (const [id, item] of store) {
+  for (const [id, item] of Array.from(store.entries())) {
     if (now - item.createdAt > TTL) {
       store.delete(id);
     }
