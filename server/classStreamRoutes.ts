@@ -904,7 +904,7 @@ ${input.currentNotes}
       const docxBuffer = await textToDocx(cleanedContent, `${input.classNumber}班${input.lessonDate || ''}复习文档`);
 
       // 上传到 Google Drive（期间发送 keep-alive 防止代理超时）
-      const basePath = `${driveBasePath}/小班课/${input.classNumber}班`;
+      const basePath = `${driveBasePath}/${input.classNumber}班`;
       const fileName = `${input.classNumber}班${input.lessonDate || ''}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
 
@@ -1044,7 +1044,7 @@ ${input.currentNotes}
 
       // 上传到 Google Drive
       sendEvent("progress", { message: "正在上传到 Google Drive..." });
-      const basePath = `${driveBasePath}/小班课/${input.classNumber}班`;
+      const basePath = `${driveBasePath}/${input.classNumber}班`;
       const fileName = `${input.classNumber}班${input.lessonDate || ''}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
 
@@ -1158,7 +1158,7 @@ ${input.currentNotes}
 
       // 上传到 Google Drive
       sendEvent("progress", { message: "正在上传到 Google Drive...", chars: extractionContent.length });
-      const basePath = `${driveBasePath}/小班课/${input.classNumber}班`;
+      const basePath = `${driveBasePath}/${input.classNumber}班`;
       const fileName = `${input.classNumber}班${input.lessonDate || ''}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
 
