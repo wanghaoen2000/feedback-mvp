@@ -1586,10 +1586,12 @@ export default function Home() {
       let displayError = rawMessage;
       
       // 标记当前步骤为失败
+      // 注意：localCurrentStep === 5 表示并行阶段结束后的聚合错误，
+      // 此时各步骤已有自己的独立状态，不应覆盖（否则会把成功的气泡图标为失败）
       const failedStepIndex = localCurrentStep - 1; // 使用局部变量，避免闭包陷阱
-      if (failedStepIndex >= 0 && failedStepIndex < 5) {
-        updateStep(failedStepIndex, { 
-          status: 'error', 
+      if (failedStepIndex >= 0 && failedStepIndex < 5 && localCurrentStep !== 5) {
+        updateStep(failedStepIndex, {
+          status: 'error',
           error: displayError
         });
       }

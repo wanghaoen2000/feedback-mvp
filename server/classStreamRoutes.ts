@@ -702,15 +702,24 @@ ${input.feedbackContent}
       
 
       sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
-      
-      const uploadResult = await uploadBinaryToGoogleDrive(docxBuffer, fileName, folderPath);
-      
+
+      const uploadKeepAlive1v1 = setInterval(() => {
+        sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
+      }, 15000);
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadBinaryToGoogleDrive(docxBuffer, fileName, folderPath);
+      } finally {
+        clearInterval(uploadKeepAlive1v1);
+      }
+
       if (uploadResult.status === 'error') {
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
       }
-      
 
-      
+
+
       // 记录步骤成功
       stepSuccess(log, 'review', cleanedContent.length);
       logInfo(log, 'review', `上传成功: ${uploadResult.path}`);
@@ -886,22 +895,31 @@ ${input.currentNotes}
       );
       
       const cleanedContent = cleanMarkdownAndHtml(reviewContent);
-      
 
-      
+
+
       // 转换为 Word 文档
       sendEvent("progress", { chars: charCount, message: "正在转换为Word文档..." });
       const docxBuffer = await textToDocx(cleanedContent, `${input.classNumber}班${input.lessonDate || ''}复习文档`);
-      
-      // 上传到 Google Drive
+
+      // 上传到 Google Drive（期间发送 keep-alive 防止代理超时）
       const basePath = `${driveBasePath}/小班课/${input.classNumber}班`;
       const fileName = `${input.classNumber}班${input.lessonDate || ''}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
-      
+
 
       sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
-      
-      const uploadResult = await uploadBinaryToGoogleDrive(docxBuffer, fileName, folderPath);
+
+      const uploadKeepAlive = setInterval(() => {
+        sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
+      }, 15000);
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadBinaryToGoogleDrive(docxBuffer, fileName, folderPath);
+      } finally {
+        clearInterval(uploadKeepAlive);
+      }
       
       if (uploadResult.status === 'error') {
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
@@ -1117,8 +1135,14 @@ ${input.currentNotes}
 
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
 
+      // 校验内容非空
+      if (!extractionContent || !extractionContent.trim()) {
+        console.error("[SSE] 课后信息提取内容为空，combinedFeedback长度:", input.combinedFeedback.length);
+        throw new Error('课后信息提取生成失败：AI 返回内容为空，请重试');
+      }
+
       // 上传到 Google Drive
-      sendEvent("progress", { message: "正在上传到 Google Drive..." });
+      sendEvent("progress", { message: "正在上传到 Google Drive...", chars: extractionContent.length });
       const basePath = `${driveBasePath}/小班课/${input.classNumber}班`;
       const fileName = `${input.classNumber}班${input.lessonDate || ''}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;

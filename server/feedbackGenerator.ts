@@ -337,8 +337,8 @@ export function cleanMarkdownAndHtml(text: string): string {
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
     .replace(/_([^_]+)_/g, '$1')
-    // 移除代码块
-    .replace(/```[\s\S]*?```/g, '')
+    // 移除代码块标记（保留内容）
+    .replace(/```\w*\n?/g, '')
     .replace(/`([^`]+)`/g, '$1')
     // 移除HTML标签
     .replace(/<[^>]+>/g, '')
