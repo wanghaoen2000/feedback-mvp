@@ -1246,58 +1246,83 @@ export default function Home() {
           }
         })(),
 
-        // 任务2: 测试本 (tRPC)
+        // 任务2: 测试本 (SSE)
         (async () => {
           const taskStart = Date.now();
           try {
             checkAborted();
-            const testResult = await generateClassTestMutation.mutateAsync({
-              classNumber: classSnapshot.classNumber,
-              lessonNumber: classSnapshot.lessonNumber,
-              lessonDate: extractedDate,
-              attendanceStudents: classSnapshot.attendanceStudents,
-              currentNotes: classSnapshot.currentNotes,
-              combinedFeedback,
-              ...configSnapshot,
+            const testSseResponse = await fetch('/api/class-test-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                classNumber: classSnapshot.classNumber,
+                lessonNumber: classSnapshot.lessonNumber,
+                lessonDate: extractedDate,
+                attendanceStudents: classSnapshot.attendanceStudents,
+                currentNotes: classSnapshot.currentNotes,
+                combinedFeedback,
+                ...configSnapshot,
+              }),
             });
-            
-            if (!testResult.success) {
-              throw new Error('测试本生成失败');
+
+            if (!testSseResponse.ok) throw new Error(`测试本生成失败: HTTP ${testSseResponse.status}`);
+
+            const testReader = testSseResponse.body?.getReader();
+            if (!testReader) throw new Error('无法读取响应流');
+
+            const testDecoder = new TextDecoder();
+            let testBuffer = '';
+            let testSseError: string | null = null;
+            let testCurrentEventType = '';
+            let testUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+
+            while (true) {
+              checkAborted();
+              const { done, value } = await testReader.read();
+              if (done) break;
+
+              testBuffer += testDecoder.decode(value, { stream: true });
+              const testLines = testBuffer.split('\n');
+              testBuffer = testLines.pop() || '';
+
+              for (const line of testLines) {
+                if (line.startsWith('event: ')) {
+                  testCurrentEventType = line.slice(7).trim();
+                  continue;
+                }
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (testCurrentEventType === 'progress' && data.message) {
+                      updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
+                    } else if (testCurrentEventType === 'complete' && data.uploadResult) {
+                      testUploadResult = data.uploadResult;
+                    } else if (testCurrentEventType === 'error' && data.message) {
+                      testSseError = data.message;
+                    }
+                  } catch (e) { /* ignore parse error */ }
+                }
+              }
             }
-            
-            // 上传测试本
-            const testUploadResult = await uploadClassFileMutation.mutateAsync({
-              classNumber: classSnapshot.classNumber,
-              dateStr: extractedDate,
-              fileType: 'test',
-              content: testResult.content,
-              driveBasePath: configSnapshot.driveBasePath,
-            });
-            
+
+            if (testSseError) throw new Error(testSseError);
+            if (!testUploadResult) throw new Error('测试本生成失败：未收到上传结果');
+
             const taskEnd = Date.now();
-            updateStep(2, { 
-              status: 'success', 
+            updateStep(2, {
+              status: 'success',
               message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`,
               detail: '测试本已上传',
               endTime: taskEnd,
-              uploadResult: {
-                fileName: testUploadResult.fileName,
-                url: testUploadResult.url,
-                path: testUploadResult.path,
-              }
+              uploadResult: testUploadResult,
             });
-            // V63.11: 更新小班课并行任务状态
             setClassParallelTasks(prev => ({
               ...prev,
               test: {
                 status: 'success',
                 startTime: prev.test.startTime,
                 endTime: taskEnd,
-                uploadResult: {
-                  fileName: testUploadResult.fileName,
-                  url: testUploadResult.url,
-                  path: testUploadResult.path,
-                },
+                uploadResult: testUploadResult || undefined,
               }
             }));
             return { type: 'test', success: true, duration: taskEnd - taskStart, uploadResult: testUploadResult };
@@ -1305,7 +1330,6 @@ export default function Home() {
             const taskEnd = Date.now();
             const errorMsg = error instanceof Error ? error.message : '未知错误';
             updateStep(2, { status: 'error', error: errorMsg });
-            // V63.11: 更新小班课并行任务状态
             setClassParallelTasks(prev => ({
               ...prev,
               test: {
@@ -1319,57 +1343,84 @@ export default function Home() {
           }
         })(),
 
-        // 任务3: 课后信息提取 (tRPC)
+        // 任务3: 课后信息提取 (SSE)
         (async () => {
           const taskStart = Date.now();
           try {
             checkAborted();
-            const extractionResult = await generateClassExtractionMutation.mutateAsync({
-              classNumber: classSnapshot.classNumber,
-              lessonNumber: classSnapshot.lessonNumber,
-              lessonDate: extractedDate,
-              attendanceStudents: classSnapshot.attendanceStudents,
-              combinedFeedback,
-              ...configSnapshot,
+            const extractionSseResponse = await fetch('/api/class-extraction-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                classNumber: classSnapshot.classNumber,
+                lessonNumber: classSnapshot.lessonNumber,
+                lessonDate: extractedDate,
+                attendanceStudents: classSnapshot.attendanceStudents,
+                combinedFeedback,
+                ...configSnapshot,
+              }),
             });
-            
-            if (!extractionResult.success) {
-              throw new Error('课后信息提取生成失败');
+
+            if (!extractionSseResponse.ok) throw new Error(`课后信息提取失败: HTTP ${extractionSseResponse.status}`);
+
+            const extractionReader = extractionSseResponse.body?.getReader();
+            if (!extractionReader) throw new Error('无法读取响应流');
+
+            const extractionDecoder = new TextDecoder();
+            let extractionBuffer = '';
+            let extractionSseError: string | null = null;
+            let extractionCurrentEventType = '';
+            let extractionUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+            let extractionCharCount = 0;
+
+            while (true) {
+              checkAborted();
+              const { done, value } = await extractionReader.read();
+              if (done) break;
+
+              extractionBuffer += extractionDecoder.decode(value, { stream: true });
+              const extractionLines = extractionBuffer.split('\n');
+              extractionBuffer = extractionLines.pop() || '';
+
+              for (const line of extractionLines) {
+                if (line.startsWith('event: ')) {
+                  extractionCurrentEventType = line.slice(7).trim();
+                  continue;
+                }
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (extractionCurrentEventType === 'progress' && data.message) {
+                      updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
+                    } else if (extractionCurrentEventType === 'complete') {
+                      if (data.uploadResult) extractionUploadResult = data.uploadResult;
+                      if (data.chars) extractionCharCount = data.chars;
+                    } else if (extractionCurrentEventType === 'error' && data.message) {
+                      extractionSseError = data.message;
+                    }
+                  } catch (e) { /* ignore parse error */ }
+                }
+              }
             }
-            
-            // 上传课后信息提取
-            const extractionUploadResult = await uploadClassFileMutation.mutateAsync({
-              classNumber: classSnapshot.classNumber,
-              dateStr: extractedDate,
-              fileType: 'extraction',
-              content: extractionResult.content,
-              driveBasePath: configSnapshot.driveBasePath,
-            });
-            
+
+            if (extractionSseError) throw new Error(extractionSseError);
+            if (!extractionUploadResult) throw new Error('课后信息提取失败：未收到上传结果');
+
             const taskEnd = Date.now();
-            updateStep(3, { 
-              status: 'success', 
+            updateStep(3, {
+              status: 'success',
               message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`,
               detail: '课后信息已上传',
               endTime: taskEnd,
-              uploadResult: {
-                fileName: extractionUploadResult.fileName,
-                url: extractionUploadResult.url,
-                path: extractionUploadResult.path,
-              }
+              uploadResult: extractionUploadResult,
             });
-            // V63.11: 更新小班课并行任务状态
             setClassParallelTasks(prev => ({
               ...prev,
               extraction: {
                 status: 'success',
                 startTime: prev.extraction.startTime,
                 endTime: taskEnd,
-                uploadResult: {
-                  fileName: extractionUploadResult.fileName,
-                  url: extractionUploadResult.url,
-                  path: extractionUploadResult.path,
-                },
+                uploadResult: extractionUploadResult || undefined,
               }
             }));
             return { type: 'extraction', success: true, duration: taskEnd - taskStart, uploadResult: extractionUploadResult };
@@ -1377,7 +1428,6 @@ export default function Home() {
             const taskEnd = Date.now();
             const errorMsg = error instanceof Error ? error.message : '未知错误';
             updateStep(3, { status: 'error', error: errorMsg });
-            // V63.11: 更新小班课并行任务状态
             setClassParallelTasks(prev => ({
               ...prev,
               extraction: {
@@ -1760,57 +1810,111 @@ export default function Home() {
             updateStep(1, { status: 'success', message: '生成完成', uploadResult: crUploadResult });
             break;
 
-          case 2: // 小班课测试本 (tRPC)
+          case 2: // 小班课测试本 (SSE)
             if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
             updateStep(2, { status: 'running', message: '正在重新生成测试本...' });
-            
-            const classTestResult = await generateClassTestMutation.mutateAsync({
-              classNumber: classNumber.trim(),
-              lessonNumber: lessonNumber.trim(),
-              lessonDate: dateStr,
-              attendanceStudents: validStudents,
-              currentNotes: currentNotes.trim(),
-              combinedFeedback: feedbackContent,
-              ...configSnapshot,
+
+            const ctResponse = await fetch('/api/class-test-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                classNumber: classNumber.trim(),
+                lessonNumber: lessonNumber.trim(),
+                lessonDate: dateStr,
+                attendanceStudents: validStudents,
+                currentNotes: currentNotes.trim(),
+                combinedFeedback: feedbackContent,
+                ...configSnapshot,
+              }),
             });
-            
-            if (!classTestResult.success) throw new Error('测试本生成失败');
-            
-            const classTestUploadResult = await uploadClassFileMutation.mutateAsync({
-              classNumber: classNumber.trim(),
-              dateStr,
-              fileType: 'test',
-              content: classTestResult.content,
-              driveBasePath: configSnapshot.driveBasePath,
-            });
-            
-            updateStep(2, { status: 'success', message: '生成完成', uploadResult: { fileName: classTestUploadResult.fileName, url: classTestUploadResult.url, path: classTestUploadResult.path } });
+
+            if (!ctResponse.ok) throw new Error(`测试本生成失败: HTTP ${ctResponse.status}`);
+
+            {
+              const ctReader = ctResponse.body?.getReader();
+              if (!ctReader) throw new Error('无法读取响应流');
+              const ctDecoder = new TextDecoder();
+              let ctBuf = '';
+              let ctErr: string | null = null;
+              let ctEvt = '';
+              let ctUpload: { fileName: string; url: string; path: string } | null = null;
+
+              while (true) {
+                const { done, value } = await ctReader.read();
+                if (done) break;
+                ctBuf += ctDecoder.decode(value, { stream: true });
+                const ctLines = ctBuf.split('\n');
+                ctBuf = ctLines.pop() || '';
+                for (const line of ctLines) {
+                  if (line.startsWith('event: ')) { ctEvt = line.slice(7).trim(); continue; }
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(line.slice(6));
+                      if (ctEvt === 'progress' && data.message) updateStep(2, { status: 'running', message: data.message });
+                      else if (ctEvt === 'complete' && data.uploadResult) ctUpload = data.uploadResult;
+                      else if (ctEvt === 'error' && data.message) ctErr = data.message;
+                    } catch (e) { /* ignore */ }
+                  }
+                }
+              }
+
+              if (ctErr) throw new Error(ctErr);
+              if (!ctUpload) throw new Error('测试本生成失败：未收到上传结果');
+              updateStep(2, { status: 'success', message: '生成完成', uploadResult: ctUpload });
+            }
             break;
 
-          case 3: // 小班课课后信息提取 (tRPC)
+          case 3: // 小班课课后信息提取 (SSE)
             if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
             updateStep(3, { status: 'running', message: '正在重新生成课后信息提取...' });
-            
-            const classExtractionResult = await generateClassExtractionMutation.mutateAsync({
-              classNumber: classNumber.trim(),
-              lessonNumber: lessonNumber.trim(),
-              lessonDate: dateStr,
-              attendanceStudents: validStudents,
-              combinedFeedback: feedbackContent,
-              ...configSnapshot,
+
+            const ceResponse = await fetch('/api/class-extraction-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                classNumber: classNumber.trim(),
+                lessonNumber: lessonNumber.trim(),
+                lessonDate: dateStr,
+                attendanceStudents: validStudents,
+                combinedFeedback: feedbackContent,
+                ...configSnapshot,
+              }),
             });
-            
-            if (!classExtractionResult.success) throw new Error('课后信息提取生成失败');
-            
-            const classExtractionUploadResult = await uploadClassFileMutation.mutateAsync({
-              classNumber: classNumber.trim(),
-              dateStr,
-              fileType: 'extraction',
-              content: classExtractionResult.content,
-              driveBasePath: configSnapshot.driveBasePath,
-            });
-            
-            updateStep(3, { status: 'success', message: '生成完成', uploadResult: { fileName: classExtractionUploadResult.fileName, url: classExtractionUploadResult.url, path: classExtractionUploadResult.path } });
+
+            if (!ceResponse.ok) throw new Error(`课后信息提取失败: HTTP ${ceResponse.status}`);
+
+            {
+              const ceReader = ceResponse.body?.getReader();
+              if (!ceReader) throw new Error('无法读取响应流');
+              const ceDecoder = new TextDecoder();
+              let ceBuf = '';
+              let ceErr: string | null = null;
+              let ceEvt = '';
+              let ceUpload: { fileName: string; url: string; path: string } | null = null;
+
+              while (true) {
+                const { done, value } = await ceReader.read();
+                if (done) break;
+                ceBuf += ceDecoder.decode(value, { stream: true });
+                const ceLines = ceBuf.split('\n');
+                ceBuf = ceLines.pop() || '';
+                for (const line of ceLines) {
+                  if (line.startsWith('event: ')) { ceEvt = line.slice(7).trim(); continue; }
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(line.slice(6));
+                      if (ceEvt === 'progress' && data.message) updateStep(3, { status: 'running', message: data.message });
+                      else if (ceEvt === 'complete' && data.uploadResult) ceUpload = data.uploadResult;
+                      else if (ceEvt === 'error' && data.message) ceErr = data.message;
+                    } catch (e) { /* ignore */ }
+                  }
+                }
+              }
+
+              if (ceErr) throw new Error(ceErr);
+              if (!ceUpload) throw new Error('课后信息提取失败：未收到上传结果');
+              updateStep(3, { status: 'success', message: '生成完成', uploadResult: ceUpload });
+            }
             break;
 
           case 4: // 小班课气泡图 (多学生并行)

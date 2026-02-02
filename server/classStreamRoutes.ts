@@ -6,7 +6,7 @@ import crypto from "crypto";
 import { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { invokeWhatAIStream, APIConfig } from "./whatai";
-import { ClassFeedbackInput, textToDocx, cleanMarkdownAndHtml } from "./feedbackGenerator";
+import { ClassFeedbackInput, textToDocx, cleanMarkdownAndHtml, generateClassTestContent, generateClassExtractionContent } from "./feedbackGenerator";
 import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
@@ -942,6 +942,211 @@ ${input.currentNotes}
       res.end();
     }
   });
-  
+
+  // ========== 小班课测试本 SSE 端点 ==========
+
+  const classTestInputSchema = z.object({
+    classNumber: z.string().min(1),
+    lessonNumber: z.string().optional(),
+    lessonDate: z.string().optional(),
+    attendanceStudents: z.array(z.string()),
+    currentNotes: z.string(),
+    combinedFeedback: z.string().min(1),
+    apiModel: z.string().optional(),
+    apiKey: z.string().optional(),
+    apiUrl: z.string().optional(),
+    roadmapClass: z.string().optional(),
+    driveBasePath: z.string().optional(),
+  });
+
+  app.post("/api/class-test-stream", requireAuth, async (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    const sendEvent = (event: string, data: any) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    let keepAlive: ReturnType<typeof setInterval> | null = null;
+
+    try {
+      const parseResult = classTestInputSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        sendEvent("error", { message: "输入验证失败", details: parseResult.error.issues });
+        res.end();
+        return;
+      }
+
+      const input = parseResult.data;
+      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
+      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+
+      sendEvent("start", { message: `开始为 ${input.classNumber} 班生成测试本` });
+
+      // 每15秒发送keep-alive，防止平台代理超时
+      keepAlive = setInterval(() => {
+        sendEvent("progress", { message: "正在生成测试本..." });
+      }, 15000);
+
+      const classInput: ClassFeedbackInput = {
+        classNumber: input.classNumber,
+        lessonNumber: input.lessonNumber || '',
+        lessonDate: input.lessonDate || '',
+        nextLessonDate: '',
+        attendanceStudents: input.attendanceStudents,
+        lastFeedback: '',
+        currentNotes: input.currentNotes,
+        transcript: '',
+        specialRequirements: '',
+      };
+
+      const testBuffer = await generateClassTestContent(
+        classInput,
+        input.combinedFeedback,
+        roadmapClass,
+        { apiModel, apiKey, apiUrl }
+      );
+
+      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
+
+      // 上传到 Google Drive
+      sendEvent("progress", { message: "正在上传到 Google Drive..." });
+      const basePath = `${driveBasePath}/小班课/${input.classNumber}班`;
+      const fileName = `${input.classNumber}班${input.lessonDate || ''}测试文档.docx`;
+      const folderPath = `${basePath}/复习文档`;
+
+      const uploadResult = await uploadBinaryToGoogleDrive(testBuffer, fileName, folderPath);
+
+      if (uploadResult.status === 'error') {
+        throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
+      }
+
+      sendEvent("complete", {
+        success: true,
+        uploadResult: {
+          fileName,
+          url: uploadResult.url || '',
+          path: uploadResult.path || '',
+          folderUrl: uploadResult.folderUrl || '',
+        }
+      });
+    } catch (error: any) {
+      console.error("[SSE] 小班课测试本生成失败:", error);
+      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
+      sendEvent("error", { message: error.message || "生成失败" });
+    } finally {
+      if (keepAlive) clearInterval(keepAlive);
+      res.end();
+    }
+  });
+
+  // ========== 小班课课后信息提取 SSE 端点 ==========
+
+  const classExtractionInputSchema = z.object({
+    classNumber: z.string().min(1),
+    lessonNumber: z.string().optional(),
+    lessonDate: z.string().optional(),
+    attendanceStudents: z.array(z.string()),
+    combinedFeedback: z.string().min(1),
+    apiModel: z.string().optional(),
+    apiKey: z.string().optional(),
+    apiUrl: z.string().optional(),
+    roadmapClass: z.string().optional(),
+    driveBasePath: z.string().optional(),
+  });
+
+  app.post("/api/class-extraction-stream", requireAuth, async (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    const sendEvent = (event: string, data: any) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    let keepAlive: ReturnType<typeof setInterval> | null = null;
+
+    try {
+      const parseResult = classExtractionInputSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        sendEvent("error", { message: "输入验证失败", details: parseResult.error.issues });
+        res.end();
+        return;
+      }
+
+      const input = parseResult.data;
+      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
+      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+
+      sendEvent("start", { message: `开始为 ${input.classNumber} 班生成课后信息提取` });
+
+      // 每15秒发送keep-alive，防止平台代理超时
+      keepAlive = setInterval(() => {
+        sendEvent("progress", { message: "正在生成课后信息提取..." });
+      }, 15000);
+
+      const classInput: ClassFeedbackInput = {
+        classNumber: input.classNumber,
+        lessonNumber: input.lessonNumber || '',
+        lessonDate: input.lessonDate || '',
+        nextLessonDate: '',
+        attendanceStudents: input.attendanceStudents,
+        lastFeedback: '',
+        currentNotes: '',
+        transcript: '',
+        specialRequirements: '',
+      };
+
+      const extractionContent = await generateClassExtractionContent(
+        classInput,
+        input.combinedFeedback,
+        roadmapClass,
+        { apiModel, apiKey, apiUrl }
+      );
+
+      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
+
+      // 上传到 Google Drive
+      sendEvent("progress", { message: "正在上传到 Google Drive..." });
+      const basePath = `${driveBasePath}/小班课/${input.classNumber}班`;
+      const fileName = `${input.classNumber}班${input.lessonDate || ''}课后信息提取.md`;
+      const folderPath = `${basePath}/课后信息`;
+
+      const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+
+      if (uploadResult.status === 'error') {
+        throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
+      }
+
+      sendEvent("complete", {
+        success: true,
+        chars: extractionContent.length,
+        uploadResult: {
+          fileName,
+          url: uploadResult.url || '',
+          path: uploadResult.path || '',
+          folderUrl: uploadResult.folderUrl || '',
+        }
+      });
+    } catch (error: any) {
+      console.error("[SSE] 小班课课后信息提取生成失败:", error);
+      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
+      sendEvent("error", { message: error.message || "生成失败" });
+    } finally {
+      if (keepAlive) clearInterval(keepAlive);
+      res.end();
+    }
+  });
 
 }
