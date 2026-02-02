@@ -518,18 +518,17 @@ export default function Home() {
       let sseError: string | null = null;
       let currentEventType = '';
       let sseUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
-      // 支持分块内容
-      const contentChunks: string[] = [];
-      
+      let contentId: string | null = null;
+
       while (true) {
         checkAborted();
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-        
+
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             currentEventType = line.slice(7).trim();
@@ -541,15 +540,12 @@ export default function Home() {
               if (currentEventType === 'progress' && data.chars) {
                 const progressMsg = data.message || `正在生成学情反馈... 已生成 ${data.chars} 字符`;
                 updateStep(0, { status: 'running', message: progressMsg });
-              } else if (currentEventType === 'content-chunk' && data.text !== undefined) {
-                // 分块内容
-                contentChunks[data.index] = data.text;
               } else if (currentEventType === 'complete') {
-                // 完成事件
-                if (data.chunked && contentChunks.length > 0) {
-                  // 从分块拼接内容
-                  feedbackContent = contentChunks.join('');
+                // 完成事件：通过 contentId 拉取内容（不再走 SSE 传大数据）
+                if (data.contentId) {
+                  contentId = data.contentId;
                 } else if (data.feedback) {
+                  // 兼容旧格式
                   feedbackContent = data.feedback;
                 }
                 // 从 complete 事件中获取日期和上传结果
@@ -568,11 +564,22 @@ export default function Home() {
           }
         }
       }
-      
+
       if (sseError) {
         throw new Error(sseError);
       }
-      
+
+      // 通过 HTTP GET 拉取完整内容（SSE 只传 contentId，大内容走普通 HTTP）
+      if (!feedbackContent && contentId) {
+        updateStep(0, { status: 'running', message: '正在获取生成内容...' });
+        const contentRes = await fetch(`/api/feedback-content/${contentId}`);
+        if (!contentRes.ok) {
+          throw new Error(`获取内容失败: HTTP ${contentRes.status}`);
+        }
+        const contentData = await contentRes.json();
+        feedbackContent = contentData.content;
+      }
+
       if (!feedbackContent) {
         throw new Error('学情反馈生成失败: 未收到内容');
       }
@@ -990,25 +997,22 @@ export default function Home() {
       let buffer = '';
       let feedbackContent = '';
       let sseError: string | null = null;
-      let chunkCount = 0;
-      // 支持分块内容
-      const contentChunks: string[] = [];
-      
+      let contentId: string | null = null;
+
       // 事件类型在循环外部跟踪，因为 event: 和 data: 可能在不同的块中
       let currentEventType = '';
-      
+
       while (true) {
         checkAborted();
         const { done, value } = await reader.read();
-        chunkCount++;
         if (done) {
           break;
         }
-        
+
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-        
+
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             currentEventType = line.slice(7).trim();
@@ -1017,28 +1021,23 @@ export default function Home() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              
+
               // 根据事件类型处理
               if (currentEventType === 'progress' && data.chars) {
                 // 进度更新
                 updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
-              } else if (currentEventType === 'content-chunk' && data.text !== undefined) {
-                // 分块内容
-                contentChunks[data.index] = data.text;
               } else if (currentEventType === 'complete') {
-                // 完成事件
-                if (data.chunked && contentChunks.length > 0) {
-                  // 从分块拼接内容
-                  feedbackContent = contentChunks.join('');
+                // 完成事件：通过 contentId 拉取内容（不再走 SSE 传大数据）
+                if (data.contentId) {
+                  contentId = data.contentId;
                 } else if (data.feedback) {
+                  // 兼容旧格式
                   feedbackContent = data.feedback;
                 }
               } else if (currentEventType === 'error' && data.message) {
                 // 错误事件
                 sseError = data.message;
                 console.error('[SSE] 收到错误事件:', sseError);
-              } else if (currentEventType === 'start') {
-                // 开始事件，忽略
               }
             } catch (e) {
               // 忽略解析错误
@@ -1046,13 +1045,24 @@ export default function Home() {
           }
         }
       }
-      
+
       if (sseError) {
         throw new Error(sseError);
       }
-      
+
+      // 通过 HTTP GET 拉取完整内容（SSE 只传 contentId，大内容走普通 HTTP）
+      if (!feedbackContent && contentId) {
+        updateStep(0, { status: 'running', message: '正在获取生成内容...' });
+        const contentRes = await fetch(`/api/feedback-content/${contentId}`);
+        if (!contentRes.ok) {
+          throw new Error(`获取内容失败: HTTP ${contentRes.status}`);
+        }
+        const contentData = await contentRes.json();
+        feedbackContent = contentData.content;
+      }
+
       if (!feedbackContent) {
-        console.error('[SSE] 未收到内容, feedbackContent:', feedbackContent);
+        console.error('[SSE] 未收到内容');
         throw new Error('学情反馈生成失败: 未收到内容');
       }
       

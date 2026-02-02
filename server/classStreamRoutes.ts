@@ -21,6 +21,7 @@ import {
 } from "./logger";
 import { parseError } from "./errorHandler";
 import { requireAuth } from "./_core/authMiddleware";
+import { storeContent, retrieveContent } from "./contentStore";
 
 // 默认配置值（和 routers.ts 保持一致）
 const DEFAULT_CONFIG = {
@@ -138,6 +139,16 @@ const classFeedbackInputSchema = z.object({
  * 注册小班课 SSE 流式端点
  */
 export function registerClassStreamRoutes(app: Express): void {
+  // 内容拉取端点：前端收到 contentId 后通过此接口获取完整内容
+  app.get("/api/feedback-content/:id", requireAuth, (req: Request, res: Response) => {
+    const content = retrieveContent(req.params.id);
+    if (content === null) {
+      res.status(404).json({ error: "内容不存在或已过期" });
+      return;
+    }
+    res.json({ content });
+  });
+
   // SSE 端点：小班课学情反馈流式生成（需要登录）
   app.post("/api/class-feedback-stream", requireAuth, async (req: Request, res: Response) => {
     
@@ -272,38 +283,24 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       stepSuccess(log, 'feedback', cleanedContent.length);
       endLogSession(log);
       
-      // 发送完成事件
-      // 如果内容超过 15000 字符，分块发送避免 SSE 数据包过大
-      const CHUNK_SIZE = 15000;
-      if (cleanedContent.length > CHUNK_SIZE) {
-        const totalChunks = Math.ceil(cleanedContent.length / CHUNK_SIZE);
-        for (let i = 0; i < totalChunks; i++) {
-          const chunk = cleanedContent.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-          sendEvent("content-chunk", { index: i, total: totalChunks, text: chunk });
-        }
-        sendEvent("complete", { 
-          success: true,
-          chunked: true,
-          chars: cleanedContent.length
-        });
-      } else {
-        sendEvent("complete", { 
-          success: true,
-          feedback: cleanedContent,
-          chars: cleanedContent.length
-        });
-      }
-      
+      // 发送完成事件：内容存入暂存，SSE 只发 contentId（避免大数据包被平台代理丢弃）
+      const contentId = storeContent(cleanedContent);
+      sendEvent("complete", {
+        success: true,
+        contentId,
+        chars: cleanedContent.length
+      });
+
     } catch (error: any) {
       console.error("[SSE] 生成失败:", error);
-      
+
       // 记录步骤失败
       if (log) {
         stepFailed(log, 'feedback', parseError(error, 'feedback'));
         endLogSession(log);
       }
-      
-      sendEvent("error", { 
+
+      sendEvent("error", {
         message: error.message || "生成失败",
         stack: process.env.NODE_ENV === "development" ? error.stack : undefined
       });
@@ -501,43 +498,20 @@ ${input.transcript}
       // 结束日志会话（保存日志文件）
       endLogSession(log);
       
-      // 发送完成事件
-      // 如果内容超过 15000 字符，分块发送避免 SSE 数据包过大
-      const CHUNK_SIZE = 15000;
-      if (cleanedContent.length > CHUNK_SIZE) {
-        const totalChunks = Math.ceil(cleanedContent.length / CHUNK_SIZE);
-        for (let i = 0; i < totalChunks; i++) {
-          const chunk = cleanedContent.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-          sendEvent("content-chunk", { index: i, total: totalChunks, text: chunk });
+      // 发送完成事件：内容存入暂存，SSE 只发 contentId（避免大数据包被平台代理丢弃）
+      const contentId = storeContent(cleanedContent);
+      sendEvent("complete", {
+        success: true,
+        contentId,
+        chars: cleanedContent.length,
+        dateStr: dateStr,
+        uploadResult: {
+          fileName: fileName,
+          url: uploadResult.url || '',
+          path: uploadResult.path || '',
+          folderUrl: uploadResult.folderUrl || '',
         }
-        // complete 事件不发 feedback，前端从 chunks 拼接
-        sendEvent("complete", { 
-          success: true,
-          chunked: true,
-          chars: cleanedContent.length,
-          dateStr: dateStr,
-          uploadResult: {
-            fileName: fileName,
-            url: uploadResult.url || '',
-            path: uploadResult.path || '',
-            folderUrl: uploadResult.folderUrl || '',
-          }
-        });
-      } else {
-        // 小内容直接发送
-        sendEvent("complete", { 
-          success: true,
-          feedback: cleanedContent,
-          chars: cleanedContent.length,
-          dateStr: dateStr,
-          uploadResult: {
-            fileName: fileName,
-            url: uploadResult.url || '',
-            path: uploadResult.path || '',
-            folderUrl: uploadResult.folderUrl || '',
-          }
-        });
-      }
+      });
       
     } catch (error: any) {
       console.error("[SSE] 生成失败:", error);
