@@ -38,6 +38,7 @@ import {
   generateClassExtractionContent,
   generateClassBubbleChartSVG,
 } from "./feedbackGenerator";
+import { storeContent } from "./contentStore";
 
 // 默认配置值
 const DEFAULT_CONFIG = {
@@ -416,6 +417,7 @@ export const appRouter = router({
         apiUrl: z.string().optional(),
         roadmap: z.string().optional(),
         driveBasePath: z.string().optional(),
+        taskId: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
@@ -457,8 +459,8 @@ export const appRouter = router({
           
           stepSuccess(log, "复习文档", reviewDocx.length);
           endLogSession(log);
-          
-          return {
+
+          const reviewResult = {
             success: true,
             step: 2,
             stepName: "复习文档",
@@ -469,6 +471,13 @@ export const appRouter = router({
               folderUrl: uploadResult.folderUrl || "",
             },
           };
+
+          // 存入 contentStore，供前端代理超时后轮询
+          if (input.taskId) {
+            storeContent(input.taskId, JSON.stringify(reviewResult.uploadResult), { type: 'review', chars: reviewDocx.length });
+          }
+
+          return reviewResult;
         } catch (error: any) {
           const structuredError = parseError(error, "review");
           stepFailed(log, "复习文档", structuredError);
@@ -495,6 +504,7 @@ export const appRouter = router({
         apiUrl: z.string().optional(),
         roadmap: z.string().optional(),
         driveBasePath: z.string().optional(),
+        taskId: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
@@ -536,8 +546,8 @@ export const appRouter = router({
           
           stepSuccess(log, "测试本", testDocx.length);
           endLogSession(log);
-          
-          return {
+
+          const testResult = {
             success: true,
             step: 3,
             stepName: "测试本",
@@ -548,6 +558,12 @@ export const appRouter = router({
               folderUrl: uploadResult.folderUrl || "",
             },
           };
+
+          if (input.taskId) {
+            storeContent(input.taskId, JSON.stringify(testResult.uploadResult), { type: 'test', chars: testDocx.length });
+          }
+
+          return testResult;
         } catch (error: any) {
           const structuredError = parseError(error, "test");
           stepFailed(log, "测试本", structuredError);
@@ -574,6 +590,7 @@ export const appRouter = router({
         apiUrl: z.string().optional(),
         roadmap: z.string().optional(),
         driveBasePath: z.string().optional(),
+        taskId: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
@@ -615,8 +632,8 @@ export const appRouter = router({
           
           stepSuccess(log, "课后信息提取", extractionContent.length);
           endLogSession(log);
-          
-          return {
+
+          const extractionResult = {
             success: true,
             step: 4,
             stepName: "课后信息提取",
@@ -627,6 +644,12 @@ export const appRouter = router({
               folderUrl: uploadResult.folderUrl || "",
             },
           };
+
+          if (input.taskId) {
+            storeContent(input.taskId, JSON.stringify(extractionResult.uploadResult), { type: 'extraction', chars: extractionContent.length });
+          }
+
+          return extractionResult;
         } catch (error: any) {
           const structuredError = parseError(error, "extraction");
           stepFailed(log, "课后信息提取", structuredError);
@@ -654,6 +677,7 @@ export const appRouter = router({
         apiUrl: z.string().optional(),
         roadmap: z.string().optional(),
         driveBasePath: z.string().optional(),
+        taskId: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
@@ -684,7 +708,12 @@ export const appRouter = router({
           
           stepSuccess(log, "气泡图", svgContent.length);
           endLogSession(log);
-          
+
+          // 存入 contentStore（气泡图存的是 SVG 内容）
+          if (input.taskId) {
+            storeContent(input.taskId, JSON.stringify({ svgContent }), { type: 'bubbleChart', chars: svgContent.length });
+          }
+
           // 返回SVG字符串，前端负责转换为PNG并上传
           return {
             success: true,
