@@ -492,33 +492,36 @@ export default function Home() {
         startTime: step1Start
       });
       
-      // 使用 SSE 流式端点替代 tRPC mutation
+      // 前端生成 taskId，后端用此 ID 暂存内容；SSE 断了前端也能凭 taskId 拉取
+      const taskId = crypto.randomUUID();
+
       const sseResponse = await fetch('/api/feedback-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...studentSnapshot,
           ...configSnapshot,
+          taskId,
         }),
       });
-      
+
       if (!sseResponse.ok) {
         throw new Error(`学情反馈生成失败: HTTP ${sseResponse.status}`);
       }
-      
+
       // 读取 SSE 流式响应
       const reader = sseResponse.body?.getReader();
       if (!reader) {
         throw new Error('无法读取响应流');
       }
-      
+
       const decoder = new TextDecoder();
       let buffer = '';
       let feedbackContent = '';
       let sseError: string | null = null;
-      let currentEventType = '';
       let sseUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
-      let contentId: string | null = null;
+      let sseCompleted = false;
+      let currentEventType = '';
 
       while (true) {
         checkAborted();
@@ -541,20 +544,9 @@ export default function Home() {
                 const progressMsg = data.message || `正在生成学情反馈... 已生成 ${data.chars} 字符`;
                 updateStep(0, { status: 'running', message: progressMsg });
               } else if (currentEventType === 'complete') {
-                // 完成事件：通过 contentId 拉取内容（不再走 SSE 传大数据）
-                if (data.contentId) {
-                  contentId = data.contentId;
-                } else if (data.feedback) {
-                  // 兼容旧格式
-                  feedbackContent = data.feedback;
-                }
-                // 从 complete 事件中获取日期和上传结果
-                if (data.dateStr) {
-                  date = data.dateStr;
-                }
-                if (data.uploadResult) {
-                  sseUploadResult = data.uploadResult;
-                }
+                sseCompleted = true;
+                if (data.dateStr) date = data.dateStr;
+                if (data.uploadResult) sseUploadResult = data.uploadResult;
               } else if (currentEventType === 'error' && data.message) {
                 sseError = data.message;
               }
@@ -569,19 +561,33 @@ export default function Home() {
         throw new Error(sseError);
       }
 
-      // 通过 HTTP GET 拉取完整内容（SSE 只传 contentId，大内容走普通 HTTP）
-      if (!feedbackContent && contentId) {
-        updateStep(0, { status: 'running', message: '正在获取生成内容...' });
-        const contentRes = await fetch(`/api/feedback-content/${contentId}`);
-        if (!contentRes.ok) {
-          throw new Error(`获取内容失败: HTTP ${contentRes.status}`);
+      // 无论 SSE 是否正常结束，都通过 HTTP GET 凭 taskId 拉取内容
+      updateStep(0, { status: 'running', message: '正在获取生成内容...' });
+      const maxPolls = sseCompleted ? 1 : 30;
+      for (let poll = 0; poll < maxPolls; poll++) {
+        if (poll > 0) {
+          await new Promise(r => setTimeout(r, 2000));
+          updateStep(0, { status: 'running', message: `正在等待后端生成完毕... (${poll * 2}秒)` });
         }
-        const contentData = await contentRes.json();
-        feedbackContent = contentData.content;
+        try {
+          const contentRes = await fetch(`/api/feedback-content/${taskId}`);
+          if (contentRes.ok) {
+            const contentData = await contentRes.json();
+            feedbackContent = contentData.content;
+            // 如果 SSE 没收到 meta 信息，从暂存里补
+            if (contentData.meta) {
+              if (!date && contentData.meta.dateStr) date = contentData.meta.dateStr;
+              if (!sseUploadResult && contentData.meta.uploadResult) sseUploadResult = contentData.meta.uploadResult;
+            }
+            break;
+          }
+        } catch (e) {
+          // 网络错误，继续轮询
+        }
       }
 
       if (!feedbackContent) {
-        throw new Error('学情反馈生成失败: 未收到内容');
+        throw new Error('学情反馈生成失败: 未收到内容（后端可能仍在生成中，请稍后重试）');
       }
       
       content = feedbackContent;
@@ -973,41 +979,40 @@ export default function Home() {
       const step1Start = Date.now();
       updateStep(0, { status: 'running', message: `正在为 ${classSnapshot.classNumber} 班生成学情反馈...` });
       
-      // 使用 SSE 流式端点替代 tRPC mutation
+      // 前端生成 taskId，后端用此 ID 暂存内容；SSE 断了前端也能凭 taskId 拉取
+      const taskId = crypto.randomUUID();
+
       const sseResponse = await fetch('/api/class-feedback-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...classSnapshot,
           ...configSnapshot,
+          taskId,
         }),
       });
-      
+
       if (!sseResponse.ok) {
         throw new Error(`学情反馈生成失败: HTTP ${sseResponse.status}`);
       }
-      
+
       // 读取 SSE 流式响应
       const reader = sseResponse.body?.getReader();
       if (!reader) {
         throw new Error('无法读取响应流');
       }
-      
+
       const decoder = new TextDecoder();
       let buffer = '';
       let feedbackContent = '';
       let sseError: string | null = null;
-      let contentId: string | null = null;
-
-      // 事件类型在循环外部跟踪，因为 event: 和 data: 可能在不同的块中
+      let sseCompleted = false;
       let currentEventType = '';
 
       while (true) {
         checkAborted();
         const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
+        if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -1021,23 +1026,12 @@ export default function Home() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-
-              // 根据事件类型处理
               if (currentEventType === 'progress' && data.chars) {
-                // 进度更新
                 updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
               } else if (currentEventType === 'complete') {
-                // 完成事件：通过 contentId 拉取内容（不再走 SSE 传大数据）
-                if (data.contentId) {
-                  contentId = data.contentId;
-                } else if (data.feedback) {
-                  // 兼容旧格式
-                  feedbackContent = data.feedback;
-                }
+                sseCompleted = true;
               } else if (currentEventType === 'error' && data.message) {
-                // 错误事件
                 sseError = data.message;
-                console.error('[SSE] 收到错误事件:', sseError);
               }
             } catch (e) {
               // 忽略解析错误
@@ -1050,20 +1044,29 @@ export default function Home() {
         throw new Error(sseError);
       }
 
-      // 通过 HTTP GET 拉取完整内容（SSE 只传 contentId，大内容走普通 HTTP）
-      if (!feedbackContent && contentId) {
-        updateStep(0, { status: 'running', message: '正在获取生成内容...' });
-        const contentRes = await fetch(`/api/feedback-content/${contentId}`);
-        if (!contentRes.ok) {
-          throw new Error(`获取内容失败: HTTP ${contentRes.status}`);
+      // 无论 SSE 是否正常结束，都通过 HTTP GET 凭 taskId 拉取内容
+      // 如果后端还没生成完（SSE 被平台掐断），轮询等待
+      updateStep(0, { status: 'running', message: '正在获取生成内容...' });
+      const maxPolls = sseCompleted ? 1 : 30; // SSE 正常结束只拉一次；异常断开最多轮询 30 次（约 60 秒）
+      for (let poll = 0; poll < maxPolls; poll++) {
+        if (poll > 0) {
+          await new Promise(r => setTimeout(r, 2000)); // 每 2 秒轮询一次
+          updateStep(0, { status: 'running', message: `正在等待后端生成完毕... (${poll * 2}秒)` });
         }
-        const contentData = await contentRes.json();
-        feedbackContent = contentData.content;
+        try {
+          const contentRes = await fetch(`/api/feedback-content/${taskId}`);
+          if (contentRes.ok) {
+            const contentData = await contentRes.json();
+            feedbackContent = contentData.content;
+            break;
+          }
+        } catch (e) {
+          // 网络错误，继续轮询
+        }
       }
 
       if (!feedbackContent) {
-        console.error('[SSE] 未收到内容');
-        throw new Error('学情反馈生成失败: 未收到内容');
+        throw new Error('学情反馈生成失败: 未收到内容（后端可能仍在生成中，请稍后重试）');
       }
       
 

@@ -2,6 +2,7 @@
  * V45b: 小班课学情反馈 SSE 流式端点
  * 解决 Cloudflare 524 超时问题
  */
+import crypto from "crypto";
 import { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { invokeWhatAIStream, APIConfig } from "./whatai";
@@ -133,20 +134,21 @@ const classFeedbackInputSchema = z.object({
   apiUrl: z.string().optional(),
   roadmapClass: z.string().optional(),
   driveBasePath: z.string().optional(),
+  taskId: z.string().optional(),
 });
 
 /**
  * 注册小班课 SSE 流式端点
  */
 export function registerClassStreamRoutes(app: Express): void {
-  // 内容拉取端点：前端收到 contentId 后通过此接口获取完整内容
+  // 内容拉取端点：前端凭 taskId 获取完整内容（SSE 断了也能拉到）
   app.get("/api/feedback-content/:id", requireAuth, (req: Request, res: Response) => {
-    const content = retrieveContent(req.params.id);
-    if (content === null) {
+    const result = retrieveContent(req.params.id);
+    if (result === null) {
       res.status(404).json({ error: "内容不存在或已过期" });
       return;
     }
-    res.json({ content });
+    res.json({ content: result.content, meta: result.meta });
   });
 
   // SSE 端点：小班课学情反馈流式生成（需要登录）
@@ -283,11 +285,12 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       stepSuccess(log, 'feedback', cleanedContent.length);
       endLogSession(log);
       
-      // 发送完成事件：内容存入暂存，SSE 只发 contentId（避免大数据包被平台代理丢弃）
-      const contentId = storeContent(cleanedContent);
+      // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取）
+      const taskId = input.taskId || crypto.randomUUID();
+      storeContent(taskId, cleanedContent);
       sendEvent("complete", {
         success: true,
-        contentId,
+        contentId: taskId,
         chars: cleanedContent.length
       });
 
@@ -329,6 +332,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
     apiUrl: z.string().optional(),
     roadmap: z.string().optional(),
     driveBasePath: z.string().optional(),
+    taskId: z.string().optional(),
   });
   
   // 一对一默认 system prompt
@@ -498,11 +502,20 @@ ${input.transcript}
       // 结束日志会话（保存日志文件）
       endLogSession(log);
       
-      // 发送完成事件：内容存入暂存，SSE 只发 contentId（避免大数据包被平台代理丢弃）
-      const contentId = storeContent(cleanedContent);
+      // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取）
+      const taskId = input.taskId || crypto.randomUUID();
+      storeContent(taskId, cleanedContent, {
+        dateStr,
+        uploadResult: {
+          fileName: fileName,
+          url: uploadResult.url || '',
+          path: uploadResult.path || '',
+          folderUrl: uploadResult.folderUrl || '',
+        }
+      });
       sendEvent("complete", {
         success: true,
-        contentId,
+        contentId: taskId,
         chars: cleanedContent.length,
         dateStr: dateStr,
         uploadResult: {
