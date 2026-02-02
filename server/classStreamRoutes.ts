@@ -6,7 +6,7 @@ import crypto from "crypto";
 import { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { invokeWhatAIStream, APIConfig } from "./whatai";
-import { ClassFeedbackInput, textToDocx, cleanMarkdownAndHtml, generateClassTestContent, generateClassExtractionContent } from "./feedbackGenerator";
+import { ClassFeedbackInput, textToDocx, cleanMarkdownAndHtml, stripAIMetaCommentary, generateClassTestContent, generateClassExtractionContent } from "./feedbackGenerator";
 import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
@@ -68,7 +68,8 @@ const NO_INTERACTION_INSTRUCTION = `
 
 【重要】不要与用户互动，不要等待确认，不要询问任何问题。
 不要输出任何前言、寒暄、自我描述或元评论（如"我将为您生成..."、"好的，以下是..."、"我将直接为您生成..."等）。
-直接输出文档正文内容，第一行就是文档内容本身。`;
+不要在文档末尾添加总结、确认、说明或emoji标记（如"✅ 生成完成！"、"生成的文件：..."等）。
+直接输出文档正文内容，第一行就是文档内容本身，最后一行就是文档内容的结尾。`;
 
 // cleanMarkdownAndHtml 已从 feedbackGenerator.ts 导入
 
@@ -278,9 +279,9 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
         }
       );
       
-      // 清理内容
-      const cleanedContent = cleanMarkdownAndHtml(content);
-      
+      // 清理内容（markdown/HTML 标记 + AI 元评论）
+      const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(content));
+
 
       
       // 记录步骤成功
@@ -468,9 +469,9 @@ ${input.transcript}
         }
       );
       
-      // 清理内容
-      const cleanedContent = cleanMarkdownAndHtml(content);
-      
+      // 清理内容（markdown/HTML 标记 + AI 元评论）
+      const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(content));
+
 
       
       // 优先使用用户输入的日期，否则从反馈内容中提取
@@ -688,7 +689,7 @@ ${input.feedbackContent}
         }
       );
       
-      const cleanedContent = cleanMarkdownAndHtml(reviewContent);
+      const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(reviewContent));
       
 
       
@@ -903,7 +904,7 @@ ${input.currentNotes}
         }
       );
       
-      const cleanedContent = cleanMarkdownAndHtml(reviewContent);
+      const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(reviewContent));
 
 
 
