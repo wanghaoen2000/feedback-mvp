@@ -66,7 +66,9 @@ const CLASS_FEEDBACK_SYSTEM_PROMPT = `你是一个学情反馈生成助手。请
 // 不要互动指令
 const NO_INTERACTION_INSTRUCTION = `
 
-【重要】不要与用户互动，不要等待确认，不要询问任何问题，直接生成完整内容。`;
+【重要】不要与用户互动，不要等待确认，不要询问任何问题。
+不要输出任何前言、寒暄、自我描述或元评论（如"我将为您生成..."、"好的，以下是..."、"我将直接为您生成..."等）。
+直接输出文档正文内容，第一行就是文档内容本身。`;
 
 // cleanMarkdownAndHtml 已从 feedbackGenerator.ts 导入
 
