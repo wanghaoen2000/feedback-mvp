@@ -348,10 +348,52 @@ export function cleanMarkdownAndHtml(text: string): string {
 }
 
 /**
+ * 剔除 AI 常见的元评论：开头前言和结尾废话
+ * 比如"我将直接为您生成..."、"✅ 生成完成！"、"生成的文件：..."等
+ */
+export function stripAIMetaCommentary(text: string): string {
+  const lines = text.split('\n');
+
+  // 从头部剔除 AI 前言（空行 + 常见开头模式）
+  const preamblePatterns = [
+    /^(好的|当然|没问题|可以|明白|收到|了解)[，。！,!.\s]/,
+    /^我(将|来|会|现在|这就|马上)(直接|为您|帮您|给您|立即)/,
+    /^(以下是|以下为|下面是|这是)(您的|为您|你的)?/,
+    /^(根据您|按照您|基于您)/,
+    /^(让我|请看|请查看)/,
+  ];
+  while (lines.length > 0) {
+    const trimmed = lines[0].trim();
+    if (trimmed === '') { lines.shift(); continue; }
+    if (preamblePatterns.some(p => p.test(trimmed))) { lines.shift(); continue; }
+    break;
+  }
+
+  // 从尾部剔除 AI 结语（空行 + 常见结尾模式）
+  const epiloguePatterns = [
+    /^[✅✓☑️📝📄🎉🎊]\s/,
+    /^(生成完成|测试本生成完成|复习文档生成完成|课后信息提取完成)/,
+    /^(生成的文件|已生成的文件|输出文件)[：:]/,
+    /^[-•]\s+.+\.(docx|md|txt|pdf)/,
+    /^(如果您|如果有|希望这|请查看|请检查|需要修改|如需)/,
+    /^(以上是|以上就是|以上为)/,
+    /^---+$/,
+  ];
+  while (lines.length > 0) {
+    const trimmed = lines[lines.length - 1].trim();
+    if (trimmed === '') { lines.pop(); continue; }
+    if (epiloguePatterns.some(p => p.test(trimmed))) { lines.pop(); continue; }
+    break;
+  }
+
+  return lines.join('\n').trim();
+}
+
+/**
  * 文本转Word文档
  */
 export async function textToDocx(text: string, title: string): Promise<Buffer> {
-  const cleanedText = cleanMarkdownAndHtml(text);
+  const cleanedText = stripAIMetaCommentary(cleanMarkdownAndHtml(text));
   const lines = cleanedText.split('\n');
   
   const children: Paragraph[] = [];
@@ -698,8 +740,8 @@ ${feedback}
     }
   );
   console.log(`\n[课后信息提取] 流式生成完成，内容长度: ${content.length}字符`);
-  
-  return cleanMarkdownAndHtml(content);
+
+  return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
 }
 
 /**
@@ -907,7 +949,10 @@ const CLASS_EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。�
 // 不要互动指令（程序强制约束）
 const NO_INTERACTION_INSTRUCTION = `
 
-【重要】不要与用户互动，不要等待确认，不要询问任何问题，直接生成完整内容。`;
+【重要】不要与用户互动，不要等待确认，不要询问任何问题。
+不要输出任何前言、寒暄、自我描述或元评论（如"我将为您生成..."、"好的，以下是..."、"我将直接为您生成..."等）。
+不要在文档末尾添加总结、确认、说明或emoji标记（如"✅ 生成完成！"、"生成的文件：..."等）。
+直接输出文档正文内容，第一行就是文档内容本身，最后一行就是文档内容的结尾。`;
 
 /**
  * 生成小班课学情反馈（生成1份完整文件，包含全班共用部分+每个学生的单独部分）
@@ -1016,12 +1061,15 @@ ${input.currentNotes}
     () => process.stdout.write('.')
   );
   console.log(`\n[小班课复习文档] 生成完成`);
-  
+
+  // 清理 AI 元评论和 markdown 标记
+  const cleanedReviewContent = stripAIMetaCommentary(cleanMarkdownAndHtml(reviewContent));
+
   // 转换为 docx
   const doc = new Document({
     sections: [{
       properties: {},
-      children: reviewContent.split('\n').map((line: string) => {
+      children: cleanedReviewContent.split('\n').map((line: string) => {
         if (line.startsWith('【') && line.endsWith('】')) {
           return new Paragraph({
             children: [new TextRun({ text: line, bold: true, size: 28 })],
@@ -1085,12 +1133,15 @@ ${input.currentNotes}
     () => process.stdout.write('.')
   );
   console.log(`\n[小班课测试本] 生成完成`);
-  
+
+  // 清理 AI 元评论和 markdown 标记
+  const cleanedTestContent = stripAIMetaCommentary(cleanMarkdownAndHtml(testContent));
+
   // 转换为 docx
   const doc = new Document({
     sections: [{
       properties: {},
-      children: testContent.split('\n').map((line: string) => {
+      children: cleanedTestContent.split('\n').map((line: string) => {
         if (line.includes('=====')) {
           return new Paragraph({
             children: [new TextRun({ text: line, bold: true, size: 28 })],
@@ -1160,8 +1211,8 @@ ${combinedFeedback}
     () => process.stdout.write('.')
   );
   console.log(`\n[小班课课后信息] 生成完成`);
-  
-  return cleanMarkdownAndHtml(extractionContent);
+
+  return stripAIMetaCommentary(cleanMarkdownAndHtml(extractionContent));
 }
 
 /**
