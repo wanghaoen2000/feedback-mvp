@@ -1,13 +1,13 @@
 /**
  * 内容暂存模块
- * SSE 不传大内容，改为暂存在内存中，前端通过 HTTP GET 拉取
+ * 前端生成 taskId 传给后端，后端用 taskId 存入内容
+ * 前端通过 HTTP GET 拉取，SSE 连接断开也不影响
  * 内容自动过期清理，避免内存泄漏
  */
 
-import crypto from "crypto";
-
 interface StoredContent {
   content: string;
+  meta?: Record<string, any>;
   createdAt: number;
 }
 
@@ -24,17 +24,14 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-/** 存入内容，返回 contentId */
-export function storeContent(content: string): string {
-  const id = crypto.randomUUID();
-  store.set(id, { content, createdAt: Date.now() });
-  return id;
+/** 用指定 taskId 存入内容和附加信息 */
+export function storeContent(taskId: string, content: string, meta?: Record<string, any>): void {
+  store.set(taskId, { content, meta, createdAt: Date.now() });
 }
 
-/** 取出内容（取后删除） */
-export function retrieveContent(id: string): string | null {
-  const item = store.get(id);
+/** 查询内容（不删除，允许轮询） */
+export function retrieveContent(taskId: string): { content: string; meta?: Record<string, any> } | null {
+  const item = store.get(taskId);
   if (!item) return null;
-  store.delete(id);
-  return item.content;
+  return { content: item.content, meta: item.meta };
 }
