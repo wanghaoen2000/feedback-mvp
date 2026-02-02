@@ -45,9 +45,29 @@ export async function verifyFileExists(filePath: string): Promise<{ exists: bool
 }
 
 /**
- * 使用OAuth创建或获取文件夹ID
+ * 并发去重：同一路径的文件夹创建请求共享同一个 Promise，
+ * 避免并行上传时 Google Drive 创建多个同名文件夹
  */
+const pendingFolderOps = new Map<string, Promise<string>>();
+
 export async function getOrCreateFolderWithOAuth(folderPath: string, token: string): Promise<string> {
+  const cacheKey = `${folderPath}::${token}`;
+  const pending = pendingFolderOps.get(cacheKey);
+  if (pending) {
+    return pending;
+  }
+
+  const operation = _getOrCreateFolderWithOAuth(folderPath, token);
+  pendingFolderOps.set(cacheKey, operation);
+
+  try {
+    return await operation;
+  } finally {
+    pendingFolderOps.delete(cacheKey);
+  }
+}
+
+async function _getOrCreateFolderWithOAuth(folderPath: string, token: string): Promise<string> {
   const parts = folderPath.split('/').filter(p => p);
   let parentId = 'root';
   
