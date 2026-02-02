@@ -1081,7 +1081,8 @@ export default function Home() {
         extractedDate = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
       }
       setDateStr(extractedDate);
-      
+      setFeedbackContent(combinedFeedback); // 存入 React state，供重做步骤时使用
+
       // 上传1份完整的学情反馈（保存返回值）
       let feedbackUploadResult;
       try {
