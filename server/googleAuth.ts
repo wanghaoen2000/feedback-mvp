@@ -101,10 +101,19 @@ export async function handleCallback(code: string): Promise<{ success: boolean; 
   }
 }
 
+// 防止并发刷新：多个请求同时过期时，只刷新一次
+let refreshPromise: Promise<string | null> | null = null;
+
 /**
  * 获取有效的access token（自动刷新过期token）
  */
 export async function getValidToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = _getValidToken().finally(() => { refreshPromise = null; });
+  return refreshPromise;
+}
+
+async function _getValidToken(): Promise<string | null> {
   try {
     const db = await getDb();
     if (!db) {
