@@ -1848,7 +1848,7 @@ export default function Home() {
                 const dec = new TextDecoder(); let buf = '', evt = '';
                 try {
                   while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.chars) updateStep(1, { status: 'running', message: `已生成 ${d.chars} 字符` }); else if (evt === 'complete' && d.uploadResult) rUpload = d.uploadResult; else if (evt === 'error' && d.message) rErr = d.message; } catch(e){ console.warn('[Poll] 轮询失败:', e); } } } }
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.chars) updateStep(1, { status: 'running', message: `已生成 ${d.chars} 字符` }); else if (evt === 'complete' && d.uploadResult) rUpload = d.uploadResult; else if (evt === 'error' && d.message) rErr = d.message; } catch(e){ /* SSE parse ignore */ } } } }
                 } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Review retry] SSE断开:', e); }
@@ -1877,7 +1877,7 @@ export default function Home() {
                 const dec = new TextDecoder(); let buf = '', evt = '';
                 try {
                   while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(2, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) tUpload = d.uploadResult; else if (evt === 'error' && d.message) tErr = d.message; } catch(e){ console.warn('[Poll] 轮询失败:', e); } } } }
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(2, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) tUpload = d.uploadResult; else if (evt === 'error' && d.message) tErr = d.message; } catch(e){ /* SSE parse ignore */ } } } }
                 } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Test retry] SSE断开:', e); }
@@ -1906,7 +1906,7 @@ export default function Home() {
                 const dec = new TextDecoder(); let buf = '', evt = '';
                 try {
                   while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(3, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) eUpload = d.uploadResult; else if (evt === 'error' && d.message) eErr = d.message; } catch(e){ console.warn('[Poll] 轮询失败:', e); } } } }
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(3, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) eUpload = d.uploadResult; else if (evt === 'error' && d.message) eErr = d.message; } catch(e){ /* SSE parse ignore */ } } } }
                 } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Extraction retry] SSE断开:', e); }

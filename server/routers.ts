@@ -372,7 +372,9 @@ export const appRouter = router({
           };
 
           // taskId 容错：存入 contentStore 供前端轮询
-          storeContent(input.taskId, JSON.stringify(resultPayload));
+          if (input.taskId) {
+            storeContent(input.taskId, JSON.stringify(resultPayload));
+          }
 
           return resultPayload;
         } catch (error: any) {
