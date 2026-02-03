@@ -313,7 +313,10 @@ async function compressTranscript(transcript: string, config?: APIConfig): Promi
 6. 删除"嗯""啊""那个"等语气词
 7. 压缩后长度应为原文的50%左右
 
-直接输出压缩后的内容，不要添加任何解释。` },
+【重要】不要与用户互动，不要等待确认，不要询问任何问题。
+不要输出任何前言、寒暄、自我描述或元评论（如"我将为您压缩..."、"好的，以下是..."等）。
+不要在末尾添加总结、确认、说明或emoji标记。
+直接输出压缩后的内容，第一行就是压缩内容本身，最后一行就是压缩内容的结尾。` },
       { role: "user", content: transcript },
     ], { max_tokens: 32000 }, config, (c) => process.stdout.write('.'));
     
