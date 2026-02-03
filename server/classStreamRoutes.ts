@@ -738,10 +738,10 @@ ${input.feedbackContent}
 
 
       // 记录步骤成功
-      stepSuccess(log, 'review', cleanedContent.length);
+      stepSuccess(log, 'review', reviewContent.length);
       logInfo(log, 'review', `上传成功: ${uploadResult.path}`);
       endLogSession(log);
-      
+
       const reviewUploadData = {
         fileName: fileName,
         url: uploadResult.url || '',
@@ -751,11 +751,11 @@ ${input.feedbackContent}
 
       // 存入 contentStore，供前端 SSE 断连后轮询
       const reviewTaskId = input.taskId || crypto.randomUUID();
-      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: cleanedContent.length });
+      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: reviewContent.length });
 
       sendEvent("complete", {
         success: true,
-        chars: cleanedContent.length,
+        chars: reviewContent.length,
         contentId: reviewTaskId,
         uploadResult: reviewUploadData,
       });
@@ -954,7 +954,7 @@ ${input.currentNotes}
 
       
       // 记录步骤成功
-      stepSuccess(log, 'review', cleanedContent.length);
+      stepSuccess(log, 'review', reviewContent.length);
       logInfo(log, 'review', `上传成功: ${uploadResult.path}`);
       endLogSession(log);
 
@@ -967,11 +967,11 @@ ${input.currentNotes}
 
       // 存入 contentStore，供前端 SSE 断连后轮询
       const reviewTaskId = input.taskId || crypto.randomUUID();
-      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: cleanedContent.length });
+      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: reviewContent.length });
 
       sendEvent("complete", {
         success: true,
-        chars: cleanedContent.length,
+        chars: reviewContent.length,
         contentId: reviewTaskId,
         uploadResult: reviewUploadData,
       });
