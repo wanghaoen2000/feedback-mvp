@@ -489,15 +489,23 @@ ${input.transcript}
       
 
       sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
-      
-      const uploadResult = await uploadToGoogleDrive(cleanedContent, fileName, folderPath);
-      
+
+      // 上传期间发送 keep-alive，防止代理超时
+      const uploadKeepAliveFb = setInterval(() => {
+        sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
+      }, 15000);
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadToGoogleDrive(cleanedContent, fileName, folderPath);
+      } finally {
+        clearInterval(uploadKeepAliveFb);
+      }
+
       if (uploadResult.status === 'error') {
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
       }
-      
 
-      
       // 记录步骤成功
       stepSuccess(log, 'feedback', cleanedContent.length);
       logInfo(log, 'feedback', `上传成功: ${uploadResult.path}`);
@@ -1057,7 +1065,17 @@ ${input.currentNotes}
       const fileName = `${input.classNumber}班${input.lessonDate || ''}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
 
-      const uploadResult = await uploadBinaryToGoogleDrive(testBuffer, fileName, folderPath);
+      // 上传期间发送 keep-alive，防止代理超时
+      const uploadKeepAliveTest = setInterval(() => {
+        sendEvent("progress", { message: "正在上传到 Google Drive..." });
+      }, 15000);
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadBinaryToGoogleDrive(testBuffer, fileName, folderPath);
+      } finally {
+        clearInterval(uploadKeepAliveTest);
+      }
 
       if (uploadResult.status === 'error') {
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
@@ -1171,7 +1189,17 @@ ${input.currentNotes}
       const fileName = `${input.classNumber}班${input.lessonDate || ''}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
 
-      const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+      // 上传期间发送 keep-alive，防止代理超时
+      const uploadKeepAliveExt = setInterval(() => {
+        sendEvent("progress", { message: "正在上传到 Google Drive...", chars: extractionContent.length });
+      }, 15000);
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+      } finally {
+        clearInterval(uploadKeepAliveExt);
+      }
 
       if (uploadResult.status === 'error') {
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
