@@ -703,16 +703,14 @@ ${input.feedbackContent}
         }
       );
       
-      const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(reviewContent));
-
       // 校验内容非空
-      if (!cleanedContent || !cleanedContent.trim()) {
+      if (!reviewContent || !reviewContent.trim()) {
         throw new Error('复习文档生成失败：AI 返回内容为空，请重试');
       }
 
-      // 转换为 Word 文档
+      // 转换为 Word 文档（textToDocx 内部已含 cleanMarkdownAndHtml + stripAIMetaCommentary）
       sendEvent("progress", { chars: charCount, message: "正在转换为Word文档..." });
-      const docxBuffer = await textToDocx(cleanedContent, `${input.studentName}${input.dateStr}复习文档`);
+      const docxBuffer = await textToDocx(reviewContent, `${input.studentName}${input.dateStr}复习文档`);
       
       // 上传到 Google Drive
       const basePath = `${driveBasePath}/${input.studentName}`;
@@ -921,16 +919,14 @@ ${input.currentNotes}
         }
       );
       
-      const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(reviewContent));
-
       // 校验内容非空
-      if (!cleanedContent || !cleanedContent.trim()) {
+      if (!reviewContent || !reviewContent.trim()) {
         throw new Error('小班课复习文档生成失败：AI 返回内容为空，请重试');
       }
 
-      // 转换为 Word 文档
+      // 转换为 Word 文档（textToDocx 内部已含 cleanMarkdownAndHtml + stripAIMetaCommentary）
       sendEvent("progress", { chars: charCount, message: "正在转换为Word文档..." });
-      const docxBuffer = await textToDocx(cleanedContent, `${input.classNumber}班${input.lessonDate || ''}复习文档`);
+      const docxBuffer = await textToDocx(reviewContent, `${input.classNumber}班${input.lessonDate || ''}复习文档`);
 
       // 上传到 Google Drive（期间发送 keep-alive 防止代理超时）
       const basePath = `${driveBasePath}/${input.classNumber}班`;
