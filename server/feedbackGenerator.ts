@@ -618,8 +618,8 @@ ${input.transcript}
     }
   );
   console.log(`\n[学情反馈] 流式生成完成，内容长度: ${content.length}字符`);
-  
-  return cleanMarkdownAndHtml(content);
+
+  return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
 }
 
 /**
@@ -1000,8 +1000,8 @@ ${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\
   );
   
   console.log(`\n[小班课反馈] 学情反馈生成完成，长度: ${content.length} 字符`);
-  
-  return cleanMarkdownAndHtml(content);
+
+  return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
 }
 
 /**
