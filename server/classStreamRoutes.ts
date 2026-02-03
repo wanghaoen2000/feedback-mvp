@@ -282,12 +282,15 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       // 清理内容（markdown/HTML 标记 + AI 元评论）
       const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(content));
 
+      // 校验内容非空
+      if (!cleanedContent || !cleanedContent.trim()) {
+        throw new Error('小班课学情反馈生成失败：AI 返回内容为空，请重试');
+      }
 
-      
       // 记录步骤成功
       stepSuccess(log, 'feedback', cleanedContent.length);
       endLogSession(log);
-      
+
       // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取）
       const taskId = input.taskId || crypto.randomUUID();
       storeContent(taskId, cleanedContent);
@@ -472,15 +475,18 @@ ${input.transcript}
       // 清理内容（markdown/HTML 标记 + AI 元评论）
       const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(content));
 
+      // 校验内容非空
+      if (!cleanedContent || !cleanedContent.trim()) {
+        throw new Error('学情反馈生成失败：AI 返回内容为空，请重试');
+      }
 
-      
       // 优先使用用户输入的日期，否则从反馈内容中提取
       let dateStr = input.lessonDate || '';
       if (!dateStr) {
         const dateMatch = cleanedContent.match(/(\d{1,2}月\d{1,2}日?)/);
         dateStr = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
       }
-      
+
       // 上传到 Google Drive
       const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
       const basePath = `${driveBasePath}/${input.studentName}`;
@@ -698,9 +704,12 @@ ${input.feedbackContent}
       );
       
       const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(reviewContent));
-      
 
-      
+      // 校验内容非空
+      if (!cleanedContent || !cleanedContent.trim()) {
+        throw new Error('复习文档生成失败：AI 返回内容为空，请重试');
+      }
+
       // 转换为 Word 文档
       sendEvent("progress", { chars: charCount, message: "正在转换为Word文档..." });
       const docxBuffer = await textToDocx(cleanedContent, `${input.studentName}${input.dateStr}复习文档`);
@@ -914,7 +923,10 @@ ${input.currentNotes}
       
       const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(reviewContent));
 
-
+      // 校验内容非空
+      if (!cleanedContent || !cleanedContent.trim()) {
+        throw new Error('小班课复习文档生成失败：AI 返回内容为空，请重试');
+      }
 
       // 转换为 Word 文档
       sendEvent("progress", { chars: charCount, message: "正在转换为Word文档..." });
@@ -1058,6 +1070,11 @@ ${input.currentNotes}
       );
 
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
+
+      // 校验内容非空
+      if (!testBuffer || testBuffer.length === 0) {
+        throw new Error('小班课测试本生成失败：AI 返回内容为空，请重试');
+      }
 
       // 上传到 Google Drive
       sendEvent("progress", { message: "正在上传到 Google Drive..." });

@@ -356,6 +356,10 @@ export const appRouter = router({
             specialRequirements: input.specialRequirements || "",
           }, { apiModel, apiKey, apiUrl, roadmap });
 
+          if (!feedbackContent || !feedbackContent.trim()) {
+            throw new Error('学情反馈生成失败：AI 返回内容为空，请重试');
+          }
+
           // 优先使用用户输入的日期，否则从反馈内容中提取
           let dateStr = input.lessonDate || "";
           if (!dateStr) {
@@ -445,11 +449,15 @@ export const appRouter = router({
         
         try {
           const reviewDocx = await generateReviewContent(
-            input.feedbackContent, 
-            input.studentName, 
+            input.feedbackContent,
+            input.studentName,
             input.dateStr,
             { apiModel, apiKey, apiUrl, roadmap }
           );
+
+          if (!reviewDocx || reviewDocx.length === 0) {
+            throw new Error('复习文档生成失败：AI 返回内容为空，请重试');
+          }
 
           const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${input.dateStr}复习文档.docx`;
@@ -532,11 +540,15 @@ export const appRouter = router({
         
         try {
           const testDocx = await generateTestContent(
-            input.feedbackContent, 
-            input.studentName, 
+            input.feedbackContent,
+            input.studentName,
             input.dateStr,
             { apiModel, apiKey, apiUrl, roadmap }
           );
+
+          if (!testDocx || testDocx.length === 0) {
+            throw new Error('测试本生成失败：AI 返回内容为空，请重试');
+          }
 
           const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${input.dateStr}测试文档.docx`;
@@ -618,11 +630,15 @@ export const appRouter = router({
         
         try {
           const extractionContent = await generateExtractionContent(
-            input.studentName, 
+            input.studentName,
             "",
             input.feedbackContent,
             { apiModel, apiKey, apiUrl, roadmap }
           );
+
+          if (!extractionContent || !extractionContent.trim()) {
+            throw new Error('课后信息提取生成失败：AI 返回内容为空，请重试');
+          }
 
           const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${input.dateStr}课后信息提取.md`;
@@ -711,7 +727,11 @@ export const appRouter = router({
             input.lessonNumber || "",
             { apiModel, apiKey, apiUrl, roadmap }
           );
-          
+
+          if (!svgContent || !svgContent.trim()) {
+            throw new Error('气泡图生成失败：AI 返回内容为空，请重试');
+          }
+
           stepSuccess(log, "气泡图", svgContent.length);
           endLogSession(log);
 
