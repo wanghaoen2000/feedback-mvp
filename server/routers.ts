@@ -39,33 +39,7 @@ import {
   generateClassBubbleChartSVG,
 } from "./feedbackGenerator";
 import { storeContent } from "./contentStore";
-
-// 默认配置值
-const DEFAULT_CONFIG = {
-  apiModel: "claude-sonnet-4-5-20250929",
-  apiKey: process.env.WHATAI_API_KEY || "",
-  apiUrl: "https://www.DMXapi.com/v1",
-  currentYear: "2026",
-  roadmap: "",
-  driveBasePath: "Mac/Documents/XDF/学生档案",
-  batchFilePrefix: "任务",
-  batchStoragePath: "Mac(online)/Documents/XDF/批量任务",
-};
-
-// 获取配置值（优先从数据库，否则用默认值）
-async function getConfig(key: string): Promise<string> {
-  try {
-    const db = await getDb();
-    if (!db) return DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] || "";
-    const result = await db.select().from(systemConfig).where(eq(systemConfig.key, key)).limit(1);
-    if (result.length > 0 && result[0].value) {
-      return result[0].value;
-    }
-  } catch (e) {
-    console.error(`获取配置 ${key} 失败:`, e);
-  }
-  return DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] || "";
-}
+import { DEFAULT_CONFIG, getConfigValue as getConfig } from "./core/aiClient";
 
 // 设置配置值
 async function setConfig(key: string, value: string, description?: string): Promise<void> {

@@ -309,6 +309,12 @@ export default function Home() {
     url?: string;
   } | null>(null); // 导出结果
   const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
+  const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 组件卸载时清理 skipStep 定时器
+  useEffect(() => {
+    return () => { if (skipTimerRef.current) clearTimeout(skipTimerRef.current); };
+  }, []);
 
   // 生成中每秒触发重渲染，驱动耗时秒数实时刷新
   const [, setTick] = useState(0);
@@ -523,39 +529,41 @@ export default function Home() {
       let sseCompleted = false;
       let currentEventType = '';
 
-      while (true) {
-        checkAborted();
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          checkAborted();
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEventType = line.slice(7).trim();
-            continue;
-          }
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (currentEventType === 'progress' && data.chars) {
-                const progressMsg = data.message || `正在生成学情反馈... 已生成 ${data.chars} 字符`;
-                updateStep(0, { status: 'running', message: progressMsg });
-              } else if (currentEventType === 'complete') {
-                sseCompleted = true;
-                if (data.dateStr) date = data.dateStr;
-                if (data.uploadResult) sseUploadResult = data.uploadResult;
-              } else if (currentEventType === 'error' && data.message) {
-                sseError = data.message;
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEventType = line.slice(7).trim();
+              continue;
+            }
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (currentEventType === 'progress' && data.chars) {
+                  const progressMsg = data.message || `正在生成学情反馈... 已生成 ${data.chars} 字符`;
+                  updateStep(0, { status: 'running', message: progressMsg });
+                } else if (currentEventType === 'complete') {
+                  sseCompleted = true;
+                  if (data.dateStr) date = data.dateStr;
+                  if (data.uploadResult) sseUploadResult = data.uploadResult;
+                } else if (currentEventType === 'error' && data.message) {
+                  sseError = data.message;
+                }
+              } catch (e) {
+                // 忽略解析错误
               }
-            } catch (e) {
-              // 忽略解析错误
             }
           }
         }
-      }
+      } finally { reader.cancel().catch(() => {}); }
 
       if (sseError) {
         throw new Error(sseError);
@@ -667,32 +675,34 @@ export default function Home() {
                 const decoder = new TextDecoder();
                 let buf = '';
                 let evt = '';
-                while (true) {
-                  checkAborted();
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buf += decoder.decode(value, { stream: true });
-                  const lines = buf.split('\n');
-                  buf = lines.pop() || '';
-                  for (const line of lines) {
-                    if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
-                    if (line.startsWith('data: ')) {
-                      try {
-                        const data = JSON.parse(line.slice(6));
-                        if (evt === 'progress' && data.chars) {
-                          reviewCharCount = data.chars;
-                          updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
-                          setParallelTasks(prev => ({ ...prev, review: { ...prev.review, charCount: data.chars } }));
-                        } else if (evt === 'complete') {
-                          if (data.uploadResult) reviewUploadResult = data.uploadResult;
-                          if (data.chars) reviewCharCount = data.chars;
-                        } else if (evt === 'error' && data.message) {
-                          reviewSseError = data.message;
-                        }
-                      } catch (e) { /* ignore */ }
+                try {
+                  while (true) {
+                    checkAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (const line of lines) {
+                      if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (evt === 'progress' && data.chars) {
+                            reviewCharCount = data.chars;
+                            updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
+                            setParallelTasks(prev => ({ ...prev, review: { ...prev.review, charCount: data.chars } }));
+                          } else if (evt === 'complete') {
+                            if (data.uploadResult) reviewUploadResult = data.uploadResult;
+                            if (data.chars) reviewCharCount = data.chars;
+                          } else if (evt === 'error' && data.message) {
+                            reviewSseError = data.message;
+                          }
+                        } catch (e) { /* ignore */ }
+                      }
                     }
                   }
-                }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch (sseErr) {
               console.log('[Review SSE] 连接断开，将轮询获取结果:', sseErr);
@@ -713,7 +723,7 @@ export default function Home() {
                     if (data.meta?.chars) reviewCharCount = data.meta.chars;
                     break;
                   }
-                } catch (e) { /* continue */ }
+                } catch (e) { console.warn('[Poll] 轮询失败:', e); }
               }
             }
 
@@ -766,7 +776,7 @@ export default function Home() {
                     testUploadResult = JSON.parse(data.content);
                     break;
                   }
-                } catch (e) { /* continue */ }
+                } catch (e) { console.warn('[Poll] 轮询失败:', e); }
               }
             }
 
@@ -819,7 +829,7 @@ export default function Home() {
                     extractionUploadResult = JSON.parse(data.content);
                     break;
                   }
-                } catch (e) { /* continue */ }
+                } catch (e) { console.warn('[Poll] 轮询失败:', e); }
               }
             }
 
@@ -875,7 +885,7 @@ export default function Home() {
                     svgContent = parsed.svgContent;
                     break;
                   }
-                } catch (e) { /* continue */ }
+                } catch (e) { console.warn('[Poll] 轮询失败:', e); }
               }
             }
 
@@ -1086,36 +1096,38 @@ export default function Home() {
       let sseCompleted = false;
       let currentEventType = '';
 
-      while (true) {
-        checkAborted();
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          checkAborted();
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEventType = line.slice(7).trim();
-            continue;
-          }
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (currentEventType === 'progress' && data.chars) {
-                updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
-              } else if (currentEventType === 'complete') {
-                sseCompleted = true;
-              } else if (currentEventType === 'error' && data.message) {
-                sseError = data.message;
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEventType = line.slice(7).trim();
+              continue;
+            }
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (currentEventType === 'progress' && data.chars) {
+                  updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
+                } else if (currentEventType === 'complete') {
+                  sseCompleted = true;
+                } else if (currentEventType === 'error' && data.message) {
+                  sseError = data.message;
+                }
+              } catch (e) {
+                // 忽略解析错误
               }
-            } catch (e) {
-              // 忽略解析错误
             }
           }
         }
-      }
+      } finally { reader.cancel().catch(() => {}); }
 
       if (sseError) {
         throw new Error(sseError);
@@ -1242,31 +1254,33 @@ export default function Home() {
                 const decoder = new TextDecoder();
                 let buf = '';
                 let evt = '';
-                while (true) {
-                  checkAborted();
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buf += decoder.decode(value, { stream: true });
-                  const lines = buf.split('\n');
-                  buf = lines.pop() || '';
-                  for (const line of lines) {
-                    if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
-                    if (line.startsWith('data: ')) {
-                      try {
-                        const data = JSON.parse(line.slice(6));
-                        if (evt === 'progress' && data.chars) {
-                          classReviewCharCount = data.chars;
-                          updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
-                        } else if (evt === 'complete') {
-                          if (data.uploadResult) classReviewUploadResult = data.uploadResult;
-                          if (data.chars) classReviewCharCount = data.chars;
-                        } else if (evt === 'error' && data.message) {
-                          classReviewSseError = data.message;
-                        }
-                      } catch (e) { /* ignore */ }
+                try {
+                  while (true) {
+                    checkAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (const line of lines) {
+                      if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (evt === 'progress' && data.chars) {
+                            classReviewCharCount = data.chars;
+                            updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
+                          } else if (evt === 'complete') {
+                            if (data.uploadResult) classReviewUploadResult = data.uploadResult;
+                            if (data.chars) classReviewCharCount = data.chars;
+                          } else if (evt === 'error' && data.message) {
+                            classReviewSseError = data.message;
+                          }
+                        } catch (e) { /* ignore */ }
+                      }
                     }
                   }
-                }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch (sseErr) {
               console.log('[Review SSE] 连接断开，将轮询获取结果:', sseErr);
@@ -1287,7 +1301,7 @@ export default function Home() {
                     if (data.meta?.chars) classReviewCharCount = data.meta.chars;
                     break;
                   }
-                } catch (e) { /* continue */ }
+                } catch (e) { console.warn('[Poll] 轮询失败:', e); }
               }
             }
 
@@ -1344,25 +1358,27 @@ export default function Home() {
                 const decoder = new TextDecoder();
                 let buf = '';
                 let evt = '';
-                while (true) {
-                  checkAborted();
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buf += decoder.decode(value, { stream: true });
-                  const lines = buf.split('\n');
-                  buf = lines.pop() || '';
-                  for (const line of lines) {
-                    if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
-                    if (line.startsWith('data: ')) {
-                      try {
-                        const data = JSON.parse(line.slice(6));
-                        if (evt === 'progress' && data.message) updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
-                        else if (evt === 'complete' && data.uploadResult) testUploadResult = data.uploadResult;
-                        else if (evt === 'error' && data.message) testSseError = data.message;
-                      } catch (e) { /* ignore */ }
+                try {
+                  while (true) {
+                    checkAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (const line of lines) {
+                      if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (evt === 'progress' && data.message) updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
+                          else if (evt === 'complete' && data.uploadResult) testUploadResult = data.uploadResult;
+                          else if (evt === 'error' && data.message) testSseError = data.message;
+                        } catch (e) { /* ignore */ }
+                      }
                     }
                   }
-                }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch (sseErr) {
               console.log('[Test SSE] 连接断开，将轮询获取结果:', sseErr);
@@ -1381,7 +1397,7 @@ export default function Home() {
                     testUploadResult = JSON.parse(data.content);
                     break;
                   }
-                } catch (e) { /* continue */ }
+                } catch (e) { console.warn('[Poll] 轮询失败:', e); }
               }
             }
 
@@ -1432,28 +1448,30 @@ export default function Home() {
                 const decoder = new TextDecoder();
                 let buf = '';
                 let evt = '';
-                while (true) {
-                  checkAborted();
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buf += decoder.decode(value, { stream: true });
-                  const lines = buf.split('\n');
-                  buf = lines.pop() || '';
-                  for (const line of lines) {
-                    if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
-                    if (line.startsWith('data: ')) {
-                      try {
-                        const data = JSON.parse(line.slice(6));
-                        if (evt === 'progress' && data.message) updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
-                        else if (evt === 'complete') {
-                          if (data.uploadResult) extractionUploadResult = data.uploadResult;
-                          if (data.chars) extractionCharCount = data.chars;
-                        }
-                        else if (evt === 'error' && data.message) extractionSseError = data.message;
-                      } catch (e) { /* ignore */ }
+                try {
+                  while (true) {
+                    checkAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (const line of lines) {
+                      if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (evt === 'progress' && data.message) updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
+                          else if (evt === 'complete') {
+                            if (data.uploadResult) extractionUploadResult = data.uploadResult;
+                            if (data.chars) extractionCharCount = data.chars;
+                          }
+                          else if (evt === 'error' && data.message) extractionSseError = data.message;
+                        } catch (e) { /* ignore */ }
+                      }
                     }
                   }
-                }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch (sseErr) {
               console.log('[Extraction SSE] 连接断开，将轮询获取结果:', sseErr);
@@ -1473,7 +1491,7 @@ export default function Home() {
                     if (data.meta?.chars) extractionCharCount = data.meta.chars;
                     break;
                   }
-                } catch (e) { /* continue */ }
+                } catch (e) { console.warn('[Poll] 轮询失败:', e); }
               }
             }
 
@@ -1662,19 +1680,20 @@ export default function Home() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (courseType === 'oneToOne') {
       // 一对一模式
-      if (!studentName.trim() || !currentNotes.trim() || !transcript.trim()) {
-        return;
-      }
+      if (!studentName.trim()) { alert('请输入学生姓名'); return; }
+      if (!currentNotes.trim()) { alert('请输入课堂笔记'); return; }
+      if (!transcript.trim()) { alert('请输入录音转文字'); return; }
       await runGeneration();
     } else {
       // 小班课模式
+      if (!classNumber.trim()) { alert('请输入班号'); return; }
       const validStudents = attendanceStudents.filter((s: string) => s.trim());
-      if (!classNumber.trim() || validStudents.length === 0 || !currentNotes.trim() || !transcript.trim()) {
-        return;
-      }
+      if (validStudents.length === 0) { alert('请至少添加一名出勤学生'); return; }
+      if (!currentNotes.trim()) { alert('请输入课堂笔记'); return; }
+      if (!transcript.trim()) { alert('请输入录音转文字'); return; }
       await runClassGeneration();
     }
   };
@@ -1744,39 +1763,41 @@ export default function Home() {
               let cfCurrentEventType = '';
               const cfContentChunks: string[] = [];
 
-              while (true) {
-                const { done, value } = await cfReader.read();
-                if (done) break;
+              try {
+                while (true) {
+                  const { done, value } = await cfReader.read();
+                  if (done) break;
 
-                cfBuffer += cfDecoder.decode(value, { stream: true });
-                const cfLines = cfBuffer.split('\n');
-                cfBuffer = cfLines.pop() || '';
+                  cfBuffer += cfDecoder.decode(value, { stream: true });
+                  const cfLines = cfBuffer.split('\n');
+                  cfBuffer = cfLines.pop() || '';
 
-                for (const line of cfLines) {
-                  if (line.startsWith('event: ')) {
-                    cfCurrentEventType = line.slice(7).trim();
-                    continue;
-                  }
-                  if (line.startsWith('data: ')) {
-                    try {
-                      const data = JSON.parse(line.slice(6));
-                      if (cfCurrentEventType === 'progress' && data.chars) {
-                        updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
-                      } else if (cfCurrentEventType === 'content-chunk' && data.text !== undefined) {
-                        cfContentChunks[data.index] = data.text;
-                      } else if (cfCurrentEventType === 'complete') {
-                        if (data.chunked && cfContentChunks.length > 0) {
-                          cfFeedbackContent = cfContentChunks.join('');
-                        } else if (data.feedback) {
-                          cfFeedbackContent = data.feedback;
+                  for (const line of cfLines) {
+                    if (line.startsWith('event: ')) {
+                      cfCurrentEventType = line.slice(7).trim();
+                      continue;
+                    }
+                    if (line.startsWith('data: ')) {
+                      try {
+                        const data = JSON.parse(line.slice(6));
+                        if (cfCurrentEventType === 'progress' && data.chars) {
+                          updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
+                        } else if (cfCurrentEventType === 'content-chunk' && data.text !== undefined) {
+                          cfContentChunks[data.index] = data.text;
+                        } else if (cfCurrentEventType === 'complete') {
+                          if (data.chunked && cfContentChunks.length > 0) {
+                            cfFeedbackContent = cfContentChunks.join('');
+                          } else if (data.feedback) {
+                            cfFeedbackContent = data.feedback;
+                          }
+                        } else if (cfCurrentEventType === 'error' && data.message) {
+                          cfSseError = data.message;
                         }
-                      } else if (cfCurrentEventType === 'error' && data.message) {
-                        cfSseError = data.message;
-                      }
-                    } catch (e) { /* 忽略解析错误 */ }
+                      } catch (e) { /* 忽略解析错误 */ }
+                    }
                   }
                 }
-              }
+              } finally { cfReader.cancel().catch(() => {}); }
             } catch (e) { console.log('[ClassFeedback retry] SSE断开:', e); }
 
             if (cfSseError) throw new Error(cfSseError);
@@ -1784,7 +1805,7 @@ export default function Home() {
             // SSE 断开后轮询获取内容
             if (!cfFeedbackContent) {
               updateStep(0, { status: 'running', message: '等待后端完成生成...' });
-              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${cfTaskId}`); if (r.ok) { const d = await r.json(); cfFeedbackContent = d.content; break; } } catch(e){} }
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${cfTaskId}`); if (r.ok) { const d = await r.json(); cfFeedbackContent = d.content; break; } } catch(e){ console.warn('[Poll] 轮询失败:', e); } }
             }
             if (!cfFeedbackContent) throw new Error('学情反馈生成失败：未收到内容');
 
@@ -1825,13 +1846,15 @@ export default function Home() {
               const reader = rRes.body?.getReader();
               if (reader) {
                 const dec = new TextDecoder(); let buf = '', evt = '';
-                while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                  for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.chars) updateStep(1, { status: 'running', message: `已生成 ${d.chars} 字符` }); else if (evt === 'complete' && d.uploadResult) rUpload = d.uploadResult; else if (evt === 'error' && d.message) rErr = d.message; } catch(e){} } } }
+                try {
+                  while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.chars) updateStep(1, { status: 'running', message: `已生成 ${d.chars} 字符` }); else if (evt === 'complete' && d.uploadResult) rUpload = d.uploadResult; else if (evt === 'error' && d.message) rErr = d.message; } catch(e){ console.warn('[Poll] 轮询失败:', e); } } } }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Review retry] SSE断开:', e); }
             if (rErr) throw new Error(rErr);
             if (!rUpload) { updateStep(1, { status: 'running', message: '等待后端完成上传...' });
-              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${rTaskId}`); if (r.ok) { const d = await r.json(); rUpload = JSON.parse(d.content); break; } } catch(e){} } }
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${rTaskId}`); if (r.ok) { const d = await r.json(); rUpload = JSON.parse(d.content); break; } } catch(e){ console.warn('[Poll] 轮询失败:', e); } } }
             if (!rUpload) throw new Error('复习文档生成失败：未收到上传结果');
             updateStep(1, { status: 'success', message: '生成完成', uploadResult: rUpload });
             break;
@@ -1852,13 +1875,15 @@ export default function Home() {
               const reader = tRes.body?.getReader();
               if (reader) {
                 const dec = new TextDecoder(); let buf = '', evt = '';
-                while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                  for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(2, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) tUpload = d.uploadResult; else if (evt === 'error' && d.message) tErr = d.message; } catch(e){} } } }
+                try {
+                  while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(2, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) tUpload = d.uploadResult; else if (evt === 'error' && d.message) tErr = d.message; } catch(e){ console.warn('[Poll] 轮询失败:', e); } } } }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Test retry] SSE断开:', e); }
             if (tErr) throw new Error(tErr);
             if (!tUpload) { updateStep(2, { status: 'running', message: '等待后端完成上传...' });
-              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${tTaskId}`); if (r.ok) { const d = await r.json(); tUpload = JSON.parse(d.content); break; } } catch(e){} } }
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${tTaskId}`); if (r.ok) { const d = await r.json(); tUpload = JSON.parse(d.content); break; } } catch(e){ console.warn('[Poll] 轮询失败:', e); } } }
             if (!tUpload) throw new Error('测试本生成失败：未收到上传结果');
             updateStep(2, { status: 'success', message: '生成完成', uploadResult: tUpload });
             break;
@@ -1879,13 +1904,15 @@ export default function Home() {
               const reader = eRes.body?.getReader();
               if (reader) {
                 const dec = new TextDecoder(); let buf = '', evt = '';
-                while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                  for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(3, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) eUpload = d.uploadResult; else if (evt === 'error' && d.message) eErr = d.message; } catch(e){} } } }
+                try {
+                  while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(3, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) eUpload = d.uploadResult; else if (evt === 'error' && d.message) eErr = d.message; } catch(e){ console.warn('[Poll] 轮询失败:', e); } } } }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Extraction retry] SSE断开:', e); }
             if (eErr) throw new Error(eErr);
             if (!eUpload) { updateStep(3, { status: 'running', message: '等待后端完成上传...' });
-              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${eTaskId}`); if (r.ok) { const d = await r.json(); eUpload = JSON.parse(d.content); break; } } catch(e){} } }
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${eTaskId}`); if (r.ok) { const d = await r.json(); eUpload = JSON.parse(d.content); break; } } catch(e){ console.warn('[Poll] 轮询失败:', e); } } }
             if (!eUpload) throw new Error('课后信息提取失败：未收到上传结果');
             updateStep(3, { status: 'success', message: '生成完成', uploadResult: eUpload });
             break;
@@ -1959,7 +1986,7 @@ export default function Home() {
             } catch (e) { console.log('[Feedback retry] tRPC失败，轮询:', e); }
             if (!fbResult) {
               updateStep(0, { status: 'running', message: '等待后端完成生成...' });
-              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${fbTaskId}`); if (r.ok) { const d = await r.json(); fbResult = JSON.parse(d.content); break; } } catch(e){} }
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${fbTaskId}`); if (r.ok) { const d = await r.json(); fbResult = JSON.parse(d.content); break; } } catch(e){ console.warn('[Poll] 轮询失败:', e); } }
             }
             if (!fbResult) throw new Error('学情反馈生成失败：未收到结果');
             setFeedbackContent(fbResult.feedbackContent);
@@ -1980,7 +2007,7 @@ export default function Home() {
             } catch (e) { console.log('[Review retry] tRPC失败，轮询:', e); }
             if (!revUpload) {
               updateStep(1, { status: 'running', message: '等待后端完成上传...' });
-              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${revTaskId}`); if (r.ok) { const d = await r.json(); revUpload = JSON.parse(d.content); break; } } catch(e){} }
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${revTaskId}`); if (r.ok) { const d = await r.json(); revUpload = JSON.parse(d.content); break; } } catch(e){ console.warn('[Poll] 轮询失败:', e); } }
             }
             if (!revUpload) throw new Error('复习文档生成失败：未收到上传结果');
             updateStep(1, { status: 'success', message: '生成完成', uploadResult: revUpload });
@@ -1999,7 +2026,7 @@ export default function Home() {
             } catch (e) { console.log('[Test retry] tRPC失败，轮询:', e); }
             if (!tstUpload) {
               updateStep(2, { status: 'running', message: '等待后端完成上传...' });
-              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${tstTaskId}`); if (r.ok) { const d = await r.json(); tstUpload = JSON.parse(d.content); break; } } catch(e){} }
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${tstTaskId}`); if (r.ok) { const d = await r.json(); tstUpload = JSON.parse(d.content); break; } } catch(e){ console.warn('[Poll] 轮询失败:', e); } }
             }
             if (!tstUpload) throw new Error('测试本生成失败：未收到上传结果');
             updateStep(2, { status: 'success', message: '生成完成', uploadResult: tstUpload });
@@ -2018,7 +2045,7 @@ export default function Home() {
             } catch (e) { console.log('[Extraction retry] tRPC失败，轮询:', e); }
             if (!extUpload) {
               updateStep(3, { status: 'running', message: '等待后端完成上传...' });
-              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${extTaskId}`); if (r.ok) { const d = await r.json(); extUpload = JSON.parse(d.content); break; } } catch(e){} }
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${extTaskId}`); if (r.ok) { const d = await r.json(); extUpload = JSON.parse(d.content); break; } } catch(e){ console.warn('[Poll] 轮询失败:', e); } }
             }
             if (!extUpload) throw new Error('课后信息提取失败：未收到上传结果');
             updateStep(3, { status: 'success', message: '生成完成', uploadResult: extUpload });
@@ -2038,7 +2065,7 @@ export default function Home() {
             } catch (e) { console.log('[BubbleChart retry] tRPC失败，轮询:', e); }
             if (!bubSvg) {
               updateStep(4, { status: 'running', message: '等待后端生成SVG...' });
-              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${bubTaskId}`); if (r.ok) { const d = await r.json(); const parsed = JSON.parse(d.content); bubSvg = parsed.svgContent; break; } } catch(e){} }
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${bubTaskId}`); if (r.ok) { const d = await r.json(); const parsed = JSON.parse(d.content); bubSvg = parsed.svgContent; break; } } catch(e){ console.warn('[Poll] 轮询失败:', e); } }
             }
             if (!bubSvg) throw new Error('气泡图生成失败：未收到SVG');
             updateStep(4, { status: 'running', message: '正在转换并上传...' });
@@ -2125,7 +2152,9 @@ export default function Home() {
       const nextStepIndex = stepIndex + 1;
       if (nextStepIndex < 5) {
         // 延迟一下再执行下一步，确保 UI 更新
-        setTimeout(() => {
+        if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
+        skipTimerRef.current = setTimeout(() => {
+          skipTimerRef.current = null;
           retryStep(nextStepIndex);
         }, 100);
       } else {

@@ -6,8 +6,8 @@ import { getDb } from "../db";
 import { systemConfig } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
-// 默认配置值
-const DEFAULT_CONFIG = {
+// 默认配置值（全局唯一定义，其他模块通过导入使用）
+export const DEFAULT_CONFIG: Record<string, string> = {
   apiModel: "claude-sonnet-4-5-20250929",
   apiKey: process.env.WHATAI_API_KEY || "",
   apiUrl: "https://www.DMXapi.com/v1",
@@ -16,6 +16,8 @@ const DEFAULT_CONFIG = {
   roadmapClass: "",
   driveBasePath: "Mac/Documents/XDF/学生档案",
   maxTokens: "64000",
+  batchFilePrefix: "任务",
+  batchStoragePath: "Mac(online)/Documents/XDF/批量任务",
 };
 
 /**
@@ -33,12 +35,12 @@ export interface APIConfig {
 }
 
 /**
- * 从数据库读取单个配置值
+ * 从数据库读取单个配置值（全局唯一定义，其他模块通过导入使用）
  */
-async function getConfigValue(key: string): Promise<string> {
+export async function getConfigValue(key: string): Promise<string> {
   try {
     const db = await getDb();
-    if (!db) return DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] || "";
+    if (!db) return DEFAULT_CONFIG[key] || "";
     const result = await db.select().from(systemConfig).where(eq(systemConfig.key, key)).limit(1);
     if (result.length > 0 && result[0].value) {
       return result[0].value;
@@ -46,7 +48,7 @@ async function getConfigValue(key: string): Promise<string> {
   } catch (e) {
     console.error(`获取配置 ${key} 失败:`, e);
   }
-  return DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] || "";
+  return DEFAULT_CONFIG[key] || "";
 }
 
 /**

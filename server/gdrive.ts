@@ -304,8 +304,8 @@ export async function uploadToGoogleDrive(
   } finally {
     try {
       await fs.promises.unlink(tempFilePath);
-    } catch {
-      // 忽略清理错误
+    } catch (e) {
+      console.warn(`[GDrive] 临时文件清理失败: ${tempFilePath}`, e);
     }
   }
 }
@@ -423,8 +423,8 @@ export async function uploadBinaryToGoogleDrive(
   } finally {
     try {
       await fs.promises.unlink(tempFilePath);
-    } catch {
-      // 忽略清理错误
+    } catch (e) {
+      console.warn(`[GDrive] 临时文件清理失败: ${tempFilePath}`, e);
     }
   }
 }

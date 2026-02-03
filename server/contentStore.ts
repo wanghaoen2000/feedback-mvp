@@ -12,6 +12,7 @@ interface StoredContent {
 }
 
 const TTL = 10 * 60 * 1000; // 10 分钟过期
+const MAX_ITEMS = 500; // 防止极端情况内存溢出
 const store = new Map<string, StoredContent>();
 
 // 定期清理过期内容（每 5 分钟）
@@ -26,6 +27,11 @@ setInterval(() => {
 
 /** 用指定 taskId 存入内容和附加信息 */
 export function storeContent(taskId: string, content: string, meta?: Record<string, any>): void {
+  // 超过上限时淘汰最老的条目
+  if (store.size >= MAX_ITEMS) {
+    const oldest = store.keys().next().value; // Map 按插入顺序，第一个即最老
+    if (oldest) store.delete(oldest);
+  }
   store.set(taskId, { content, meta, createdAt: Date.now() });
 }
 
