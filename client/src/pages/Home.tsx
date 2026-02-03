@@ -523,39 +523,41 @@ export default function Home() {
       let sseCompleted = false;
       let currentEventType = '';
 
-      while (true) {
-        checkAborted();
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          checkAborted();
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEventType = line.slice(7).trim();
-            continue;
-          }
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (currentEventType === 'progress' && data.chars) {
-                const progressMsg = data.message || `正在生成学情反馈... 已生成 ${data.chars} 字符`;
-                updateStep(0, { status: 'running', message: progressMsg });
-              } else if (currentEventType === 'complete') {
-                sseCompleted = true;
-                if (data.dateStr) date = data.dateStr;
-                if (data.uploadResult) sseUploadResult = data.uploadResult;
-              } else if (currentEventType === 'error' && data.message) {
-                sseError = data.message;
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEventType = line.slice(7).trim();
+              continue;
+            }
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (currentEventType === 'progress' && data.chars) {
+                  const progressMsg = data.message || `正在生成学情反馈... 已生成 ${data.chars} 字符`;
+                  updateStep(0, { status: 'running', message: progressMsg });
+                } else if (currentEventType === 'complete') {
+                  sseCompleted = true;
+                  if (data.dateStr) date = data.dateStr;
+                  if (data.uploadResult) sseUploadResult = data.uploadResult;
+                } else if (currentEventType === 'error' && data.message) {
+                  sseError = data.message;
+                }
+              } catch (e) {
+                // 忽略解析错误
               }
-            } catch (e) {
-              // 忽略解析错误
             }
           }
         }
-      }
+      } finally { reader.cancel().catch(() => {}); }
 
       if (sseError) {
         throw new Error(sseError);
@@ -667,32 +669,34 @@ export default function Home() {
                 const decoder = new TextDecoder();
                 let buf = '';
                 let evt = '';
-                while (true) {
-                  checkAborted();
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buf += decoder.decode(value, { stream: true });
-                  const lines = buf.split('\n');
-                  buf = lines.pop() || '';
-                  for (const line of lines) {
-                    if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
-                    if (line.startsWith('data: ')) {
-                      try {
-                        const data = JSON.parse(line.slice(6));
-                        if (evt === 'progress' && data.chars) {
-                          reviewCharCount = data.chars;
-                          updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
-                          setParallelTasks(prev => ({ ...prev, review: { ...prev.review, charCount: data.chars } }));
-                        } else if (evt === 'complete') {
-                          if (data.uploadResult) reviewUploadResult = data.uploadResult;
-                          if (data.chars) reviewCharCount = data.chars;
-                        } else if (evt === 'error' && data.message) {
-                          reviewSseError = data.message;
-                        }
-                      } catch (e) { /* ignore */ }
+                try {
+                  while (true) {
+                    checkAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (const line of lines) {
+                      if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (evt === 'progress' && data.chars) {
+                            reviewCharCount = data.chars;
+                            updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
+                            setParallelTasks(prev => ({ ...prev, review: { ...prev.review, charCount: data.chars } }));
+                          } else if (evt === 'complete') {
+                            if (data.uploadResult) reviewUploadResult = data.uploadResult;
+                            if (data.chars) reviewCharCount = data.chars;
+                          } else if (evt === 'error' && data.message) {
+                            reviewSseError = data.message;
+                          }
+                        } catch (e) { /* ignore */ }
+                      }
                     }
                   }
-                }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch (sseErr) {
               console.log('[Review SSE] 连接断开，将轮询获取结果:', sseErr);
@@ -1086,36 +1090,38 @@ export default function Home() {
       let sseCompleted = false;
       let currentEventType = '';
 
-      while (true) {
-        checkAborted();
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          checkAborted();
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEventType = line.slice(7).trim();
-            continue;
-          }
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (currentEventType === 'progress' && data.chars) {
-                updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
-              } else if (currentEventType === 'complete') {
-                sseCompleted = true;
-              } else if (currentEventType === 'error' && data.message) {
-                sseError = data.message;
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEventType = line.slice(7).trim();
+              continue;
+            }
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (currentEventType === 'progress' && data.chars) {
+                  updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
+                } else if (currentEventType === 'complete') {
+                  sseCompleted = true;
+                } else if (currentEventType === 'error' && data.message) {
+                  sseError = data.message;
+                }
+              } catch (e) {
+                // 忽略解析错误
               }
-            } catch (e) {
-              // 忽略解析错误
             }
           }
         }
-      }
+      } finally { reader.cancel().catch(() => {}); }
 
       if (sseError) {
         throw new Error(sseError);
@@ -1242,31 +1248,33 @@ export default function Home() {
                 const decoder = new TextDecoder();
                 let buf = '';
                 let evt = '';
-                while (true) {
-                  checkAborted();
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buf += decoder.decode(value, { stream: true });
-                  const lines = buf.split('\n');
-                  buf = lines.pop() || '';
-                  for (const line of lines) {
-                    if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
-                    if (line.startsWith('data: ')) {
-                      try {
-                        const data = JSON.parse(line.slice(6));
-                        if (evt === 'progress' && data.chars) {
-                          classReviewCharCount = data.chars;
-                          updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
-                        } else if (evt === 'complete') {
-                          if (data.uploadResult) classReviewUploadResult = data.uploadResult;
-                          if (data.chars) classReviewCharCount = data.chars;
-                        } else if (evt === 'error' && data.message) {
-                          classReviewSseError = data.message;
-                        }
-                      } catch (e) { /* ignore */ }
+                try {
+                  while (true) {
+                    checkAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (const line of lines) {
+                      if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (evt === 'progress' && data.chars) {
+                            classReviewCharCount = data.chars;
+                            updateStep(1, { status: 'running', message: `已生成 ${data.chars} 字符`, detail: '复习文档' });
+                          } else if (evt === 'complete') {
+                            if (data.uploadResult) classReviewUploadResult = data.uploadResult;
+                            if (data.chars) classReviewCharCount = data.chars;
+                          } else if (evt === 'error' && data.message) {
+                            classReviewSseError = data.message;
+                          }
+                        } catch (e) { /* ignore */ }
+                      }
                     }
                   }
-                }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch (sseErr) {
               console.log('[Review SSE] 连接断开，将轮询获取结果:', sseErr);
@@ -1344,25 +1352,27 @@ export default function Home() {
                 const decoder = new TextDecoder();
                 let buf = '';
                 let evt = '';
-                while (true) {
-                  checkAborted();
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buf += decoder.decode(value, { stream: true });
-                  const lines = buf.split('\n');
-                  buf = lines.pop() || '';
-                  for (const line of lines) {
-                    if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
-                    if (line.startsWith('data: ')) {
-                      try {
-                        const data = JSON.parse(line.slice(6));
-                        if (evt === 'progress' && data.message) updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
-                        else if (evt === 'complete' && data.uploadResult) testUploadResult = data.uploadResult;
-                        else if (evt === 'error' && data.message) testSseError = data.message;
-                      } catch (e) { /* ignore */ }
+                try {
+                  while (true) {
+                    checkAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (const line of lines) {
+                      if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (evt === 'progress' && data.message) updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
+                          else if (evt === 'complete' && data.uploadResult) testUploadResult = data.uploadResult;
+                          else if (evt === 'error' && data.message) testSseError = data.message;
+                        } catch (e) { /* ignore */ }
+                      }
                     }
                   }
-                }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch (sseErr) {
               console.log('[Test SSE] 连接断开，将轮询获取结果:', sseErr);
@@ -1432,28 +1442,30 @@ export default function Home() {
                 const decoder = new TextDecoder();
                 let buf = '';
                 let evt = '';
-                while (true) {
-                  checkAborted();
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buf += decoder.decode(value, { stream: true });
-                  const lines = buf.split('\n');
-                  buf = lines.pop() || '';
-                  for (const line of lines) {
-                    if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
-                    if (line.startsWith('data: ')) {
-                      try {
-                        const data = JSON.parse(line.slice(6));
-                        if (evt === 'progress' && data.message) updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
-                        else if (evt === 'complete') {
-                          if (data.uploadResult) extractionUploadResult = data.uploadResult;
-                          if (data.chars) extractionCharCount = data.chars;
-                        }
-                        else if (evt === 'error' && data.message) extractionSseError = data.message;
-                      } catch (e) { /* ignore */ }
+                try {
+                  while (true) {
+                    checkAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (const line of lines) {
+                      if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (evt === 'progress' && data.message) updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
+                          else if (evt === 'complete') {
+                            if (data.uploadResult) extractionUploadResult = data.uploadResult;
+                            if (data.chars) extractionCharCount = data.chars;
+                          }
+                          else if (evt === 'error' && data.message) extractionSseError = data.message;
+                        } catch (e) { /* ignore */ }
+                      }
                     }
                   }
-                }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch (sseErr) {
               console.log('[Extraction SSE] 连接断开，将轮询获取结果:', sseErr);
@@ -1744,39 +1756,41 @@ export default function Home() {
               let cfCurrentEventType = '';
               const cfContentChunks: string[] = [];
 
-              while (true) {
-                const { done, value } = await cfReader.read();
-                if (done) break;
+              try {
+                while (true) {
+                  const { done, value } = await cfReader.read();
+                  if (done) break;
 
-                cfBuffer += cfDecoder.decode(value, { stream: true });
-                const cfLines = cfBuffer.split('\n');
-                cfBuffer = cfLines.pop() || '';
+                  cfBuffer += cfDecoder.decode(value, { stream: true });
+                  const cfLines = cfBuffer.split('\n');
+                  cfBuffer = cfLines.pop() || '';
 
-                for (const line of cfLines) {
-                  if (line.startsWith('event: ')) {
-                    cfCurrentEventType = line.slice(7).trim();
-                    continue;
-                  }
-                  if (line.startsWith('data: ')) {
-                    try {
-                      const data = JSON.parse(line.slice(6));
-                      if (cfCurrentEventType === 'progress' && data.chars) {
-                        updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
-                      } else if (cfCurrentEventType === 'content-chunk' && data.text !== undefined) {
-                        cfContentChunks[data.index] = data.text;
-                      } else if (cfCurrentEventType === 'complete') {
-                        if (data.chunked && cfContentChunks.length > 0) {
-                          cfFeedbackContent = cfContentChunks.join('');
-                        } else if (data.feedback) {
-                          cfFeedbackContent = data.feedback;
+                  for (const line of cfLines) {
+                    if (line.startsWith('event: ')) {
+                      cfCurrentEventType = line.slice(7).trim();
+                      continue;
+                    }
+                    if (line.startsWith('data: ')) {
+                      try {
+                        const data = JSON.parse(line.slice(6));
+                        if (cfCurrentEventType === 'progress' && data.chars) {
+                          updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
+                        } else if (cfCurrentEventType === 'content-chunk' && data.text !== undefined) {
+                          cfContentChunks[data.index] = data.text;
+                        } else if (cfCurrentEventType === 'complete') {
+                          if (data.chunked && cfContentChunks.length > 0) {
+                            cfFeedbackContent = cfContentChunks.join('');
+                          } else if (data.feedback) {
+                            cfFeedbackContent = data.feedback;
+                          }
+                        } else if (cfCurrentEventType === 'error' && data.message) {
+                          cfSseError = data.message;
                         }
-                      } else if (cfCurrentEventType === 'error' && data.message) {
-                        cfSseError = data.message;
-                      }
-                    } catch (e) { /* 忽略解析错误 */ }
+                      } catch (e) { /* 忽略解析错误 */ }
+                    }
                   }
                 }
-              }
+              } finally { cfReader.cancel().catch(() => {}); }
             } catch (e) { console.log('[ClassFeedback retry] SSE断开:', e); }
 
             if (cfSseError) throw new Error(cfSseError);
@@ -1825,8 +1839,10 @@ export default function Home() {
               const reader = rRes.body?.getReader();
               if (reader) {
                 const dec = new TextDecoder(); let buf = '', evt = '';
-                while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                  for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.chars) updateStep(1, { status: 'running', message: `已生成 ${d.chars} 字符` }); else if (evt === 'complete' && d.uploadResult) rUpload = d.uploadResult; else if (evt === 'error' && d.message) rErr = d.message; } catch(e){} } } }
+                try {
+                  while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.chars) updateStep(1, { status: 'running', message: `已生成 ${d.chars} 字符` }); else if (evt === 'complete' && d.uploadResult) rUpload = d.uploadResult; else if (evt === 'error' && d.message) rErr = d.message; } catch(e){} } } }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Review retry] SSE断开:', e); }
             if (rErr) throw new Error(rErr);
@@ -1852,8 +1868,10 @@ export default function Home() {
               const reader = tRes.body?.getReader();
               if (reader) {
                 const dec = new TextDecoder(); let buf = '', evt = '';
-                while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                  for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(2, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) tUpload = d.uploadResult; else if (evt === 'error' && d.message) tErr = d.message; } catch(e){} } } }
+                try {
+                  while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(2, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) tUpload = d.uploadResult; else if (evt === 'error' && d.message) tErr = d.message; } catch(e){} } } }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Test retry] SSE断开:', e); }
             if (tErr) throw new Error(tErr);
@@ -1879,8 +1897,10 @@ export default function Home() {
               const reader = eRes.body?.getReader();
               if (reader) {
                 const dec = new TextDecoder(); let buf = '', evt = '';
-                while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                  for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(3, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) eUpload = d.uploadResult; else if (evt === 'error' && d.message) eErr = d.message; } catch(e){} } } }
+                try {
+                  while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(3, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) eUpload = d.uploadResult; else if (evt === 'error' && d.message) eErr = d.message; } catch(e){} } } }
+                } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Extraction retry] SSE断开:', e); }
             if (eErr) throw new Error(eErr);
