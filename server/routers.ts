@@ -101,6 +101,7 @@ const feedbackInputSchema = z.object({
   apiUrl: z.string().optional(),
   roadmap: z.string().optional(),
   driveBasePath: z.string().optional(),
+  taskId: z.string().optional(),
 });
 
 // 小班课输入schema
@@ -376,8 +377,8 @@ export const appRouter = router({
           }
           
           stepSuccess(log, "学情反馈", feedbackContent.length);
-          
-          return {
+
+          const resultPayload = {
             success: true,
             step: 1,
             stepName: "学情反馈",
@@ -391,6 +392,11 @@ export const appRouter = router({
             dateStr,
             usedConfig: { apiModel, apiUrl },
           };
+
+          // taskId 容错：存入 contentStore 供前端轮询
+          storeContent(input.taskId, JSON.stringify(resultPayload));
+
+          return resultPayload;
         } catch (error: any) {
           const structuredError = parseError(error, "feedback");
           stepFailed(log, "学情反馈", structuredError);

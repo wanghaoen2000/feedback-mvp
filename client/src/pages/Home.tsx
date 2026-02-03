@@ -1931,21 +1931,32 @@ export default function Home() {
       } else {
         // ===== 一对一模式（保持原有逻辑） =====
         switch (stepIndex) {
-          case 0: // 学情反馈
-            result = await generateFeedbackMutation.mutateAsync({
-              studentName: studentName.trim(),
-              lessonNumber: lessonNumber.trim(),
-              lastFeedback: lastFeedback.trim(),
-              currentNotes: currentNotes.trim(),
-              transcript: transcript.trim(),
-              isFirstLesson,
-              specialRequirements: specialRequirements.trim(),
-              ...configSnapshot,
-            });
-            setFeedbackContent(result.feedbackContent);
-            setDateStr(result.dateStr);
-            updateStep(0, { status: 'success', message: '生成完成', uploadResult: result.uploadResult });
+          case 0: { // 学情反馈 (tRPC + taskId 轮询容错)
+            const fbTaskId = crypto.randomUUID();
+            let fbResult: any = null;
+            try {
+              fbResult = await generateFeedbackMutation.mutateAsync({
+                studentName: studentName.trim(),
+                lessonNumber: lessonNumber.trim(),
+                lastFeedback: lastFeedback.trim(),
+                currentNotes: currentNotes.trim(),
+                transcript: transcript.trim(),
+                isFirstLesson,
+                specialRequirements: specialRequirements.trim(),
+                taskId: fbTaskId,
+                ...configSnapshot,
+              });
+            } catch (e) { console.log('[Feedback retry] tRPC失败，轮询:', e); }
+            if (!fbResult) {
+              updateStep(0, { status: 'running', message: '等待后端完成生成...' });
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${fbTaskId}`); if (r.ok) { const d = await r.json(); fbResult = JSON.parse(d.content); break; } } catch(e){} }
+            }
+            if (!fbResult) throw new Error('学情反馈生成失败：未收到结果');
+            setFeedbackContent(fbResult.feedbackContent);
+            setDateStr(fbResult.dateStr);
+            updateStep(0, { status: 'success', message: '生成完成', uploadResult: fbResult.uploadResult });
             break;
+          }
 
           case 1: { // 复习文档 (tRPC + taskId 轮询容错)
             if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
