@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -112,6 +112,63 @@ const initialParallelTasks = {
   extraction: { status: 'pending' as const },
   bubble: { status: 'pending' as const },
 };
+
+/**
+ * 防抖文本框：内部管理 local state，打字只重渲染自身；
+ * debounceMs 毫秒无输入后才同步给父组件，避免大文本场景下整个页面卡顿。
+ * onBlur 时立即 flush，确保用户点按钮前父 state 已更新。
+ */
+const DebouncedTextarea = memo(function DebouncedTextarea({
+  value: externalValue,
+  onValueChange,
+  debounceMs = 300,
+  ...props
+}: Omit<React.ComponentProps<typeof Textarea>, 'onChange' | 'value'> & {
+  value: string;
+  onValueChange: (value: string) => void;
+  debounceMs?: number;
+}) {
+  const [localValue, setLocalValue] = useState(externalValue);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSentRef = useRef(externalValue);
+  const localValueRef = useRef(localValue);
+  localValueRef.current = localValue;
+
+  // 仅当父组件主动改值（非来自本组件的 debounce）时同步
+  useEffect(() => {
+    if (externalValue !== lastSentRef.current) {
+      setLocalValue(externalValue);
+      lastSentRef.current = externalValue;
+    }
+  }, [externalValue]);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setLocalValue(val);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      lastSentRef.current = val;
+      onValueChange(val);
+    }, debounceMs);
+  }, [onValueChange, debounceMs]);
+
+  // 失焦时立即 flush，保证点按钮前父 state 已是最新
+  const handleBlur = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+      const val = localValueRef.current;
+      lastSentRef.current = val;
+      onValueChange(val);
+    }
+  }, [onValueChange]);
+
+  useEffect(() => {
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, []);
+
+  return <Textarea {...props} value={localValue} onChange={handleChange} onBlur={handleBlur} />;
+});
 
 /**
  * 根据日期字符串计算星期
@@ -2600,16 +2657,16 @@ export default function Home() {
                         : "上次课反馈"
                     }
                   </Label>
-                  <Textarea
+                  <DebouncedTextarea
                     id="lastFeedback"
-                    placeholder={(courseType === 'oneToOne' && isFirstLesson) 
-                      ? "如有新生模板可粘贴在此，没有可留空" 
+                    placeholder={(courseType === 'oneToOne' && isFirstLesson)
+                      ? "如有新生模板可粘贴在此，没有可留空"
                       : (courseType === 'class' && isClassFirstLesson)
                         ? "小班课首次课范例将自动填充，也可手动修改"
                         : "粘贴上次课的反馈内容..."
                     }
                     value={lastFeedback}
-                    onChange={(e) => setLastFeedback(e.target.value)}
+                    onValueChange={setLastFeedback}
                     className="h-[120px] font-mono text-sm resize-none overflow-y-auto"
                     disabled={isGenerating}
                   />
@@ -2626,11 +2683,11 @@ export default function Home() {
                 {/* 本次课笔记 */}
                 <div className="space-y-2">
                   <Label htmlFor="currentNotes">本次课笔记 *</Label>
-                  <Textarea
+                  <DebouncedTextarea
                     id="currentNotes"
                     placeholder="粘贴本次课的笔记内容...（请在笔记开头包含日期信息，AI会自动识别）"
                     value={currentNotes}
-                    onChange={(e) => setCurrentNotes(e.target.value)}
+                    onValueChange={setCurrentNotes}
                     className="h-[120px] font-mono text-sm resize-none overflow-y-auto"
                     disabled={isGenerating}
                   />
@@ -2642,11 +2699,11 @@ export default function Home() {
                 {/* 录音转文字 */}
                 <div className="space-y-2">
                   <Label htmlFor="transcript">录音转文字 *</Label>
-                  <Textarea
+                  <DebouncedTextarea
                     id="transcript"
                     placeholder="粘贴课堂录音的转文字内容..."
                     value={transcript}
-                    onChange={(e) => setTranscript(e.target.value)}
+                    onValueChange={setTranscript}
                     className="h-[120px] font-mono text-sm resize-none overflow-y-auto"
                     disabled={isGenerating}
                   />
@@ -2659,11 +2716,11 @@ export default function Home() {
               {/* 特殊要求 */}
               <div className="space-y-2">
                 <Label htmlFor="specialRequirements">特殊要求（可选）</Label>
-                <Textarea
+                <DebouncedTextarea
                   id="specialRequirements"
                   placeholder="如有特殊要求可在此说明，例如：本次需要特别强调某个知识点、调整存储路径等..."
                   value={specialRequirements}
-                  onChange={(e) => setSpecialRequirements(e.target.value)}
+                  onValueChange={setSpecialRequirements}
                   className="h-[120px] resize-none overflow-y-auto"
                   disabled={isGenerating}
                 />
@@ -2769,11 +2826,11 @@ export default function Home() {
                       {/* 一对一路书 */}
                       <div className="space-y-2">
                         <Label htmlFor="roadmap">V9路书内容（一对一）（可选）</Label>
-                        <Textarea
+                        <DebouncedTextarea
                           id="roadmap"
                           placeholder="粘贴更新后的V9路书内容...留空则使用系统内置的路书"
                           value={roadmap}
-                          onChange={(e) => setRoadmap(e.target.value)}
+                          onValueChange={setRoadmap}
                           className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
                           disabled={isGenerating}
                         />
@@ -2794,11 +2851,11 @@ export default function Home() {
                       {/* 一对一首次课范例 */}
                       <div className="space-y-2">
                         <Label htmlFor="firstLessonTemplate">一对一首次课范例（可选）</Label>
-                        <Textarea
+                        <DebouncedTextarea
                           id="firstLessonTemplate"
                           placeholder="粘贴一对一首次课范例内容...勾选首次课时会自动填入上次反馈"
                           value={firstLessonTemplate}
-                          onChange={(e) => setFirstLessonTemplate(e.target.value)}
+                          onValueChange={setFirstLessonTemplate}
                           className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
                           disabled={isGenerating}
                         />
@@ -2819,11 +2876,11 @@ export default function Home() {
                       {/* 小班课路书 */}
                       <div className="space-y-2">
                         <Label htmlFor="roadmapClass">小班课路书内容（可选）</Label>
-                        <Textarea
+                        <DebouncedTextarea
                           id="roadmapClass"
                           placeholder="粘贴小班课路书内容...留空则使用系统内置的路书"
                           value={roadmapClass}
-                          onChange={(e) => setRoadmapClass(e.target.value)}
+                          onValueChange={setRoadmapClass}
                           className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
                           disabled={isGenerating}
                         />
@@ -2845,11 +2902,11 @@ export default function Home() {
                     {/* 小班课首次课范例 */}
                     <div className="space-y-2">
                       <Label htmlFor="classFirstLessonTemplate">小班课首次课范例（可选）</Label>
-                      <Textarea
+                      <DebouncedTextarea
                         id="classFirstLessonTemplate"
                         placeholder="粘贴小班课首次课范例内容...勾选首次课时会自动填入上次反馈"
                         value={classFirstLessonTemplate}
-                        onChange={(e) => setClassFirstLessonTemplate(e.target.value)}
+                        onValueChange={setClassFirstLessonTemplate}
                         className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
                         disabled={isGenerating}
                       />
