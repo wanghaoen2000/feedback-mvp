@@ -1708,77 +1708,86 @@ export default function Home() {
         const validStudents = attendanceStudents.filter((s: string) => s.trim());
         
         switch (stepIndex) {
-          case 0: // 小班课学情反馈 (SSE)
+          case 0: { // 小班课学情反馈 (SSE + taskId 轮询容错)
             updateStep(0, { status: 'running', message: `正在为 ${classNumber} 班重新生成学情反馈...` });
-            
-            const classFeedbackResponse = await fetch('/api/class-feedback-stream', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                classNumber: classNumber.trim(),
-                lessonNumber: lessonNumber.trim(),
-                lessonDate: lessonDate.trim(),
-                attendanceStudents: validStudents,
-                lastFeedback: lastFeedback.trim(),
-                currentNotes: currentNotes.trim(),
-                transcript: transcript.trim(),
-                specialRequirements: specialRequirements.trim(),
-                ...configSnapshot,
-              }),
-            });
-            
-            if (!classFeedbackResponse.ok) {
-              throw new Error(`学情反馈生成失败: HTTP ${classFeedbackResponse.status}`);
-            }
-            
-            // 读取 SSE 流式响应
-            const cfReader = classFeedbackResponse.body?.getReader();
-            if (!cfReader) throw new Error('无法读取响应流');
-            
-            const cfDecoder = new TextDecoder();
-            let cfBuffer = '';
+            const cfTaskId = crypto.randomUUID();
             let cfFeedbackContent = '';
             let cfSseError: string | null = null;
-            let cfCurrentEventType = '';
-            const cfContentChunks: string[] = [];
-            
-            while (true) {
-              const { done, value } = await cfReader.read();
-              if (done) break;
-              
-              cfBuffer += cfDecoder.decode(value, { stream: true });
-              const cfLines = cfBuffer.split('\n');
-              cfBuffer = cfLines.pop() || '';
-              
-              for (const line of cfLines) {
-                if (line.startsWith('event: ')) {
-                  cfCurrentEventType = line.slice(7).trim();
-                  continue;
-                }
-                if (line.startsWith('data: ')) {
-                  try {
-                    const data = JSON.parse(line.slice(6));
-                    if (cfCurrentEventType === 'progress' && data.chars) {
-                      updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
-                    } else if (cfCurrentEventType === 'content-chunk' && data.text !== undefined) {
-                      cfContentChunks[data.index] = data.text;
-                    } else if (cfCurrentEventType === 'complete') {
-                      if (data.chunked && cfContentChunks.length > 0) {
-                        cfFeedbackContent = cfContentChunks.join('');
-                      } else if (data.feedback) {
-                        cfFeedbackContent = data.feedback;
+
+            try {
+              const classFeedbackResponse = await fetch('/api/class-feedback-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  classNumber: classNumber.trim(),
+                  lessonNumber: lessonNumber.trim(),
+                  lessonDate: lessonDate.trim(),
+                  attendanceStudents: validStudents,
+                  lastFeedback: lastFeedback.trim(),
+                  currentNotes: currentNotes.trim(),
+                  transcript: transcript.trim(),
+                  specialRequirements: specialRequirements.trim(),
+                  taskId: cfTaskId,
+                  ...configSnapshot,
+                }),
+              });
+
+              if (!classFeedbackResponse.ok) {
+                throw new Error(`学情反馈生成失败: HTTP ${classFeedbackResponse.status}`);
+              }
+
+              const cfReader = classFeedbackResponse.body?.getReader();
+              if (!cfReader) throw new Error('无法读取响应流');
+
+              const cfDecoder = new TextDecoder();
+              let cfBuffer = '';
+              let cfCurrentEventType = '';
+              const cfContentChunks: string[] = [];
+
+              while (true) {
+                const { done, value } = await cfReader.read();
+                if (done) break;
+
+                cfBuffer += cfDecoder.decode(value, { stream: true });
+                const cfLines = cfBuffer.split('\n');
+                cfBuffer = cfLines.pop() || '';
+
+                for (const line of cfLines) {
+                  if (line.startsWith('event: ')) {
+                    cfCurrentEventType = line.slice(7).trim();
+                    continue;
+                  }
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(line.slice(6));
+                      if (cfCurrentEventType === 'progress' && data.chars) {
+                        updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
+                      } else if (cfCurrentEventType === 'content-chunk' && data.text !== undefined) {
+                        cfContentChunks[data.index] = data.text;
+                      } else if (cfCurrentEventType === 'complete') {
+                        if (data.chunked && cfContentChunks.length > 0) {
+                          cfFeedbackContent = cfContentChunks.join('');
+                        } else if (data.feedback) {
+                          cfFeedbackContent = data.feedback;
+                        }
+                      } else if (cfCurrentEventType === 'error' && data.message) {
+                        cfSseError = data.message;
                       }
-                    } else if (cfCurrentEventType === 'error' && data.message) {
-                      cfSseError = data.message;
-                    }
-                  } catch (e) { /* 忽略解析错误 */ }
+                    } catch (e) { /* 忽略解析错误 */ }
+                  }
                 }
               }
-            }
-            
+            } catch (e) { console.log('[ClassFeedback retry] SSE断开:', e); }
+
             if (cfSseError) throw new Error(cfSseError);
-            if (!cfFeedbackContent) throw new Error('学情反馈生成失败: 未收到内容');
-            
+
+            // SSE 断开后轮询获取内容
+            if (!cfFeedbackContent) {
+              updateStep(0, { status: 'running', message: '等待后端完成生成...' });
+              for (let p = 0; p < 60; p++) { if (p > 0) await new Promise(r => setTimeout(r, 2000)); try { const r = await fetch(`/api/feedback-content/${cfTaskId}`); if (r.ok) { const d = await r.json(); cfFeedbackContent = d.content; break; } } catch(e){} }
+            }
+            if (!cfFeedbackContent) throw new Error('学情反馈生成失败：未收到内容');
+
             // 提取日期
             let cfExtractedDate = lessonDate.trim();
             if (!cfExtractedDate) {
@@ -1787,7 +1796,7 @@ export default function Home() {
             }
             setDateStr(cfExtractedDate);
             setFeedbackContent(cfFeedbackContent);
-            
+
             // 上传学情反馈
             const cfUploadResult = await uploadClassFileMutation.mutateAsync({
               classNumber: classNumber.trim(),
@@ -1796,9 +1805,10 @@ export default function Home() {
               content: cfFeedbackContent,
               driveBasePath: configSnapshot.driveBasePath,
             });
-            
+
             updateStep(0, { status: 'success', message: '生成完成', uploadResult: { fileName: cfUploadResult.fileName, url: cfUploadResult.url, path: cfUploadResult.path } });
             break;
+          }
 
           case 1: { // 小班课复习文档 (SSE + polling)
             if (!feedbackContent || !dateStr) throw new Error('请先生成学情反馈');
