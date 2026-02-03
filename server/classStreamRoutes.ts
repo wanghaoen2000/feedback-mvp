@@ -7,9 +7,6 @@ import { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { invokeWhatAIStream, APIConfig } from "./whatai";
 import { ClassFeedbackInput, textToDocx, cleanMarkdownAndHtml, stripAIMetaCommentary, generateClassTestContent, generateClassExtractionContent } from "./feedbackGenerator";
-import { getDb } from "./db";
-import { systemConfig } from "../drizzle/schema";
-import { eq } from "drizzle-orm";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive } from "./gdrive";
 import { 
   createLogSession, 
@@ -23,31 +20,7 @@ import {
 import { parseError } from "./errorHandler";
 import { requireAuth } from "./_core/authMiddleware";
 import { storeContent, retrieveContent } from "./contentStore";
-
-// 默认配置值（和 routers.ts 保持一致）
-const DEFAULT_CONFIG = {
-  apiModel: "claude-sonnet-4-5-20250929",
-  apiKey: process.env.WHATAI_API_KEY || "",
-  apiUrl: "https://www.DMXapi.com/v1",
-  currentYear: "2026",
-  roadmap: "",
-  driveBasePath: "Mac/Documents/XDF/学生档案",
-};
-
-// 获取配置值
-async function getConfig(key: string): Promise<string> {
-  try {
-    const db = await getDb();
-    if (!db) return DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] || "";
-    const result = await db.select().from(systemConfig).where(eq(systemConfig.key, key)).limit(1);
-    if (result.length > 0 && result[0].value) {
-      return result[0].value;
-    }
-  } catch (e) {
-    console.error(`获取配置 ${key} 失败:`, e);
-  }
-  return DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG] || "";
-}
+import { DEFAULT_CONFIG, getConfigValue as getConfig } from "./core/aiClient";
 
 // 小班课默认 system prompt
 const CLASS_FEEDBACK_SYSTEM_PROMPT = `你是一个学情反馈生成助手。请根据用户提供的路书和课堂信息生成学情反馈。
