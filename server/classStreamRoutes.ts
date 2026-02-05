@@ -1019,6 +1019,8 @@ ${input.currentNotes}
         sendEvent("progress", { message: "正在生成测试本..." });
       }, 15000);
 
+      let finalTestChars = 0;
+
       const classInput: ClassFeedbackInput = {
         classNumber: input.classNumber,
         lessonNumber: input.lessonNumber || '',
@@ -1036,7 +1038,7 @@ ${input.currentNotes}
         input.combinedFeedback,
         roadmapClass,
         { apiModel, apiKey, apiUrl },
-        (chars) => sendEvent("progress", { chars, message: `正在生成测试本... 已生成 ${chars} 字符` })
+        (chars) => { finalTestChars = chars; sendEvent("progress", { chars, message: `正在生成测试本... 已生成 ${chars} 字符` }); }
       );
 
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
@@ -1075,10 +1077,11 @@ ${input.currentNotes}
         folderUrl: uploadResult.folderUrl || '',
       };
       const testTaskId = input.taskId || crypto.randomUUID();
-      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test' });
+      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: finalTestChars });
 
       sendEvent("complete", {
         success: true,
+        chars: finalTestChars,
         contentId: testTaskId,
         uploadResult: testUploadData,
       });

@@ -1246,9 +1246,10 @@ export default function Home() {
       }
       
       const step1Time = Math.round((Date.now() - step1Start) / 1000);
-      updateStep(0, { 
-        status: 'success', 
+      updateStep(0, {
+        status: 'success',
         message: `学情反馈生成完成 (${step1Time}秒)`,
+        detail: `共${combinedFeedback.length}字`,
         uploadResult: {
           fileName: feedbackUploadResult.fileName,
           url: feedbackUploadResult.url,
@@ -1391,6 +1392,7 @@ export default function Home() {
             checkAborted();
             let testUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
             let testSseError: string | null = null;
+            let testCharCount = 0;
 
             try {
               const testSseResponse = await fetch('/api/class-test-stream', {
@@ -1428,8 +1430,14 @@ export default function Home() {
                       if (line.startsWith('data: ')) {
                         try {
                           const data = JSON.parse(line.slice(6));
-                          if (evt === 'progress' && data.message) updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
-                          else if (evt === 'complete' && data.uploadResult) testUploadResult = data.uploadResult;
+                          if (evt === 'progress' && data.message) {
+                            if (data.chars) testCharCount = data.chars;
+                            updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
+                          }
+                          else if (evt === 'complete') {
+                            if (data.uploadResult) testUploadResult = data.uploadResult;
+                            if (data.chars) testCharCount = data.chars;
+                          }
                           else if (evt === 'error' && data.message) testSseError = data.message;
                         } catch (e) { /* ignore */ }
                       }
@@ -1452,6 +1460,7 @@ export default function Home() {
                   if (res.ok) {
                     const data = await res.json();
                     testUploadResult = JSON.parse(data.content);
+                    if (data.meta?.chars) testCharCount = data.meta.chars;
                     break;
                   }
                 } catch (e) { console.warn('[Poll] 轮询失败:', e); }
@@ -1461,7 +1470,7 @@ export default function Home() {
             if (!testUploadResult) throw new Error('测试本生成失败：未收到上传结果（后端可能仍在处理，请稍后重试）');
 
             const taskEnd = Date.now();
-            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '测试本已上传', endTime: taskEnd, uploadResult: testUploadResult });
+            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: testCharCount > 0 ? `共${testCharCount}字` : '测试本已上传', endTime: taskEnd, uploadResult: testUploadResult });
             setClassParallelTasks(prev => ({ ...prev, test: { status: 'success', startTime: prev.test.startTime, endTime: taskEnd, uploadResult: testUploadResult || undefined } }));
             return { type: 'test', success: true, duration: taskEnd - taskStart, uploadResult: testUploadResult };
           } catch (error) {
@@ -1555,7 +1564,7 @@ export default function Home() {
             if (!extractionUploadResult) throw new Error('课后信息提取失败：未收到上传结果（后端可能仍在处理，请稍后重试）');
 
             const taskEnd = Date.now();
-            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '课后信息已上传', endTime: taskEnd, uploadResult: extractionUploadResult });
+            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: extractionCharCount > 0 ? `共${extractionCharCount}字` : '课后信息已上传', endTime: taskEnd, uploadResult: extractionUploadResult });
             setClassParallelTasks(prev => ({ ...prev, extraction: { status: 'success', startTime: prev.extraction.startTime, endTime: taskEnd, uploadResult: extractionUploadResult || undefined } }));
             return { type: 'extraction', success: true, duration: taskEnd - taskStart, uploadResult: extractionUploadResult };
           } catch (error) {
