@@ -315,6 +315,8 @@ export function BatchProcess() {
   const pollingIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   // 当前批次 ID（用于降级查询）
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
+  // AbortController 引用（用于取消正在进行的 fetch 请求）
+  const abortControllerRef = React.useRef<AbortController | null>(null);
 
   // 判断是否是 AI 代码模式
   const isAiCodeMode = templateType === 'ai_code';
@@ -442,9 +444,15 @@ export function BatchProcess() {
   // 停止处理
   const handleStop = useCallback(async () => {
     if (!batchState?.batchId) return;
-    
+
     setIsStopping(true);
-    
+
+    // 取消正在进行的 fetch 请求
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
     try {
       const response = await fetch('/api/batch/stop', {
         method: 'POST',
@@ -746,11 +754,15 @@ export function BatchProcess() {
     }, 3000); // 每3秒查询一次
   }, [fetchBatchStatus, updateStateFromBatchStatus]);
 
-  // 组件卸载时清理轮询
+  // 组件卸载时清理轮询和取消正在进行的请求
   React.useEffect(() => {
     return () => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
+      }
+      // 取消正在进行的 fetch 请求，避免组件卸载后更新状态
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
     };
   }, []);
@@ -790,9 +802,14 @@ export function BatchProcess() {
     setBatchState(null);
     setTasks(initialTasks);
 
+    // 创建 AbortController 用于取消请求
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     try {
       // 调用 SSE 端点
       const response = await fetch('/api/batch/generate-stream', {
+        signal: abortController.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1003,13 +1020,19 @@ export function BatchProcess() {
       }
 
     } catch (error: any) {
+      // 如果是用户主动取消，不显示错误
+      if (error.name === 'AbortError') {
+        console.log('[SSE] 请求已被用户取消');
+        return;
+      }
+
       console.error('批量处理连接异常:', error);
-      
+
       // 不要立即显示错误，先尝试查询实际状态
       if (currentBatchId) {
         console.log('[SSE] 连接异常，尝试查询批次状态...');
         const status = await fetchBatchStatus(currentBatchId);
-        
+
         if (status) {
           // 根据查询结果更新状态
           if (status.status === 'completed' || status.status === 'stopped') {
@@ -1029,12 +1052,14 @@ export function BatchProcess() {
           }
         }
       }
-      
+
       // 查询失败或状态确实有问题，才显示错误提示
       alert(`批量处理失败: ${error.message}`);
       setIsGenerating(false);
       setIsStopping(false);
     } finally {
+      // 清理 AbortController 引用
+      abortControllerRef.current = null;
       // 正常结束时设置状态
       // 注意：如果在 catch 中 return 了，这里不会执行
       setIsGenerating(false);
