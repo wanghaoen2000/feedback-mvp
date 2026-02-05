@@ -650,13 +650,14 @@ ${feedback}
     : REVIEW_SYSTEM_PROMPT;
 
   // 使用流式输出防止超时
+  // 复习文档也可能很长，使用与学情反馈相同的 max_tokens
   console.log(`[复习文档] 开始流式生成...`);
   const reviewContent = await invokeWhatAIStream(
     [
       { role: "system", content: systemPrompt },
       { role: "user", content: prompt },
     ],
-    { max_tokens: 32000 },
+    { max_tokens: 64000 },
     config,
     (chunk) => {
       process.stdout.write('.');
