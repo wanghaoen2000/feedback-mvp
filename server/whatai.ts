@@ -273,13 +273,14 @@ export async function invokeWhatAIStream(
       const decoder = new TextDecoder();
       let fullContent = '';
       let buffer = '';
+      let finishReason = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        
+
         // 处理SSE格式的数据
         const lines = buffer.split('\n');
         buffer = lines.pop() || ''; // 保留未完成的行
@@ -288,7 +289,7 @@ export async function invokeWhatAIStream(
           if (line.startsWith('data: ')) {
             const data = line.slice(6).trim();
             if (data === '[DONE]') continue;
-            
+
             try {
               const parsed = JSON.parse(data);
               const content = parsed.choices?.[0]?.delta?.content || '';
@@ -298,6 +299,11 @@ export async function invokeWhatAIStream(
                   onChunk(content);
                 }
               }
+              // 检测 finish_reason
+              const reason = parsed.choices?.[0]?.finish_reason;
+              if (reason) {
+                finishReason = reason;
+              }
             } catch (e) {
               // 忽略解析错误
             }
@@ -305,7 +311,13 @@ export async function invokeWhatAIStream(
         }
       }
 
-      console.log(`[WhatAI流式] 响应完成，内容长度: ${fullContent.length}字符`);
+      // 检测是否因 token 限制而截断
+      if (finishReason === 'length') {
+        console.warn(`[WhatAI流式] ⚠️ 警告: 输出被截断（达到 max_tokens 限制: ${max_tokens}）`);
+        console.warn(`[WhatAI流式] 当前输出长度: ${fullContent.length} 字符`);
+      }
+
+      console.log(`[WhatAI流式] 响应完成，内容长度: ${fullContent.length}字符, finish_reason: ${finishReason || 'unknown'}`);
       return fullContent;
       
     } catch (error: any) {

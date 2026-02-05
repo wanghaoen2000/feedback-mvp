@@ -1020,16 +1020,17 @@ ${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\
     apiUrl: apiConfig.apiUrl,
   };
   
+  // 小班课反馈内容较长（6人以上可能超过15000字），使用更大的 max_tokens
   const content = await invokeWhatAIStream(
     [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    { max_tokens: 32000 },
+    { max_tokens: 64000 },  // 小班课需要更大的输出限制
     config,
     () => process.stdout.write('.')
   );
-  
+
   console.log(`\n[小班课反馈] 学情反馈生成完成，长度: ${content.length} 字符`);
 
   return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
