@@ -799,7 +799,7 @@ export default function Home() {
           }
         })(),
 
-        // 任务2: 测试本 (tRPC + taskId 轮询容错)
+        // 任务2: 测试本 (SSE + taskId 轮询容错)
         (async () => {
           const taskStart = Date.now();
           const testTaskId = crypto.randomUUID();
@@ -807,21 +807,64 @@ export default function Home() {
           try {
             checkAborted();
             let testUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+            let testSseError: string | null = null;
+            let testCharCount = 0;
 
             try {
-              const result = await generateTestMutation.mutateAsync({
-                studentName: studentSnapshot.studentName,
-                dateStr: date,
-                feedbackContent: content,
-                taskId: testTaskId,
-                ...configSnapshot,
+              const testSseResponse = await fetch('/api/test-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  studentName: studentSnapshot.studentName,
+                  dateStr: date,
+                  feedbackContent: content,
+                  taskId: testTaskId,
+                  ...configSnapshot,
+                }),
               });
-              testUploadResult = result.uploadResult;
-            } catch (rpcErr) {
-              console.log('[Test tRPC] 请求失败，将轮询获取结果:', rpcErr);
+
+              if (!testSseResponse.ok) throw new Error(`测试本生成失败: HTTP ${testSseResponse.status}`);
+
+              const reader = testSseResponse.body?.getReader();
+              if (reader) {
+                const decoder = new TextDecoder();
+                let buf = '';
+                let evt = '';
+                try {
+                  while (true) {
+                    checkAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (const line of lines) {
+                      if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (evt === 'progress' && data.message) {
+                            if (data.chars) testCharCount = data.chars;
+                            updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
+                          }
+                          else if (evt === 'complete') {
+                            if (data.uploadResult) testUploadResult = data.uploadResult;
+                            if (data.chars) testCharCount = data.chars;
+                          }
+                          else if (evt === 'error' && data.message) testSseError = data.message;
+                        } catch (e) { /* ignore */ }
+                      }
+                    }
+                  }
+                } finally { reader.cancel().catch(() => {}); }
+              }
+            } catch (sseErr) {
+              console.log('[Test SSE] 连接断开，将轮询获取结果:', sseErr);
             }
 
-            // tRPC 未返回结果 → 轮询 contentStore
+            if (testSseError) throw new Error(testSseError);
+
+            // SSE 未返回结果 → 轮询 contentStore
             if (!testUploadResult) {
               updateStep(2, { status: 'running', message: '等待后端完成上传...', detail: '测试本' });
               for (let poll = 0; poll < 60; poll++) {
@@ -831,6 +874,7 @@ export default function Home() {
                   if (res.ok) {
                     const data = await res.json();
                     testUploadResult = JSON.parse(data.content);
+                    if (data.meta?.chars) testCharCount = data.meta.chars;
                     break;
                   }
                 } catch (e) { console.warn('[Poll] 轮询失败:', e); }
@@ -841,7 +885,7 @@ export default function Home() {
 
             const taskEnd = Date.now();
             setParallelTasks(prev => ({ ...prev, test: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: testUploadResult || undefined } }));
-            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '测试本已上传', endTime: taskEnd, uploadResult: testUploadResult });
+            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: testCharCount > 0 ? `共${testCharCount}字` : '测试本已上传', endTime: taskEnd, uploadResult: testUploadResult });
             return { type: 'test', success: true, duration: taskEnd - taskStart, uploadResult: testUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
@@ -852,7 +896,7 @@ export default function Home() {
           }
         })(),
 
-        // 任务3: 课后信息提取 (tRPC + taskId 轮询容错)
+        // 任务3: 课后信息提取 (SSE + taskId 轮询容错)
         (async () => {
           const taskStart = Date.now();
           const extractionTaskId = crypto.randomUUID();
@@ -860,21 +904,64 @@ export default function Home() {
           try {
             checkAborted();
             let extractionUploadResult: { fileName: string; url: string; path: string; folderUrl?: string } | null = null;
+            let extractionSseError: string | null = null;
+            let extractionCharCount = 0;
 
             try {
-              const result = await generateExtractionMutation.mutateAsync({
-                studentName: studentSnapshot.studentName,
-                dateStr: date,
-                feedbackContent: content,
-                taskId: extractionTaskId,
-                ...configSnapshot,
+              const extractionSseResponse = await fetch('/api/extraction-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  studentName: studentSnapshot.studentName,
+                  dateStr: date,
+                  feedbackContent: content,
+                  taskId: extractionTaskId,
+                  ...configSnapshot,
+                }),
               });
-              extractionUploadResult = result.uploadResult;
-            } catch (rpcErr) {
-              console.log('[Extraction tRPC] 请求失败，将轮询获取结果:', rpcErr);
+
+              if (!extractionSseResponse.ok) throw new Error(`课后信息提取失败: HTTP ${extractionSseResponse.status}`);
+
+              const reader = extractionSseResponse.body?.getReader();
+              if (reader) {
+                const decoder = new TextDecoder();
+                let buf = '';
+                let evt = '';
+                try {
+                  while (true) {
+                    checkAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (const line of lines) {
+                      if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (evt === 'progress' && data.message) {
+                            if (data.chars) extractionCharCount = data.chars;
+                            updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
+                          }
+                          else if (evt === 'complete') {
+                            if (data.uploadResult) extractionUploadResult = data.uploadResult;
+                            if (data.chars) extractionCharCount = data.chars;
+                          }
+                          else if (evt === 'error' && data.message) extractionSseError = data.message;
+                        } catch (e) { /* ignore */ }
+                      }
+                    }
+                  }
+                } finally { reader.cancel().catch(() => {}); }
+              }
+            } catch (sseErr) {
+              console.log('[Extraction SSE] 连接断开，将轮询获取结果:', sseErr);
             }
 
-            // tRPC 未返回结果 → 轮询 contentStore
+            if (extractionSseError) throw new Error(extractionSseError);
+
+            // SSE 未返回结果 → 轮询 contentStore
             if (!extractionUploadResult) {
               updateStep(3, { status: 'running', message: '等待后端完成上传...', detail: '课后信息提取' });
               for (let poll = 0; poll < 60; poll++) {
@@ -884,6 +971,7 @@ export default function Home() {
                   if (res.ok) {
                     const data = await res.json();
                     extractionUploadResult = JSON.parse(data.content);
+                    if (data.meta?.chars) extractionCharCount = data.meta.chars;
                     break;
                   }
                 } catch (e) { console.warn('[Poll] 轮询失败:', e); }
@@ -894,7 +982,7 @@ export default function Home() {
 
             const taskEnd = Date.now();
             setParallelTasks(prev => ({ ...prev, extraction: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: extractionUploadResult || undefined } }));
-            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '课后信息已上传', endTime: taskEnd, uploadResult: extractionUploadResult });
+            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: extractionCharCount > 0 ? `共${extractionCharCount}字` : '课后信息已上传', endTime: taskEnd, uploadResult: extractionUploadResult });
             return { type: 'extraction', success: true, duration: taskEnd - taskStart, uploadResult: extractionUploadResult };
           } catch (error) {
             const taskEnd = Date.now();

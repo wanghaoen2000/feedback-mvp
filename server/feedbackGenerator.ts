@@ -669,7 +669,13 @@ ${feedback}
 /**
  * 步骤3: 生成测试本（返回Buffer）
  */
-export async function generateTestContent(feedback: string, studentName: string, dateStr: string, config?: APIConfig): Promise<Buffer> {
+export async function generateTestContent(
+  feedback: string,
+  studentName: string,
+  dateStr: string,
+  config?: APIConfig,
+  onProgress?: (chars: number) => void
+): Promise<Buffer> {
   const prompt = `学情反馈内容：
 ${feedback}
 
@@ -684,12 +690,14 @@ ${feedback}
 测试本完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
 
   // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 TEST_SYSTEM_PROMPT
-  const systemPrompt = config?.roadmap && config.roadmap.trim() 
+  const systemPrompt = config?.roadmap && config.roadmap.trim()
     ? config.roadmap
     : TEST_SYSTEM_PROMPT;
 
   // 使用流式输出防止超时
   console.log(`[测试本] 开始流式生成...`);
+  let charCount = 0;
+  let lastProgressTime = Date.now();
   const testContent = await invokeWhatAIStream(
     [
       { role: "system", content: systemPrompt },
@@ -697,19 +705,31 @@ ${feedback}
     ],
     { max_tokens: 32000 },
     config,
-    (chunk) => {
+    (chunk: string) => {
       process.stdout.write('.');
+      charCount += chunk.length;
+      const now = Date.now();
+      if (onProgress && now - lastProgressTime >= 1000) {
+        onProgress(charCount);
+        lastProgressTime = now;
+      }
     }
   );
   console.log(`\n[测试本] 流式生成完成，内容长度: ${testContent.length}字符`);
-  
+
   return await textToDocx(testContent, `${studentName}${dateStr}测试本`);
 }
 
 /**
  * 步骤4: 生成课后信息提取
  */
-export async function generateExtractionContent(studentName: string, nextLessonDate: string, feedback: string, config?: APIConfig): Promise<string> {
+export async function generateExtractionContent(
+  studentName: string,
+  nextLessonDate: string,
+  feedback: string,
+  config?: APIConfig,
+  onProgress?: (chars: number) => void
+): Promise<string> {
   const prompt = `学生姓名：${studentName}
 下次课日期：${nextLessonDate || "请从学情反馈中提取，如无则写待定"}
 
@@ -723,12 +743,14 @@ ${feedback}
 课后信息提取完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
 
   // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 EXTRACTION_SYSTEM_PROMPT
-  const systemPrompt = config?.roadmap && config.roadmap.trim() 
+  const systemPrompt = config?.roadmap && config.roadmap.trim()
     ? config.roadmap
     : EXTRACTION_SYSTEM_PROMPT;
 
   // 使用流式输出防止超时
   console.log(`[课后信息提取] 开始流式生成...`);
+  let charCount = 0;
+  let lastProgressTime = Date.now();
   const content = await invokeWhatAIStream(
     [
       { role: "system", content: systemPrompt },
@@ -736,8 +758,14 @@ ${feedback}
     ],
     { max_tokens: 32000 },
     config,
-    (chunk) => {
+    (chunk: string) => {
       process.stdout.write('.');
+      charCount += chunk.length;
+      const now = Date.now();
+      if (onProgress && now - lastProgressTime >= 1000) {
+        onProgress(charCount);
+        lastProgressTime = now;
+      }
     }
   );
   console.log(`\n[课后信息提取] 流式生成完成，内容长度: ${content.length}字符`);
