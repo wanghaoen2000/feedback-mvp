@@ -1085,17 +1085,20 @@ export default function Home() {
         }
       });
 
-      // 设置最终步骤（用于错误处理）
-      localCurrentStep = 5;
-      setCurrentStep(5);
-
       // V63.8: 退出并行阶段
       setIsParallelPhase(false);
 
-      // 如果有失败的任务，抛出错误以触发错误处理
+      // 如果有失败的任务，设置错误状态但不抛出（各步骤已单独更新状态）
       if (failedCount > 0) {
-        throw new Error(`并行生成完成，${successCount}/4 成功，失败: ${failedTaskNames.join('、')}`);
+        setHasError(true);
+        setErrorMessage(`并行生成完成，${successCount}/4 成功，失败: ${failedTaskNames.join('、')}`);
+        // 不抛出错误，避免覆盖各步骤的独立状态
+        return;
       }
+
+      // 全部成功才设置最终步骤
+      localCurrentStep = 5;
+      setCurrentStep(5);
 
       console.log(`[V63.7] 并行生成完成: ${successCount}/4 成功，总耗时 ${totalParallelDuration} 秒`);
 
@@ -1795,21 +1798,25 @@ export default function Home() {
         }
       });
 
-      // 设置最终步骤
-      localCurrentStep = 5;
-      setCurrentStep(5);
+      // V63.11: 退出小班课并行阶段
+      setIsClassParallelPhase(false);
 
-      // 如果有失败的任务，抛出错误以触发错误处理
+      // 如果有失败的任务，设置错误状态但不抛出（各步骤已单独更新状态）
       if (failedCount > 0) {
-        throw new Error(`并行生成完成，${successCount}/4 成功，失败: ${failedTaskNames.join('、')}`);
+        setHasError(true);
+        setErrorMessage(`并行生成完成，${successCount}/4 成功，失败: ${failedTaskNames.join('、')}`);
+        // 不抛出错误，避免覆盖各步骤的独立状态
+        return;
       }
 
       console.log(`[V63.9] 小班课并行生成完成: ${successCount}/4 成功，总耗时 ${totalParallelDuration} 秒`);
 
+      // 全部成功才设置最终步骤
+      localCurrentStep = 5;
+      setCurrentStep(5);
+
       // 完成
       setIsComplete(true);
-      // V63.11: 退出小班课并行阶段
-      setIsClassParallelPhase(false);
       
     } catch (error: any) {
       setHasError(true);
