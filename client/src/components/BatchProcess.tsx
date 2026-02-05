@@ -1094,7 +1094,7 @@ export function BatchProcess() {
             )}
             {task.status === 'completed' && (
               <span className={`text-sm ${task.truncated ? 'text-yellow-600' : 'text-green-600'}`}>
-                {task.truncated ? '⚠️ 完成但被截断' : '完成'} ({task.chars} 字)
+                {task.truncated ? '⚠️ 已生成但被截断' : (task.url ? '已生成并上传' : '已生成')}，共{task.chars}字
               </span>
             )}
             {task.status === 'error' && (
