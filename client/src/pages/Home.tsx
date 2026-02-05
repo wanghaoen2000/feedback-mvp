@@ -1175,6 +1175,7 @@ export default function Home() {
                   updateStep(0, { status: 'running', message: `正在生成学情反馈... 已生成 ${data.chars} 字符` });
                 } else if (currentEventType === 'complete') {
                   sseCompleted = true;
+                  if (data.dateStr) extractedDate = data.dateStr;
                 } else if (currentEventType === 'error' && data.message) {
                   sseError = data.message;
                 }
@@ -1204,6 +1205,9 @@ export default function Home() {
           if (contentRes.ok) {
             const contentData = await contentRes.json();
             feedbackContent = contentData.content;
+            if (contentData.meta) {
+              if (!extractedDate && contentData.meta.dateStr) extractedDate = contentData.meta.dateStr;
+            }
             break;
           }
         } catch (e) {
@@ -1527,7 +1531,10 @@ export default function Home() {
                       if (line.startsWith('data: ')) {
                         try {
                           const data = JSON.parse(line.slice(6));
-                          if (evt === 'progress' && data.message) updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
+                          if (evt === 'progress' && data.message) {
+                            if (data.chars) extractionCharCount = data.chars;
+                            updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
+                          }
                           else if (evt === 'complete') {
                             if (data.uploadResult) extractionUploadResult = data.uploadResult;
                             if (data.chars) extractionCharCount = data.chars;
