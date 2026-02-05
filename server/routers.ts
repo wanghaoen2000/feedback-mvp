@@ -1,6 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -129,7 +130,8 @@ export const appRouter = router({
       
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
-        apiKey: apiKey || DEFAULT_CONFIG.apiKey,
+        // 安全考虑：不返回完整 API Key，只返回空字符串。用 hasApiKey 指示是否已配置
+        apiKey: "",
         apiUrl: apiUrl || DEFAULT_CONFIG.apiUrl,
         currentYear: currentYear || DEFAULT_CONFIG.currentYear,
         roadmap: roadmap || "",
@@ -140,10 +142,11 @@ export const appRouter = router({
         batchFilePrefix: batchFilePrefix || DEFAULT_CONFIG.batchFilePrefix,
         batchStoragePath: batchStoragePath || DEFAULT_CONFIG.batchStoragePath,
         maxTokens: maxTokens || "64000",
-        // 返回是否使用默认值
+        // 返回是否使用默认值（apiKey 特殊处理：表示是否已配置）
+        hasApiKey: !!apiKey,
         isDefault: {
           apiModel: !apiModel,
-          apiKey: !apiKey,
+          apiKey: !apiKey, // deprecated，使用 hasApiKey
           apiUrl: !apiUrl,
           currentYear: !currentYear,
           driveBasePath: !driveBasePath,
@@ -1024,36 +1027,44 @@ export const appRouter = router({
         roadmapClass: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
-        
-        const classInput: ClassFeedbackInput = {
-          classNumber: input.classNumber,
-          lessonNumber: input.lessonNumber || '',
-          lessonDate: input.lessonDate || '',
-          nextLessonDate: '',
-          attendanceStudents: input.attendanceStudents,
-          lastFeedback: '',
-          currentNotes: input.currentNotes,
-          transcript: '',
-          specialRequirements: '',
-        };
-        
-        const reviewBuffer = await generateClassReviewContent(
-          classInput,
-          input.combinedFeedback,
-          roadmapClass,
-          { apiModel, apiKey, apiUrl }
-        );
-        
-        return {
-          success: true,
-          content: reviewBuffer.toString('base64'),
-        };
+        try {
+          const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+          const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+          const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
+
+          const classInput: ClassFeedbackInput = {
+            classNumber: input.classNumber,
+            lessonNumber: input.lessonNumber || '',
+            lessonDate: input.lessonDate || '',
+            nextLessonDate: '',
+            attendanceStudents: input.attendanceStudents,
+            lastFeedback: '',
+            currentNotes: input.currentNotes,
+            transcript: '',
+            specialRequirements: '',
+          };
+
+          const reviewBuffer = await generateClassReviewContent(
+            classInput,
+            input.combinedFeedback,
+            roadmapClass,
+            { apiModel, apiKey, apiUrl }
+          );
+
+          return {
+            success: true,
+            content: reviewBuffer.toString('base64'),
+          };
+        } catch (error) {
+          console.error('[generateClassReview] 生成复习文档失败:', error);
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : '生成复习文档失败',
+          });
+        }
       }),
-    
+
     // 小班课步骤3: 生成测试本
     generateClassTest: protectedProcedure
       .input(z.object({
@@ -1069,36 +1080,44 @@ export const appRouter = router({
         roadmapClass: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
-        
-        const classInput: ClassFeedbackInput = {
-          classNumber: input.classNumber,
-          lessonNumber: input.lessonNumber || '',
-          lessonDate: input.lessonDate || '',
-          nextLessonDate: '',
-          attendanceStudents: input.attendanceStudents,
-          lastFeedback: '',
-          currentNotes: input.currentNotes,
-          transcript: '',
-          specialRequirements: '',
-        };
-        
-        const testBuffer = await generateClassTestContent(
-          classInput,
-          input.combinedFeedback,
-          roadmapClass,
-          { apiModel, apiKey, apiUrl }
-        );
-        
-        return {
-          success: true,
-          content: testBuffer.toString('base64'),
-        };
+        try {
+          const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+          const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+          const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
+
+          const classInput: ClassFeedbackInput = {
+            classNumber: input.classNumber,
+            lessonNumber: input.lessonNumber || '',
+            lessonDate: input.lessonDate || '',
+            nextLessonDate: '',
+            attendanceStudents: input.attendanceStudents,
+            lastFeedback: '',
+            currentNotes: input.currentNotes,
+            transcript: '',
+            specialRequirements: '',
+          };
+
+          const testBuffer = await generateClassTestContent(
+            classInput,
+            input.combinedFeedback,
+            roadmapClass,
+            { apiModel, apiKey, apiUrl }
+          );
+
+          return {
+            success: true,
+            content: testBuffer.toString('base64'),
+          };
+        } catch (error) {
+          console.error('[generateClassTest] 生成测试本失败:', error);
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : '生成测试本失败',
+          });
+        }
       }),
-    
+
     // 小班课步骤4: 生成课后信息提取
     generateClassExtraction: protectedProcedure
       .input(z.object({
@@ -1113,36 +1132,44 @@ export const appRouter = router({
         roadmapClass: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
-        
-        const classInput: ClassFeedbackInput = {
-          classNumber: input.classNumber,
-          lessonNumber: input.lessonNumber || '',
-          lessonDate: input.lessonDate || '',
-          nextLessonDate: '',
-          attendanceStudents: input.attendanceStudents,
-          lastFeedback: '',
-          currentNotes: '',
-          transcript: '',
-          specialRequirements: '',
-        };
-        
-        const extraction = await generateClassExtractionContent(
-          classInput,
-          input.combinedFeedback,
-          roadmapClass,
-          { apiModel, apiKey, apiUrl }
-        );
-        
-        return {
-          success: true,
-          content: extraction,
-        };
+        try {
+          const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+          const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+          const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
+
+          const classInput: ClassFeedbackInput = {
+            classNumber: input.classNumber,
+            lessonNumber: input.lessonNumber || '',
+            lessonDate: input.lessonDate || '',
+            nextLessonDate: '',
+            attendanceStudents: input.attendanceStudents,
+            lastFeedback: '',
+            currentNotes: '',
+            transcript: '',
+            specialRequirements: '',
+          };
+
+          const extraction = await generateClassExtractionContent(
+            classInput,
+            input.combinedFeedback,
+            roadmapClass,
+            { apiModel, apiKey, apiUrl }
+          );
+
+          return {
+            success: true,
+            content: extraction,
+          };
+        } catch (error) {
+          console.error('[generateClassExtraction] 生成课后信息提取失败:', error);
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : '生成课后信息提取失败',
+          });
+        }
       }),
-    
+
     // 小班课步骤5: 为单个学生生成气泡图SVG
     generateClassBubbleChart: protectedProcedure
       .input(z.object({
@@ -1157,24 +1184,32 @@ export const appRouter = router({
         roadmapClass: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
-        
-        const svgContent = await generateClassBubbleChartSVG(
-          input.studentFeedback,
-          input.studentName,
-          input.classNumber,
-          input.dateStr,
-          input.lessonNumber || '',
-          { apiModel, apiKey, apiUrl, roadmapClass }
-        );
-        
-        return {
-          success: true,
-          svg: svgContent,
-        };
+        try {
+          const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
+          const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
+          const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
+          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
+
+          const svgContent = await generateClassBubbleChartSVG(
+            input.studentFeedback,
+            input.studentName,
+            input.classNumber,
+            input.dateStr,
+            input.lessonNumber || '',
+            { apiModel, apiKey, apiUrl, roadmapClass }
+          );
+
+          return {
+            success: true,
+            svg: svgContent,
+          };
+        } catch (error) {
+          console.error('[generateClassBubbleChart] 生成气泡图失败:', error);
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : '生成气泡图失败',
+          });
+        }
       }),
     
     // 小班课上传文件到 Google Drive

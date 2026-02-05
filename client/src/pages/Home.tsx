@@ -434,7 +434,8 @@ export default function Home() {
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
       setApiModel(configQuery.data.apiModel);
-      setApiKey(configQuery.data.apiKey);
+      // apiKey 不再从服务器返回，保持为空（安全考虑）
+      // setApiKey(configQuery.data.apiKey);
       setApiUrl(configQuery.data.apiUrl);
       setCurrentYear(configQuery.data.currentYear || "2026");
       setRoadmap(configQuery.data.roadmap || "");
@@ -1091,8 +1092,8 @@ export default function Home() {
       // 如果有失败的任务，设置错误状态但不抛出（各步骤已单独更新状态）
       if (failedCount > 0) {
         setHasError(true);
-        setErrorMessage(`并行生成完成，${successCount}/4 成功，失败: ${failedTaskNames.join('、')}`);
-        // 不抛出错误，避免覆盖各步骤的独立状态
+        console.warn(`[V63.8] 并行生成部分失败: ${successCount}/4 成功，失败: ${failedTaskNames.join('、')}`);
+        // 不抛出错误，避免覆盖各步骤的独立状态（各步骤已通过 updateStep 显示各自的错误信息）
         return;
       }
 
@@ -1802,8 +1803,8 @@ export default function Home() {
       // 如果有失败的任务，设置错误状态但不抛出（各步骤已单独更新状态）
       if (failedCount > 0) {
         setHasError(true);
-        setErrorMessage(`并行生成完成，${successCount}/4 成功，失败: ${failedTaskNames.join('、')}`);
-        // 不抛出错误，避免覆盖各步骤的独立状态
+        console.warn(`[V63.8] 并行生成部分失败: ${successCount}/4 成功，失败: ${failedTaskNames.join('、')}`);
+        // 不抛出错误，避免覆盖各步骤的独立状态（各步骤已通过 updateStep 显示各自的错误信息）
         return;
       }
 
@@ -2873,13 +2874,13 @@ export default function Home() {
                       <Input
                         id="apiKey"
                         type="password"
-                        placeholder="sk-xxxxxxxx"
+                        placeholder={configQuery.data?.hasApiKey ? "已配置（留空保持不变）" : "sk-xxxxxxxx"}
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
                         disabled={isGenerating}
                       />
                       <p className="text-xs text-gray-500">
-                        留空则使用默认密钥
+                        {configQuery.data?.hasApiKey ? "已配置密钥。如需更换请输入新密钥" : "留空则使用默认密钥"}
                       </p>
                     </div>
                     
