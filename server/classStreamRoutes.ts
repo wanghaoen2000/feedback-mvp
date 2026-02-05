@@ -234,12 +234,13 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       let lastProgressTime = Date.now();
       
       // 调用流式 API，实时发送进度
+      // 小班课反馈内容较长（6人以上可能超过15000字），使用更大的 max_tokens
       const content = await invokeWhatAIStream(
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: 32000 },
+        { max_tokens: 64000 },  // 小班课需要更大的输出限制
         config,
         (chunk: string) => {
           charCount += chunk.length;
@@ -251,7 +252,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
           }
         }
       );
-      
+
       // 清理内容（markdown/HTML 标记 + AI 元评论）
       const cleanedContent = stripAIMetaCommentary(cleanMarkdownAndHtml(content));
 
