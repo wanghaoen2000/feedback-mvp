@@ -1121,7 +1121,7 @@ export default function Home() {
       localCurrentStep = 1;
       checkAborted();
       const step1Start = Date.now();
-      updateStep(0, { status: 'running', message: `正在为 ${classSnapshot.classNumber} 班生成学情反馈...` });
+      updateStep(0, { status: 'running', message: `正在为 ${classSnapshot.classNumber} 班生成学情反馈...`, startTime: step1Start });
       
       // 前端生成 taskId，后端用此 ID 暂存内容；SSE 断了前端也能凭 taskId 拉取
       const taskId = crypto.randomUUID();
@@ -1270,10 +1270,10 @@ export default function Home() {
       });
       
       // 初始化所有并行步骤的状态为 running
-      updateStep(1, { status: 'running', message: '正在并行生成...', detail: '复习文档' });
-      updateStep(2, { status: 'running', message: '正在并行生成...', detail: '测试本' });
-      updateStep(3, { status: 'running', message: '正在并行生成...', detail: '课后信息提取' });
-      updateStep(4, { status: 'running', message: '正在并行生成...', detail: `气泡图 (${validStudents.length}个学生)` });
+      updateStep(1, { status: 'running', message: '正在并行生成...', detail: '复习文档', startTime: parallelStartTime });
+      updateStep(2, { status: 'running', message: '正在并行生成...', detail: '测试本', startTime: parallelStartTime });
+      updateStep(3, { status: 'running', message: '正在并行生成...', detail: '课后信息提取', startTime: parallelStartTime });
+      updateStep(4, { status: 'running', message: '正在并行生成...', detail: `气泡图 (${validStudents.length}个学生)`, startTime: parallelStartTime });
 
       // 定义4个并行任务
       const parallelTasks = [
