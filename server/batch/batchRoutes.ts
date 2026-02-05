@@ -86,6 +86,76 @@ interface BatchTaskResult {
 }
 
 /**
+ * 构建带来源标签的消息内容（公共函数）
+ * 用于批量生成和单任务重做
+ *
+ * 使用 XML 标签区分不同来源的内容：
+ * - <路书提示词> 路书/提示词内容
+ * - <共享文档> 共享文档内容（多个文档用 --- 分隔）
+ * - <单独文档> 独立文档内容
+ */
+function buildBatchMessageContent(
+  taskNumber: number,
+  roadmapContent: string,
+  sharedFileList: FileInfo[] | undefined,
+  independentFile: FileInfo | undefined
+): { systemPrompt: string; userMessage: string } {
+  // 构建 system prompt（路书部分）
+  const systemPrompt = `<路书提示词>
+${roadmapContent}
+</路书提示词>
+
+【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`;
+
+  // 构建 user message
+  let userMessage = `这是任务编号 ${taskNumber}，请按照路书要求生成内容。`;
+
+  // 添加共享文档内容（如果有提取的文本）
+  const sharedDocTexts: string[] = [];
+  if (sharedFileList && sharedFileList.length > 0) {
+    for (const file of sharedFileList) {
+      if (file.type === 'document' && file.extractedText) {
+        sharedDocTexts.push(file.extractedText);
+      }
+    }
+  }
+
+  if (sharedDocTexts.length > 0) {
+    userMessage += `\n\n<共享文档>\n${sharedDocTexts.join('\n---\n')}\n</共享文档>`;
+  }
+
+  // 添加独立文档内容（如果有提取的文本）
+  if (independentFile?.type === 'document' && independentFile.extractedText) {
+    userMessage += `\n\n<单独文档>\n${independentFile.extractedText}\n</单独文档>`;
+  }
+
+  // 统计文件数量并添加提示
+  const allFiles = [...(sharedFileList || []), ...(independentFile ? [independentFile] : [])];
+  const imageCount = allFiles.filter(f => f.type === 'image').length;
+  const docCount = allFiles.filter(f => f.type === 'document').length;
+  const textDocCount = allFiles.filter(f => f.type === 'document' && f.extractedText).length;
+  const urlDocCount = docCount - textDocCount;
+
+  // 添加附件提示
+  const hints: string[] = [];
+  if (imageCount > 0) {
+    hints.push(`${imageCount} 张图片`);
+  }
+  if (textDocCount > 0) {
+    hints.push(`${textDocCount} 份文档（已提取文本，见上方标签）`);
+  }
+  if (urlDocCount > 0) {
+    hints.push(`${urlDocCount} 份文档（以URL形式提供）`);
+  }
+
+  if (hints.length > 0) {
+    userMessage += `\n\n【附件】请分析以上 ${hints.join('、')}。`;
+  }
+
+  return { systemPrompt, userMessage };
+}
+
+/**
  * POST /api/batch/stop
  * 停止批量处理
  * 
@@ -356,74 +426,6 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   /**
    * 执行单个任务（核心逻辑）
    */
-  /**
-   * 构建带来源标签的消息内容
-   * 使用 XML 标签区分不同来源的内容：
-   * - <路书提示词> 路书/提示词内容
-   * - <共享文档> 共享文档内容（多个文档用 --- 分隔）
-   * - <单独文档> 独立文档内容
-   */
-  const buildMessageContent = (
-    taskNumber: number,
-    roadmapContent: string,
-    sharedFileList: FileInfo[] | undefined,
-    independentFile: FileInfo | undefined
-  ): { systemPrompt: string; userMessage: string } => {
-    // 构建 system prompt（路书部分）
-    const systemPrompt = `<路书提示词>
-${roadmapContent}
-</路书提示词>
-
-【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`;
-    
-    // 构建 user message
-    let userMessage = `这是任务编号 ${taskNumber}，请按照路书要求生成内容。`;
-    
-    // 添加共享文档内容（如果有提取的文本）
-    const sharedDocTexts: string[] = [];
-    if (sharedFileList && sharedFileList.length > 0) {
-      for (const file of sharedFileList) {
-        if (file.type === 'document' && file.extractedText) {
-          sharedDocTexts.push(file.extractedText);
-        }
-      }
-    }
-    
-    if (sharedDocTexts.length > 0) {
-      userMessage += `\n\n<共享文档>\n${sharedDocTexts.join('\n---\n')}\n</共享文档>`;
-    }
-    
-    // 添加独立文档内容（如果有提取的文本）
-    if (independentFile?.type === 'document' && independentFile.extractedText) {
-      userMessage += `\n\n<单独文档>\n${independentFile.extractedText}\n</单独文档>`;
-    }
-    
-    // 统计文件数量并添加提示
-    const allFiles = [...(sharedFileList || []), ...(independentFile ? [independentFile] : [])];
-    const imageCount = allFiles.filter(f => f.type === 'image').length;
-    const docCount = allFiles.filter(f => f.type === 'document').length;
-    const textDocCount = allFiles.filter(f => f.type === 'document' && f.extractedText).length;
-    const urlDocCount = docCount - textDocCount;
-    
-    // 添加附件提示
-    const hints: string[] = [];
-    if (imageCount > 0) {
-      hints.push(`${imageCount} 张图片`);
-    }
-    if (textDocCount > 0) {
-      hints.push(`${textDocCount} 份文档（已提取文本，见上方标签）`);
-    }
-    if (urlDocCount > 0) {
-      hints.push(`${urlDocCount} 份文档（以URL形式提供）`);
-    }
-    
-    if (hints.length > 0) {
-      userMessage += `\n\n【附件】请分析以上 ${hints.join('、')}。`;
-    }
-    
-    return { systemPrompt, userMessage };
-  };
-
   const executeTask = async (
     taskNumber: number,
     onProgress: (chars: number) => void
@@ -447,8 +449,8 @@ ${roadmapContent}
     // 日志输出
     console.log(`[BatchRoutes] 任务${taskNumber}：共享文件${sharedFileList?.length || 0}个，独立文件${independentFile ? 1 : 0}个，共${taskFileInfos.length}个`);
     
-    // 使用 buildMessageContent 构建带来源标签的消息
-    const { systemPrompt, userMessage } = buildMessageContent(
+    // 使用公共函数构建带来源标签的消息
+    const { systemPrompt, userMessage } = buildBatchMessageContent(
       taskNumber,
       roadmap,
       sharedFileList,
@@ -984,58 +986,18 @@ router.post("/retry-task", async (req: Request, res: Response) => {
     console.log(`[BatchRoutes] 重做任务将存储到: ${batchFolderPath}`);
   }
 
-  // 构建带来源标签的消息内容
-  const buildRetryMessageContent = (
-    taskNum: number,
-    roadmapContent: string,
-    sharedFileList: FileInfo[] | undefined,
-    independentFile: FileInfo | undefined
-  ): { systemPrompt: string; userMessage: string } => {
-    const systemPrompt = `<路书提示词>
-${roadmapContent}
-</路书提示词>
-
-【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`;
-    
-    let userMessage = `这是任务编号 ${taskNum}，请按照路书要求生成内容。`;
-    
-    // 添加共享文档内容
-    const sharedDocTexts: string[] = [];
-    if (sharedFileList && sharedFileList.length > 0) {
-      for (const file of sharedFileList) {
-        if (file.type === 'document' && file.extractedText) {
-          sharedDocTexts.push(file.extractedText);
-        }
+  // 心跳定时器：每15秒发送一次心跳事件，保持连接活跃
+  const heartbeatInterval = setInterval(() => {
+    try {
+      if (!res.writableEnded) {
+        sendSSEEvent(res, "heartbeat", { timestamp: Date.now() });
+        console.log(`[SSE] 重做任务心跳发送, taskNumber: ${taskNum}`);
       }
+    } catch (e) {
+      console.error('[SSE] 重做任务心跳发送失败:', e);
+      clearInterval(heartbeatInterval);
     }
-    
-    if (sharedDocTexts.length > 0) {
-      userMessage += `\n\n<共享文档>\n${sharedDocTexts.join('\n---\n')}\n</共享文档>`;
-    }
-    
-    // 添加独立文档内容
-    if (independentFile?.type === 'document' && independentFile.extractedText) {
-      userMessage += `\n\n<单独文档>\n${independentFile.extractedText}\n</单独文档>`;
-    }
-    
-    // 统计文件数量并添加提示
-    const allFiles = [...(sharedFileList || []), ...(independentFile ? [independentFile] : [])];
-    const imageCount = allFiles.filter(f => f.type === 'image').length;
-    const docCount = allFiles.filter(f => f.type === 'document').length;
-    const textDocCount = allFiles.filter(f => f.type === 'document' && f.extractedText).length;
-    const urlDocCount = docCount - textDocCount;
-    
-    const hints: string[] = [];
-    if (imageCount > 0) hints.push(`${imageCount} 张图片`);
-    if (textDocCount > 0) hints.push(`${textDocCount} 份文档（已提取文本，见上方标签）`);
-    if (urlDocCount > 0) hints.push(`${urlDocCount} 份文档（以URL形式提供）`);
-    
-    if (hints.length > 0) {
-      userMessage += `\n\n【附件】请分析以上 ${hints.join('、')}。`;
-    }
-    
-    return { systemPrompt, userMessage };
-  };
+  }, 15000);
 
   try {
     // 获取文件信息
@@ -1052,8 +1014,8 @@ ${roadmapContent}
 
     console.log(`[BatchRoutes] 重做任务${taskNum}：共享文件${sharedFileList?.length || 0}个，独立文件${independentFile ? 1 : 0}个`);
 
-    // 构建消息
-    const { systemPrompt, userMessage } = buildRetryMessageContent(
+    // 使用公共函数构建消息
+    const { systemPrompt, userMessage } = buildBatchMessageContent(
       taskNum,
       roadmap,
       sharedFileList,
@@ -1286,6 +1248,8 @@ ${roadmapContent}
       timestamp: Date.now(),
     });
   } finally {
+    // 清理心跳定时器
+    clearInterval(heartbeatInterval);
     res.end();
   }
 });
@@ -1390,7 +1354,7 @@ router.post("/upload-files", (req: Request, res: Response, next: NextFunction) =
       return res.status(400).json({
         success: false,
         error: err.message || '文件上传失败',
-        hint: '最多支持 100 个文件，单个文件最大 20MB'
+        hint: '最多支持 100 个文件，文档最大 30MB，图片最大 20MB'
       });
     }
     next();
