@@ -1088,7 +1088,8 @@ export async function generateClassTestContent(
   input: ClassFeedbackInput,
   combinedFeedback: string,
   roadmap: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string },
+  onProgress?: (chars: number) => void
 ): Promise<Buffer> {
   const userPrompt = `请根据以下小班课信息生成测试本：
 
@@ -1116,6 +1117,9 @@ ${input.currentNotes}
     apiKey: apiConfig.apiKey,
     apiUrl: apiConfig.apiUrl,
   };
+
+  let charCount = 0;
+  let lastProgressTime = Date.now();
   const testContent = await invokeWhatAIStream(
     [
       { role: "system", content: systemPrompt },
@@ -1123,7 +1127,16 @@ ${input.currentNotes}
     ],
     { max_tokens: 8000 },
     config,
-    () => process.stdout.write('.')
+    (chunk: string) => {
+      process.stdout.write('.');
+      charCount += chunk.length;
+      // 每秒最多上报一次进度
+      const now = Date.now();
+      if (onProgress && now - lastProgressTime >= 1000) {
+        onProgress(charCount);
+        lastProgressTime = now;
+      }
+    }
   );
   console.log(`\n[小班课测试本] 生成完成`);
 
@@ -1167,7 +1180,8 @@ export async function generateClassExtractionContent(
   input: ClassFeedbackInput,
   combinedFeedback: string,
   roadmap: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string },
+  onProgress?: (chars: number) => void
 ): Promise<string> {
   const userPrompt = `请根据以下小班课信息提取课后信息：
 
@@ -1194,6 +1208,9 @@ ${combinedFeedback}
     apiKey: apiConfig.apiKey,
     apiUrl: apiConfig.apiUrl,
   };
+
+  let charCount = 0;
+  let lastProgressTime = Date.now();
   const extractionContent = await invokeWhatAIStream(
     [
       { role: "system", content: systemPrompt },
@@ -1201,7 +1218,16 @@ ${combinedFeedback}
     ],
     { max_tokens: 4000 },
     config,
-    () => process.stdout.write('.')
+    (chunk: string) => {
+      process.stdout.write('.');
+      charCount += chunk.length;
+      // 每秒最多上报一次进度
+      const now = Date.now();
+      if (onProgress && now - lastProgressTime >= 1000) {
+        onProgress(charCount);
+        lastProgressTime = now;
+      }
+    }
   );
   console.log(`\n[小班课课后信息] 生成完成`);
 
