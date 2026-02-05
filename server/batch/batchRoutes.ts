@@ -19,7 +19,7 @@ import { processAICodeGeneration } from "../core/aiCodeProcessor";
 const router = Router();
 
 // 最大重试次数
-const MAX_RETRIES = 1;
+const MAX_RETRIES = 2; // 网络抖动时最多重试2次
 
 /**
  * 批次任务状态
@@ -674,12 +674,20 @@ ${roadmapContent}
       }
       
       console.log(`[BatchRoutes] 任务 ${taskNumber} AI代码生成成功，尝试次数: ${aiCodeResult.totalAttempts}`);
-      
+
       // 读取生成的文件
       const fs = await import('fs');
       const pathModule = await import('path');
       buffer = fs.readFileSync(aiCodeResult.outputPath);
-      
+
+      // 清理临时目录
+      try {
+        fs.rmSync(outputDir, { recursive: true, force: true });
+        console.log(`[BatchRoutes] 任务 ${taskNumber} 临时目录已清理: ${outputDir}`);
+      } catch (cleanupErr) {
+        console.warn(`[BatchRoutes] 任务 ${taskNumber} 临时目录清理失败:`, cleanupErr);
+      }
+
       // AI代码模式：根据 namingMethod 决定文件名
       const aiGeneratedFilename = pathModule.basename(aiCodeResult.outputPath);
       const taskNumStr = taskNumber.toString().padStart(2, '0');
@@ -873,20 +881,22 @@ ${roadmapContent}
     // 清理心跳定时器
     clearInterval(heartbeatInterval);
     
-    // 更新批次状态为已完成，但延迟5分钟后再删除（让前端有机会查询）
+    // 更新批次状态为已完成，但延迟1分钟后再删除（让前端有机会查询）
     const finalBatchStatus = activeBatches.get(batchId);
     if (finalBatchStatus) {
-      finalBatchStatus.status = finalBatchStatus.stopped ? 'stopped' : 
+      finalBatchStatus.status = finalBatchStatus.stopped ? 'stopped' :
         (finalBatchStatus.failedTasks > 0 && finalBatchStatus.completedTasks === 0) ? 'failed' : 'completed';
       // 移除 pool 引用，减少内存占用
       finalBatchStatus.pool = null as any;
+      // 清理任务详情数组，进一步减少内存
+      finalBatchStatus.tasks = [];
     }
-    
-    // 5分钟后清理批次状态
+
+    // 1分钟后清理批次状态（缩短自5分钟，减少内存占用）
     setTimeout(() => {
       activeBatches.delete(batchId);
       console.log(`[Batch] 清理批次状态: ${batchId}`);
-    }, 5 * 60 * 1000);
+    }, 60 * 1000);
     
     res.end();
   }
@@ -1200,11 +1210,19 @@ ${roadmapContent}
       const fs = await import('fs');
       const pathModule = await import('path');
       buffer = fs.readFileSync(aiCodeResult.outputPath);
-      
+
+      // 清理临时目录
+      try {
+        fs.rmSync(outputDir, { recursive: true, force: true });
+        console.log(`[BatchRoutes] 重做任务 ${taskNum} 临时目录已清理: ${outputDir}`);
+      } catch (cleanupErr) {
+        console.warn(`[BatchRoutes] 重做任务 ${taskNum} 临时目录清理失败:`, cleanupErr);
+      }
+
       const aiGeneratedFilename = pathModule.basename(aiCodeResult.outputPath);
       const taskNumStr = taskNum.toString().padStart(2, '0');
       const prefix = filePrefix.trim() || '任务';
-      
+
       if (namingMethod === 'prefix') {
         filename = `${prefix}${taskNumStr}.docx`;
       } else if (namingMethod === 'custom' && customName) {

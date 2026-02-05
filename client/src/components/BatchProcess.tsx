@@ -703,10 +703,26 @@ export function BatchProcess() {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
     }
-    
+
     console.log('[Polling] 启动轮询, batchId:', batchId);
-    
+
+    const MAX_POLL_COUNT = 60; // 最多轮询60次（约3分钟）
+    let pollCount = 0;
+
     pollingIntervalRef.current = setInterval(async () => {
+      pollCount++;
+
+      // 达到最大轮询次数，停止轮询
+      if (pollCount > MAX_POLL_COUNT) {
+        console.warn('[Polling] 达到最大轮询次数，停止轮询');
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+        setIsGenerating(false);
+        return;
+      }
+
       const status = await fetchBatchStatus(batchId);
       if (!status) {
         console.error('[Polling] 查询失败，停止轮询');
@@ -716,9 +732,9 @@ export function BatchProcess() {
         }
         return;
       }
-      
+
       updateStateFromBatchStatus(status);
-      
+
       if (status.status === 'completed' || status.status === 'failed' || status.status === 'stopped') {
         console.log('[Polling] 批次完成，停止轮询');
         if (pollingIntervalRef.current) {
