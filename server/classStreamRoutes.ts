@@ -428,12 +428,13 @@ ${input.transcript}
       let lastProgressTime = Date.now();
       
       // 调用流式 API，实时发送进度
+      // 一对一反馈也使用较大的 max_tokens，防止长录音/复杂路书导致截断
       const content = await invokeWhatAIStream(
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: 32000 },
+        { max_tokens: 64000 },
         config,
         (chunk: string) => {
           charCount += chunk.length;

@@ -607,13 +607,14 @@ ${input.transcript}
     : FEEDBACK_SYSTEM_PROMPT;
 
   // 使用流式输出防止超时
+  // 一对一反馈也使用较大的 max_tokens，防止长录音/复杂路书导致截断
   console.log(`[学情反馈] 开始流式生成...`);
   const content = await invokeWhatAIStream(
     [
       { role: "system", content: systemPrompt },
       { role: "user", content: prompt },
     ],
-    { max_tokens: 32000 },
+    { max_tokens: 64000 },
     config,
     (chunk) => {
       // 每收到一块内容就打印进度（防止超时）
