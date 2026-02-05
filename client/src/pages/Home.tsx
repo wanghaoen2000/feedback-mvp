@@ -1176,7 +1176,7 @@ export default function Home() {
                 } else if (currentEventType === 'complete') {
                   sseCompleted = true;
                   if (data.dateStr) extractedDate = data.dateStr;
-                  if (data.uploadResult) sseUploadResult = data.uploadResult;
+
                 } else if (currentEventType === 'error' && data.message) {
                   sseError = data.message;
                 }
@@ -1208,7 +1208,7 @@ export default function Home() {
             feedbackContent = contentData.content;
             if (contentData.meta) {
               if (!extractedDate && contentData.meta.dateStr) extractedDate = contentData.meta.dateStr;
-              if (!sseUploadResult && contentData.meta.uploadResult) sseUploadResult = contentData.meta.uploadResult;
+
             }
             break;
           }
