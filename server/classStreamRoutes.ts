@@ -660,13 +660,14 @@ ${input.feedbackContent}
       
       let charCount = 0;
       let lastProgressTime = Date.now();
-      
+
+      // 复习文档也可能很长，使用与学情反馈相同的 max_tokens
       const reviewContent = await invokeWhatAIStream(
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: 32000 },
+        { max_tokens: 64000 },
         config,
         (chunk: string) => {
           charCount += chunk.length;
@@ -677,7 +678,7 @@ ${input.feedbackContent}
           }
         }
       );
-      
+
       // 校验内容非空
       if (!reviewContent || !reviewContent.trim()) {
         throw new Error('复习文档生成失败：AI 返回内容为空，请重试');
@@ -1132,16 +1133,17 @@ ${input.currentNotes}
       });
       
       const config: APIConfig = { apiModel, apiKey, apiUrl };
-      
+
       let charCount = 0;
       let lastProgressTime = Date.now();
-      
+
+      // 复习文档也可能很长，使用与学情反馈相同的 max_tokens
       const reviewContent = await invokeWhatAIStream(
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: 32000 },
+        { max_tokens: 64000 },
         config,
         (chunk: string) => {
           charCount += chunk.length;
@@ -1152,7 +1154,7 @@ ${input.currentNotes}
           }
         }
       );
-      
+
       // 校验内容非空
       if (!reviewContent || !reviewContent.trim()) {
         throw new Error('小班课复习文档生成失败：AI 返回内容为空，请重试');
