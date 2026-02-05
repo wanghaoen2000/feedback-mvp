@@ -1014,7 +1014,7 @@ ${input.currentNotes}
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成测试本` });
 
-      // 每15秒发送keep-alive，防止平台代理超时
+      // 每15秒发送keep-alive，防止平台代理超时（AI 开始输出前的兜底）
       keepAlive = setInterval(() => {
         sendEvent("progress", { message: "正在生成测试本..." });
       }, 15000);
@@ -1035,7 +1035,8 @@ ${input.currentNotes}
         classInput,
         input.combinedFeedback,
         roadmapClass,
-        { apiModel, apiKey, apiUrl }
+        { apiModel, apiKey, apiUrl },
+        (chars) => sendEvent("progress", { chars, message: `正在生成测试本... 已生成 ${chars} 字符` })
       );
 
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
@@ -1137,7 +1138,7 @@ ${input.currentNotes}
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成课后信息提取` });
 
-      // 每15秒发送keep-alive，防止平台代理超时
+      // 每15秒发送keep-alive，防止平台代理超时（AI 开始输出前的兜底）
       keepAlive = setInterval(() => {
         sendEvent("progress", { message: "正在生成课后信息提取..." });
       }, 15000);
@@ -1158,7 +1159,8 @@ ${input.currentNotes}
         classInput,
         input.combinedFeedback,
         roadmapClass,
-        { apiModel, apiKey, apiUrl }
+        { apiModel, apiKey, apiUrl },
+        (chars) => sendEvent("progress", { chars, message: `正在生成课后信息提取... 已生成 ${chars} 字符` })
       );
 
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
