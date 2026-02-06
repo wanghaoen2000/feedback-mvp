@@ -465,7 +465,7 @@ ${input.transcript}
       // 上传到 Google Drive
       const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
       const basePath = `${driveBasePath}/${input.studentName}`;
-      const fileName = `${input.studentName}${input.lessonNumber || ''}学情反馈.md`;
+      const fileName = `${input.studentName}${input.lessonNumber || ''}.md`;
       const folderPath = `${basePath}/学情反馈`;
       
 

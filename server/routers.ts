@@ -417,7 +417,7 @@ export const appRouter = router({
 
           // 上传到Google Drive
           const basePath = `${driveBasePath}/${input.studentName}`;
-          const fileName = `${input.studentName}${input.lessonNumber || ''}学情反馈.md`;
+          const fileName = `${input.studentName}${input.lessonNumber || ''}.md`;
           const folderPath = `${basePath}/学情反馈`;
           
           logInfo(log, "学情反馈", `上传到Google Drive: ${folderPath}/${fileName}`);
@@ -1314,7 +1314,7 @@ export const appRouter = router({
         switch (input.fileType) {
           case 'feedback':
             // 1份完整的学情反馈，文件名用班号
-            fileName = `${input.classNumber}班${input.lessonNumber || ''}学情反馈.md`;
+            fileName = `${input.classNumber}班${input.lessonNumber || ''}.md`;
             filePath = `${basePath}/学情反馈/${fileName}`;
             contentBuffer = input.content;
             break;

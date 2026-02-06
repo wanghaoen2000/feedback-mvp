@@ -193,7 +193,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
 
     // 上传
     const basePath = `${driveBasePath}/${params.studentName}`;
-    const fileName = `${params.studentName}${params.lessonNumber || ""}学情反馈.md`;
+    const fileName = `${params.studentName}${params.lessonNumber || ""}.md`;
     const folderPath = `${basePath}/学情反馈`;
     const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
 
@@ -248,7 +248,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const testDocx = await generateTestContent(feedbackContent, params.studentName, dateStr, config);
       if (!testDocx || testDocx.length === 0) throw new Error("测试本生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
-      const fileName = `${params.studentName}${params.lessonNumber || ""}测试.docx`;
+      const fileName = `${params.studentName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
       return { step: "test" as const, fileName, uploadResult, chars: testDocx.length };
@@ -259,7 +259,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const extractionContent = await generateExtractionContent(params.studentName, "", feedbackContent, config);
       if (!extractionContent || !extractionContent.trim()) throw new Error("课后信息提取生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
-      const fileName = `${params.studentName}${params.lessonNumber || ""}信息提取.md`;
+      const fileName = `${params.studentName}${params.lessonNumber || ""}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
       const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
       return { step: "extraction" as const, fileName, uploadResult, chars: extractionContent.length };
@@ -377,7 +377,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
 
     const folderName = `${params.classNumber}班`;
     const basePath = `${driveBasePath}/${folderName}`;
-    const fileName = `${folderName}${params.lessonNumber || ""}学情反馈.md`;
+    const fileName = `${folderName}${params.lessonNumber || ""}.md`;
     const folderPath = `${basePath}/学情反馈`;
     const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
 
@@ -431,7 +431,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     (async () => {
       const testDocx = await generateClassTestContent(classInput, feedbackContent, roadmapClass, apiConfig);
       if (!testDocx || testDocx.length === 0) throw new Error("测试本生成为空");
-      const fileName = `${folderName}${params.lessonNumber || ""}测试.docx`;
+      const fileName = `${folderName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
       return { fileName, uploadResult, chars: testDocx.length };
@@ -441,7 +441,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     (async () => {
       const extractionContent = await generateClassExtractionContent(classInput, feedbackContent, roadmapClass, apiConfig);
       if (!extractionContent || !extractionContent.trim()) throw new Error("课后信息提取为空");
-      const fileName = `${folderName}${params.lessonNumber || ""}信息提取.md`;
+      const fileName = `${folderName}${params.lessonNumber || ""}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
       const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
       return { fileName, uploadResult, chars: extractionContent.length };
