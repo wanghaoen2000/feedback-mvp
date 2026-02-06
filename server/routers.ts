@@ -1591,23 +1591,11 @@ export const appRouter = router({
           diag.push(`精确路径: 全部未命中 (首条错误: ${firstError || 'unknown'})`);
         }
 
-        // 阶段2：搜索兜底（先在指定目录搜索，再全局搜索）
-        if (!foundBuffer) {
-          console.log(`[readLastFeedback] 精确路径全部未命中，进入搜索模式...`);
-          const result = await searchFileInGoogleDrive(candidateFileNames, feedbackFolder);
-          if (result) {
-            foundBuffer = result.buffer;
-            foundFileName = result.fullPath.split('/').pop() || null;
-            console.log(`[readLastFeedback] 搜索找到: ${result.fullPath}`);
-          } else {
-            diag.push(`搜索: 目录搜索+全局搜索均无结果`);
-          }
-        }
-
+        // 不做全局搜索兜底，避免搜到 Downloads 文件夹里的同名笔记文件
         if (!foundBuffer || !foundFileName) {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: `未找到第${prevLesson}次课反馈\n路径: ${feedbackFolder}\n候选: ${candidateFileNames.slice(0, 3).join(', ')}...\n诊断: ${diag.join(' | ')}\n\n请先运行「诊断」检查 OAuth 连接`,
+            message: `未找到第${prevLesson}次课反馈\n路径: ${feedbackFolder}\n候选: ${candidateFileNames.slice(0, 3).join(', ')}...\n诊断: ${diag.join(' | ')}\n\n请确认文件存在于学情反馈文件夹中`,
           });
         }
 

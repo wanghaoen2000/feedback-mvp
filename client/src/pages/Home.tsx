@@ -363,6 +363,10 @@ export default function Home() {
   const [autoLoadTranscript, setAutoLoadTranscript] = useState(true);
   const autoLoadedTranscriptRef = useRef<string | null>(null);
 
+  // 自动从 Downloads 文件夹加载课堂笔记
+  const [autoLoadCurrentNotes, setAutoLoadCurrentNotes] = useState(true);
+  const autoLoadedCurrentNotesRef = useRef<string | null>(null);
+
   // 自动从 Google Drive 本地文件夹加载上次反馈
   const [autoLoadLastFeedback, setAutoLoadLastFeedback] = useState(true);
   const autoLoadedLastFeedbackRef = useRef<string | null>(null);
@@ -2135,7 +2139,32 @@ export default function Home() {
       }
     }
 
-    // 如果启用了自动加载录音转文字，先从 Downloads 文件夹读取
+    // 如果启用了自动加载课堂笔记，从 Downloads 文件夹读取（姓名+课次号.docx）
+    if (autoLoadCurrentNotes) {
+      const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
+      const lesson = lessonNumber.trim();
+      if (!name) {
+        alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
+        return;
+      }
+      if (!lesson) {
+        alert('请填写课次号（用于构建笔记文件名）');
+        return;
+      }
+      const expectedFileName = `${name}${lesson}.docx`;
+      try {
+        const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName });
+        autoLoadedCurrentNotesRef.current = result.content;
+        setCurrentNotes(result.content);
+        setCurrentNotesFile({ name: result.fileName, content: result.content });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '读取文件失败';
+        alert(`自动加载课堂笔记失败: ${message}`);
+        return;
+      }
+    }
+
+    // 如果启用了自动加载录音转文字，先从 Downloads 文件夹读取（姓名+日期.docx）
     if (autoLoadTranscript) {
       const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
       const mmdd = getMMDD(lessonDate);
@@ -2155,7 +2184,7 @@ export default function Home() {
         setTranscriptFile({ name: result.fileName, content: result.content });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '读取文件失败';
-        alert(`自动加载失败: ${message}`);
+        alert(`自动加载录音转文字失败: ${message}`);
         return;
       }
     }
@@ -2163,18 +2192,19 @@ export default function Home() {
     // 获取最终的文本内容（可能来自自动加载）
     const finalLastFeedback = autoLoadedLastFeedbackRef.current || lastFeedback;
     const finalTranscript = autoLoadedTranscriptRef.current || transcript;
+    const finalCurrentNotes = autoLoadedCurrentNotesRef.current || currentNotes;
 
     if (courseType === 'oneToOne') {
       // 一对一模式验证
       if (!studentName.trim()) { alert('请输入学生姓名'); return; }
-      if (!currentNotes.trim()) { alert('请输入课堂笔记'); return; }
+      if (!autoLoadCurrentNotes && !finalCurrentNotes.trim()) { alert('请输入课堂笔记'); return; }
       if (!autoLoadTranscript && !finalTranscript.trim()) { alert('请输入录音转文字'); return; }
     } else {
       // 小班课模式验证
       if (!classNumber.trim()) { alert('请输入班号'); return; }
       const validStudents = attendanceStudents.filter((s: string) => s.trim());
       if (validStudents.length === 0) { alert('请至少添加一名出勤学生'); return; }
-      if (!currentNotes.trim()) { alert('请输入课堂笔记'); return; }
+      if (!autoLoadCurrentNotes && !finalCurrentNotes.trim()) { alert('请输入课堂笔记'); return; }
       if (!autoLoadTranscript && !finalTranscript.trim()) { alert('请输入录音转文字'); return; }
     }
 
@@ -2187,7 +2217,7 @@ export default function Home() {
         lessonDate: lessonDate.trim() || undefined,
         currentYear: currentYear.trim() || undefined,
         lastFeedback: finalLastFeedback || undefined,
-        currentNotes: currentNotes.trim(),
+        currentNotes: finalCurrentNotes.trim(),
         transcript: finalTranscript.trim(),
         isFirstLesson: isFirstLesson || undefined,
         specialRequirements: undefined,
@@ -3236,29 +3266,69 @@ export default function Home() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="currentNotes">本次课笔记 *</Label>
-                    <FileUploadInput
-                      onFileContent={(content, fileName) => {
-                        if (content && fileName) {
-                          setCurrentNotesFile({ name: fileName, content });
-                          setCurrentNotes(content);
-                        } else {
-                          setCurrentNotesFile(null);
-                        }
-                      }}
-                      disabled={isGenerating}
-                    />
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <Checkbox
+                          checked={autoLoadCurrentNotes}
+                          onCheckedChange={(checked) => {
+                            const val = checked === true;
+                            setAutoLoadCurrentNotes(val);
+                            if (val) {
+                              setCurrentNotesFile(null);
+                              setCurrentNotes('');
+                            }
+                          }}
+                          disabled={isGenerating}
+                        />
+                        <span className="text-xs text-gray-600 flex items-center gap-1">
+                          <FolderDown className="h-3 w-3" />
+                          云盘读取
+                        </span>
+                      </label>
+                      {!autoLoadCurrentNotes && (
+                        <FileUploadInput
+                          onFileContent={(content, fileName) => {
+                            if (content && fileName) {
+                              setCurrentNotesFile({ name: fileName, content });
+                              setCurrentNotes(content);
+                            } else {
+                              setCurrentNotesFile(null);
+                            }
+                          }}
+                          disabled={isGenerating}
+                        />
+                      )}
+                    </div>
                   </div>
-                  <DebouncedTextarea
-                    id="currentNotes"
-                    placeholder={currentNotesFile
-                      ? `已上传文件：${currentNotesFile.name}`
-                      : "粘贴本次课的笔记内容...（请在笔记开头包含日期信息，AI会自动识别）"
-                    }
-                    value={currentNotes}
-                    onValueChange={setCurrentNotes}
-                    className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${currentNotesFile ? 'bg-gray-50' : ''}`}
-                    disabled={isGenerating || !!currentNotesFile}
-                  />
+                  {autoLoadCurrentNotes ? (
+                    <div className="flex items-center gap-2 h-[72px] bg-blue-50 border border-blue-200 rounded-md px-3 text-sm text-blue-700">
+                      <FolderDown className="h-5 w-5 text-gray-400 shrink-0" />
+                      {(() => {
+                        const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
+                        const lesson = lessonNumber.trim();
+                        if (!name || !lesson) {
+                          return <span>请填写姓名和课次号</span>;
+                        }
+                        return (
+                          <span className="font-mono text-blue-600 text-xs">
+                            {name}{lesson}.docx
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <DebouncedTextarea
+                      id="currentNotes"
+                      placeholder={currentNotesFile
+                        ? `已上传文件：${currentNotesFile.name}`
+                        : "粘贴本次课的笔记内容..."
+                      }
+                      value={currentNotes}
+                      onValueChange={setCurrentNotes}
+                      className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${currentNotesFile ? 'bg-gray-50' : ''}`}
+                      disabled={isGenerating || !!currentNotesFile}
+                    />
+                  )}
                   <p className="text-xs text-gray-500">
                     知识点、生词、长难句、错题等
                   </p>
