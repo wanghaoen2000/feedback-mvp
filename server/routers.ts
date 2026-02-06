@@ -1,3 +1,6 @@
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
 import { COOKIE_NAME } from "@shared/const";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -1335,6 +1338,69 @@ export const appRouter = router({
           fileName,
           url: result.url || '',
           path: filePath,
+        };
+      }),
+  }),
+
+  // 从本地 Downloads 文件夹读取文件
+  localFile: router({
+    readFromDownloads: protectedProcedure
+      .input(z.object({
+        fileName: z.string().min(1, "请提供文件名"),
+      }))
+      .mutation(async ({ input }) => {
+        const { fileName } = input;
+
+        // 安全检查：防止路径遍历攻击
+        const baseName = path.basename(fileName);
+        if (baseName !== fileName) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: '文件名不合法',
+          });
+        }
+
+        // 只允许 .docx / .txt / .md 扩展名
+        const ext = path.extname(fileName).toLowerCase();
+        if (!['.docx', '.txt', '.md'].includes(ext)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: '只支持 .docx、.txt、.md 文件',
+          });
+        }
+
+        const downloadsDir = path.join(os.homedir(), 'Downloads');
+        const filePath = path.join(downloadsDir, baseName);
+
+        try {
+          await fs.access(filePath);
+        } catch {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: `在 Downloads 文件夹中未找到文件: ${baseName}`,
+          });
+        }
+
+        const buffer = await fs.readFile(filePath);
+
+        let content: string;
+        if (ext === '.docx') {
+          const { parseDocxToText } = await import('./utils/documentParser');
+          content = await parseDocxToText(buffer);
+        } else {
+          content = buffer.toString('utf-8');
+        }
+
+        if (!content.trim()) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: '文件内容为空',
+          });
+        }
+
+        return {
+          content: content.trim(),
+          fileName: baseName,
         };
       }),
   }),

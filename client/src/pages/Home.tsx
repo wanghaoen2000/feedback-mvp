@@ -10,6 +10,7 @@ import { RoadmapSettings } from "@/components/RoadmapSettings";
 import { FileUploadInput } from "@/components/FileUploadInput";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import {
@@ -25,6 +26,7 @@ import {
   Save,
   Square,
   Download,
+  FolderDown,
   Search,
   MinusCircle,
   User,
@@ -221,6 +223,36 @@ function getWeekday(dateStr: string, year: string): string | null {
 }
 
 /**
+ * 根据日期字符串生成 MMDD 格式的4位数字
+ * 例如 "2月6日" → "0206", "12月15日" → "1215"
+ */
+function getMMDD(dateStr: string): string | null {
+  if (!dateStr) return null;
+  let month: number | null = null;
+  let day: number | null = null;
+
+  const chineseMatch = dateStr.match(/(\d{1,2})月(\d{1,2})日?/);
+  if (chineseMatch) {
+    month = parseInt(chineseMatch[1]);
+    day = parseInt(chineseMatch[2]);
+  }
+
+  if (!month || !day) {
+    const dotMatch = dateStr.match(/(\d{1,2})[.\-](\d{1,2})/);
+    if (dotMatch) {
+      month = parseInt(dotMatch[1]);
+      day = parseInt(dotMatch[2]);
+    }
+  }
+
+  if (!month || !day || month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  return String(month).padStart(2, '0') + String(day).padStart(2, '0');
+}
+
+/**
  * 将SVG字符串转换为PNG的base64编码
  * 使用Canvas在前端转换，解决服务器缺少中文字体的问题
  */
@@ -325,6 +357,10 @@ export default function Home() {
   const [lastFeedbackFile, setLastFeedbackFile] = useState<{ name: string; content: string } | null>(null);
   const [currentNotesFile, setCurrentNotesFile] = useState<{ name: string; content: string } | null>(null);
   const [transcriptFile, setTranscriptFile] = useState<{ name: string; content: string } | null>(null);
+
+  // 自动从 Downloads 文件夹加载录音转文字
+  const [autoLoadTranscript, setAutoLoadTranscript] = useState(false);
+  const autoLoadedTranscriptRef = useRef<string | null>(null);
 
   // 特殊选项
   const [isFirstLesson, setIsFirstLesson] = useState(false);
@@ -609,6 +645,7 @@ export default function Home() {
   const generateClassExtractionMutation = trpc.feedback.generateClassExtraction.useMutation();
   const generateClassBubbleChartMutation = trpc.feedback.generateClassBubbleChart.useMutation();
   const uploadClassFileMutation = trpc.feedback.uploadClassFile.useMutation();
+  const readFromDownloadsMutation = trpc.localFile.readFromDownloads.useMutation();
   // 加载配置
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
@@ -697,12 +734,15 @@ export default function Home() {
     let localCurrentStep = 1; // 使用局部变量跟踪当前步骤，避免闭包陷阱
 
     // 创建学生信息快照（并发安全，防止生成过程中输入框被修改）
+    // 如果有自动加载的录音转文字，优先使用它（因为 setState 是异步的，transcript 可能还没更新）
+    const resolvedTranscript = autoLoadedTranscriptRef.current || transcript;
+    autoLoadedTranscriptRef.current = null;
     const studentSnapshot = {
       studentName: studentName.trim(),
       lessonNumber: lessonNumber.trim(),
       lastFeedback: lastFeedback.trim(),
       currentNotes: currentNotes.trim(),
-      transcript: transcript.trim(),
+      transcript: resolvedTranscript.trim(),
       isFirstLesson,
     };
 
@@ -1365,6 +1405,9 @@ export default function Home() {
     setBubbleChartProgress([]);
 
     // 创建小班课信息快照
+    // 如果有自动加载的录音转文字，优先使用它
+    const resolvedClassTranscript = autoLoadedTranscriptRef.current || transcript;
+    autoLoadedTranscriptRef.current = null;
     const validStudents = attendanceStudents.filter((s: string) => s.trim());
     const classSnapshot = {
       classNumber: classNumber.trim(),
@@ -1373,7 +1416,7 @@ export default function Home() {
       attendanceStudents: validStudents,
       lastFeedback: lastFeedback.trim(),
       currentNotes: currentNotes.trim(),
-      transcript: transcript.trim(),
+      transcript: resolvedClassTranscript.trim(),
     };
 
     // 配置快照（和一对一保持一致，包含年份）
@@ -2051,11 +2094,36 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // 如果启用了自动加载录音转文字，先从 Downloads 文件夹读取
+    if (autoLoadTranscript) {
+      const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+      const mmdd = getMMDD(lessonDate);
+      if (!name) {
+        alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
+        return;
+      }
+      if (!mmdd) {
+        alert('请填写本次课日期（用于构建文件名）');
+        return;
+      }
+      const expectedFileName = `${name}${mmdd}.docx`;
+      try {
+        const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName });
+        autoLoadedTranscriptRef.current = result.content;
+        setTranscript(result.content);
+        setTranscriptFile({ name: result.fileName, content: result.content });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '读取文件失败';
+        alert(`自动加载失败: ${message}\n\n请确认文件 ${expectedFileName} 存在于 Downloads 文件夹中`);
+        return;
+      }
+    }
+
     if (courseType === 'oneToOne') {
       // 一对一模式
       if (!studentName.trim()) { alert('请输入学生姓名'); return; }
       if (!currentNotes.trim()) { alert('请输入课堂笔记'); return; }
-      if (!transcript.trim()) { alert('请输入录音转文字'); return; }
+      if (!autoLoadTranscript && !transcript.trim()) { alert('请输入录音转文字'); return; }
       await runGeneration();
     } else {
       // 小班课模式
@@ -2063,7 +2131,7 @@ export default function Home() {
       const validStudents = attendanceStudents.filter((s: string) => s.trim());
       if (validStudents.length === 0) { alert('请至少添加一名出勤学生'); return; }
       if (!currentNotes.trim()) { alert('请输入课堂笔记'); return; }
-      if (!transcript.trim()) { alert('请输入录音转文字'); return; }
+      if (!autoLoadTranscript && !transcript.trim()) { alert('请输入录音转文字'); return; }
       await runClassGeneration();
     }
   };
@@ -2590,9 +2658,13 @@ export default function Home() {
   };
 
   // 表单验证：根据课程类型检查不同的必填字段
+  // 如果启用了自动加载，录音转文字不需要手动填写（会在提交时自动读取）
+  const transcriptReady = autoLoadTranscript
+    ? !!(courseType === 'oneToOne' ? studentName.trim() : classNumber.trim()) && !!getMMDD(lessonDate)
+    : !!transcript.trim();
   const isFormValid = courseType === 'oneToOne'
-    ? (studentName.trim() && currentNotes.trim() && transcript.trim())
-    : (classNumber.trim() && attendanceStudents.some((s: string) => s.trim()) && currentNotes.trim() && transcript.trim());
+    ? (studentName.trim() && currentNotes.trim() && transcriptReady)
+    : (classNumber.trim() && attendanceStudents.some((s: string) => s.trim()) && currentNotes.trim() && transcriptReady);
 
   // 计算成功数量
   const successCount = steps.filter(s => s.status === 'success').length;
@@ -3066,29 +3138,76 @@ export default function Home() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="transcript">录音转文字 *</Label>
-                    <FileUploadInput
-                      onFileContent={(content, fileName) => {
-                        if (content && fileName) {
-                          setTranscriptFile({ name: fileName, content });
-                          setTranscript(content);
-                        } else {
-                          setTranscriptFile(null);
-                        }
-                      }}
-                      disabled={isGenerating}
-                    />
+                    <div className="flex items-center gap-3">
+                      {/* 自动加载复选框 */}
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <Checkbox
+                          checked={autoLoadTranscript}
+                          onCheckedChange={(checked) => {
+                            const val = checked === true;
+                            setAutoLoadTranscript(val);
+                            if (val) {
+                              // 启用自动加载时，清除手动上传的文件和文本
+                              setTranscriptFile(null);
+                              setTranscript('');
+                            }
+                          }}
+                          disabled={isGenerating}
+                        />
+                        <span className="text-xs text-gray-600 flex items-center gap-1">
+                          <FolderDown className="h-3 w-3" />
+                          从下载文件夹自动提取
+                        </span>
+                      </label>
+                      {!autoLoadTranscript && (
+                        <FileUploadInput
+                          onFileContent={(content, fileName) => {
+                            if (content && fileName) {
+                              setTranscriptFile({ name: fileName, content });
+                              setTranscript(content);
+                            } else {
+                              setTranscriptFile(null);
+                            }
+                          }}
+                          disabled={isGenerating}
+                        />
+                      )}
+                    </div>
                   </div>
-                  <DebouncedTextarea
-                    id="transcript"
-                    placeholder={transcriptFile
-                      ? `已上传文件：${transcriptFile.name}`
-                      : "粘贴课堂录音的转文字内容..."
-                    }
-                    value={transcript}
-                    onValueChange={setTranscript}
-                    className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${transcriptFile ? 'bg-gray-50' : ''}`}
-                    disabled={isGenerating || !!transcriptFile}
-                  />
+                  {autoLoadTranscript ? (
+                    // 自动加载模式：显示预期文件名
+                    <div className="h-[120px] flex flex-col items-center justify-center bg-gray-50 border border-dashed border-gray-300 rounded-md text-sm text-gray-500">
+                      <FolderDown className="h-8 w-8 mb-2 text-gray-400" />
+                      {(() => {
+                        const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+                        const mmdd = getMMDD(lessonDate);
+                        if (!name || !mmdd) {
+                          return <span>请先填写{courseType === 'oneToOne' ? '学生姓名' : '班号'}和日期</span>;
+                        }
+                        const expectedFileName = `${name}${mmdd}.docx`;
+                        return (
+                          <>
+                            <span>点击生成时将自动读取:</span>
+                            <span className="font-mono font-semibold text-blue-600 mt-1">
+                              ~/Downloads/{expectedFileName}
+                            </span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <DebouncedTextarea
+                      id="transcript"
+                      placeholder={transcriptFile
+                        ? `已上传文件：${transcriptFile.name}`
+                        : "粘贴课堂录音的转文字内容..."
+                      }
+                      value={transcript}
+                      onValueChange={setTranscript}
+                      className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${transcriptFile ? 'bg-gray-50' : ''}`}
+                      disabled={isGenerating || !!transcriptFile}
+                    />
+                  )}
                   <p className="text-xs text-gray-500">
                     课堂录音转换的文字，用于提取课堂细节和互动内容
                   </p>
