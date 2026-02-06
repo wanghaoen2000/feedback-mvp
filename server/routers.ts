@@ -1451,38 +1451,45 @@ export const appRouter = router({
         // 一对一: {studentName}{prevLesson}.md -> {basePath}/{studentName}/学情反馈/
         // 小班课: {classNumber}班{prevLesson}.md -> {basePath}/{classNumber}班/学情反馈/
         let folderName: string;
-        let filePrefix: string;
+        let filePrefixNoSpace: string;
+        let filePrefixWithSpace: string;
         if (courseType === 'class' && classNumber) {
           folderName = `${classNumber}班`;
-          filePrefix = `${classNumber}班${prevLesson}`;
+          filePrefixNoSpace = `${classNumber}班${prevLesson}`;
+          filePrefixWithSpace = `${classNumber}班 ${prevLesson}`;
         } else {
           folderName = studentName;
-          filePrefix = `${studentName}${prevLesson}`;
+          filePrefixNoSpace = `${studentName}${prevLesson}`;
+          filePrefixWithSpace = `${studentName} ${prevLesson}`;
         }
 
         const feedbackDir = path.join(gdriveLocalBasePath, folderName, '学情反馈');
 
-        // 尝试多种扩展名：.md, .docx, .txt
+        // 尝试多种文件名变体（有/无空格）和扩展名（.md/.docx/.txt）
         const extensions = ['.md', '.docx', '.txt'];
+        const prefixes = [filePrefixNoSpace, filePrefixWithSpace];
         let foundFile: string | null = null;
         let foundExt: string | null = null;
 
-        for (const ext of extensions) {
-          const candidatePath = path.join(feedbackDir, `${filePrefix}${ext}`);
-          try {
-            await fs.access(candidatePath);
-            foundFile = candidatePath;
-            foundExt = ext;
-            break;
-          } catch {
-            // 继续尝试下一个扩展名
+        for (const prefix of prefixes) {
+          for (const ext of extensions) {
+            const candidatePath = path.join(feedbackDir, `${prefix}${ext}`);
+            try {
+              await fs.access(candidatePath);
+              foundFile = candidatePath;
+              foundExt = ext;
+              break;
+            } catch {
+              // 继续尝试
+            }
           }
+          if (foundFile) break;
         }
 
         if (!foundFile || !foundExt) {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: `未找到上次反馈文件: ${filePrefix}(.md/.docx/.txt)\n查找路径: ${feedbackDir}`,
+            message: `未找到上次反馈文件: ${filePrefixNoSpace}(.md/.docx/.txt)\n查找路径: ${feedbackDir}`,
           });
         }
 
