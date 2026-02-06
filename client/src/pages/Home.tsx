@@ -3108,7 +3108,7 @@ export default function Home() {
                           <>
                             <span>点击生成时将自动读取:</span>
                             <span className="font-mono font-semibold text-blue-600 mt-1">
-                              .../{prefix}/学情反馈/{prefix}{prevLesson}学情反馈.md
+                              .../{prefix}/学情反馈/{prefix}{prevLesson}.md
                             </span>
                           </>
                         );
