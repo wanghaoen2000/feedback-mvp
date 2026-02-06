@@ -34,6 +34,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
   const [classStoragePath, setClassStoragePath] = useState("");
   const [batchStoragePath, setBatchStoragePath] = useState("");
   const [gdriveLocalBasePath, setGdriveLocalBasePath] = useState("");
+  const [gdriveDownloadsPath, setGdriveDownloadsPath] = useState("");
 
   // Google Drive 连接状态
   const [isConnectingGdrive, setIsConnectingGdrive] = useState(false);
@@ -78,6 +79,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
       setClassStoragePath(configQuery.data.classStoragePath || "");
       setBatchStoragePath(configQuery.data.batchStoragePath || "");
       setGdriveLocalBasePath(configQuery.data.gdriveLocalBasePath || "");
+      setGdriveDownloadsPath(configQuery.data.gdriveDownloadsPath || "");
       // 不加载 apiKey，保持为空（安全考虑）
     }
   }, [open, configQuery.data]);
@@ -111,6 +113,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         classStoragePath: classStoragePath.trim() || undefined,
         batchStoragePath: batchStoragePath.trim() || undefined,
         gdriveLocalBasePath: gdriveLocalBasePath.trim() || undefined,
+        gdriveDownloadsPath: gdriveDownloadsPath.trim() || undefined,
       });
       await configQuery.refetch();
       alert("全局设置已保存！");
@@ -320,15 +323,16 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
             </div>
 
             <div className="space-y-2 pt-2 border-t">
-              <Label htmlFor="global-gdriveLocalBasePath">Google Drive 本地路径</Label>
+              <p className="text-xs font-medium text-muted-foreground">自动提取文件（从 Google Drive 网盘读取）</p>
+              <Label htmlFor="global-gdriveDownloadsPath">Downloads 文件夹路径</Label>
               <Input
-                id="global-gdriveLocalBasePath"
-                value={gdriveLocalBasePath}
-                onChange={(e) => setGdriveLocalBasePath(e.target.value)}
-                placeholder="/Users/wang/Library/CloudStorage/GoogleDrive-.../我的云端硬盘/Mac(online)/Documents/XDF/学生档案"
+                id="global-gdriveDownloadsPath"
+                value={gdriveDownloadsPath}
+                onChange={(e) => setGdriveDownloadsPath(e.target.value)}
+                placeholder="Mac M3/Downloads"
               />
               <p className="text-xs text-muted-foreground">
-                Google Drive 同步到本地的绝对路径（到「学生档案」文件夹），用于自动读取上次反馈文件。
+                Google Drive 网盘上 Downloads 文件夹的路径，用于自动提取录音转文字文件。
               </p>
             </div>
           </TabsContent>
