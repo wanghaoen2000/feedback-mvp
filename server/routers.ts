@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
@@ -880,12 +881,13 @@ export const appRouter = router({
         
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         const basePath = `${driveBasePath}/${input.studentName}`;
+        const ln = input.lessonNumber || '';
         const filePaths = [
-          `${basePath}/学情反馈/${input.studentName}${input.dateStr}阅读课反馈.md`,
-          `${basePath}/复习文档/${input.studentName}${input.dateStr}复习文档.docx`,
-          `${basePath}/复习文档/${input.studentName}${input.dateStr}测试文档.docx`,
-          `${basePath}/课后信息/${input.studentName}${input.dateStr}课后信息提取.md`,
-          `${basePath}/气泡图/${input.studentName}${input.lessonNumber || ''}气泡图.png`,
+          `${basePath}/学情反馈/${input.studentName}${ln}.md`,
+          `${basePath}/复习文档/${input.studentName}${ln}复习文档.docx`,
+          `${basePath}/复习文档/${input.studentName}${ln}测试文档.docx`,
+          `${basePath}/课后信息/${input.studentName}${ln}课后信息提取.md`,
+          `${basePath}/气泡图/${input.studentName}${ln}气泡图.png`,
         ];
         
         const verification = await verifyAllFiles(filePaths);
@@ -1538,8 +1540,14 @@ export const appRouter = router({
         }
         const prevLesson = currentLesson - 1;
 
-        // 使用已有的 driveBasePath 配置（跟上传学情反馈用同一个路径）
-        const driveBasePath = await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
+        // 小班课优先使用 classStoragePath，一对一使用 driveBasePath
+        let driveBasePath: string;
+        if (courseType === 'class') {
+          const classStoragePath = await getConfig("classStoragePath");
+          driveBasePath = classStoragePath || await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
+        } else {
+          driveBasePath = await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
+        }
 
         // 构建文件名候选列表和搜索目录
         let folderName: string;
@@ -1738,12 +1746,6 @@ export const appRouter = router({
         completedAt: bgTasksTable.completedAt,
       })
         .from(bgTasksTable)
-        .where(
-          // MySQL >= is fine for timestamp comparison
-          // We want tasks created in the last 3 days
-          // Using a raw SQL comparison is cleaner, but gt/gte with drizzle works too
-          // For simplicity, just get all and filter (small table)
-        )
         .orderBy(bgTasksTable.createdAt);
 
       // Filter to last 3 days and format

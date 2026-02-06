@@ -90,11 +90,15 @@ export interface ClassTaskParams {
 
 export type TaskParams = OneToOneTaskParams | ClassTaskParams;
 
-// 更新任务进度
+// 更新任务进度（带错误保护，DB故障不中断生成流程）
 async function updateTask(taskId: string, updates: Record<string, any>) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(backgroundTasks).set(updates).where(eq(backgroundTasks.id, taskId));
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.update(backgroundTasks).set(updates).where(eq(backgroundTasks.id, taskId));
+  } catch (err: any) {
+    console.error(`[后台任务] ${taskId} 更新DB失败:`, err?.message || err);
+  }
 }
 
 // 更新步骤结果
@@ -570,6 +574,7 @@ export async function recoverInterruptedTasks(): Promise<void> {
   if (!db) return;
 
   try {
+    // 恢复 running 状态的任务
     const result = await db.update(backgroundTasks)
       .set({
         status: "failed",
@@ -578,9 +583,19 @@ export async function recoverInterruptedTasks(): Promise<void> {
       })
       .where(eq(backgroundTasks.status, "running"));
 
+    // 也恢复 pending 状态的任务（已创建但未开始执行就重启了）
+    const result2 = await db.update(backgroundTasks)
+      .set({
+        status: "failed",
+        errorMessage: "服务器重启，任务未能启动",
+        completedAt: new Date(),
+      })
+      .where(eq(backgroundTasks.status, "pending"));
+
     const count = (result as any)?.[0]?.affectedRows || 0;
-    if (count > 0) {
-      console.log(`[后台任务] 恢复了 ${count} 个中断的任务`);
+    const count2 = (result2 as any)?.[0]?.affectedRows || 0;
+    if (count + count2 > 0) {
+      console.log(`[后台任务] 恢复了 ${count} 个中断的任务, ${count2} 个未启动的任务`);
     }
   } catch (err: any) {
     console.error("[后台任务] 恢复中断任务失败:", err?.message || err);

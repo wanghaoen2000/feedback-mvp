@@ -2760,13 +2760,16 @@ export default function Home() {
   };
 
   // 表单验证：根据课程类型检查不同的必填字段
-  // 如果启用了自动加载，录音转文字不需要手动填写（会在提交时自动读取）
+  // 如果启用了自动加载，对应字段不需要手动填写（会在提交时自动读取）
   const transcriptReady = autoLoadTranscript
     ? !!(courseType === 'oneToOne' ? studentName.trim() : classNumber.trim()) && !!getMMDD(lessonDate)
     : !!transcript.trim();
+  const notesReady = autoLoadCurrentNotes
+    ? !!(courseType === 'oneToOne' ? studentName.trim() : classNumber.trim()) && !!lessonNumber.trim()
+    : !!currentNotes.trim();
   const isFormValid = courseType === 'oneToOne'
-    ? (studentName.trim() && currentNotes.trim() && transcriptReady)
-    : (classNumber.trim() && attendanceStudents.some((s: string) => s.trim()) && currentNotes.trim() && transcriptReady);
+    ? (studentName.trim() && notesReady && transcriptReady)
+    : (classNumber.trim() && attendanceStudents.some((s: string) => s.trim()) && notesReady && transcriptReady);
 
   // 计算成功数量
   const successCount = steps.filter(s => s.status === 'success').length;
