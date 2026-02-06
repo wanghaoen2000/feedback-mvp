@@ -10,7 +10,7 @@ import { eq } from "drizzle-orm";
 // OAuth配置
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
-const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
+const SCOPES = ["https://www.googleapis.com/auth/drive"];
 
 // 固定的部署域名（不使用动态的VITE_APP_ID，因为沙盒环境的ID会变化）
 const PRODUCTION_DOMAIN = "feedmvp-i28qgefq.manus.space";
