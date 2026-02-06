@@ -390,7 +390,7 @@ export const appRouter = router({
 
           // 上传到Google Drive
           const basePath = `${driveBasePath}/${input.studentName}`;
-          const fileName = `${input.studentName}${dateStr}阅读课反馈.md`;
+          const fileName = `${input.studentName}${input.lessonNumber || ''}学情反馈.md`;
           const folderPath = `${basePath}/学情反馈`;
           
           logInfo(log, "学情反馈", `上传到Google Drive: ${folderPath}/${fileName}`);
@@ -483,7 +483,7 @@ export const appRouter = router({
           }
 
           const basePath = `${driveBasePath}/${input.studentName}`;
-          const fileName = `${input.studentName}${input.dateStr}复习文档.docx`;
+          const fileName = `${input.studentName}${input.lessonNumber || ''}复习文档.docx`;
           const folderPath = `${basePath}/复习文档`;
           
           logInfo(log, "复习文档", `上传到Google Drive: ${folderPath}/${fileName}`);
@@ -574,7 +574,7 @@ export const appRouter = router({
           }
 
           const basePath = `${driveBasePath}/${input.studentName}`;
-          const fileName = `${input.studentName}${input.dateStr}测试文档.docx`;
+          const fileName = `${input.studentName}${input.lessonNumber || ''}测试文档.docx`;
           const folderPath = `${basePath}/复习文档`;
           
           logInfo(log, "测试本", `上传到Google Drive: ${folderPath}/${fileName}`);
@@ -664,7 +664,7 @@ export const appRouter = router({
           }
 
           const basePath = `${driveBasePath}/${input.studentName}`;
-          const fileName = `${input.studentName}${input.dateStr}课后信息提取.md`;
+          const fileName = `${input.studentName}${input.lessonNumber || ''}课后信息提取.md`;
           const folderPath = `${basePath}/课后信息`;
           
           logInfo(log, "课后信息提取", `上传到Google Drive: ${folderPath}/${fileName}`);
@@ -801,7 +801,7 @@ export const appRouter = router({
           const pngBuffer = Buffer.from(input.pngBase64, 'base64');
           
           const basePath = `${driveBasePath}/${input.studentName}`;
-          const fileName = `${input.studentName}${input.dateStr}气泡图.png`;
+          const fileName = `${input.studentName}${input.lessonNumber || ''}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
           
           console.log(`[气泡图上传] 上传到Google Drive: ${folderPath}/${fileName}`);
@@ -853,7 +853,7 @@ export const appRouter = router({
           `${basePath}/复习文档/${input.studentName}${input.dateStr}复习文档.docx`,
           `${basePath}/复习文档/${input.studentName}${input.dateStr}测试文档.docx`,
           `${basePath}/课后信息/${input.studentName}${input.dateStr}课后信息提取.md`,
-          `${basePath}/气泡图/${input.studentName}${input.dateStr}气泡图.png`,
+          `${basePath}/气泡图/${input.studentName}${input.lessonNumber || ''}气泡图.png`,
         ];
         
         const verification = await verifyAllFiles(filePaths);
@@ -1281,27 +1281,27 @@ export const appRouter = router({
         switch (input.fileType) {
           case 'feedback':
             // 1份完整的学情反馈，文件名用班号
-            fileName = `${input.classNumber}班${input.dateStr}阅读课反馈.md`;
+            fileName = `${input.classNumber}班${input.lessonNumber || ''}学情反馈.md`;
             filePath = `${basePath}/学情反馈/${fileName}`;
             contentBuffer = input.content;
             break;
           case 'review':
-            fileName = `${input.classNumber}班${input.dateStr}复习文档.docx`;
+            fileName = `${input.classNumber}班${input.lessonNumber || ''}复习文档.docx`;
             filePath = `${basePath}/复习文档/${fileName}`;
             contentBuffer = Buffer.from(input.content, 'base64');
             break;
           case 'test':
-            fileName = `${input.classNumber}班${input.dateStr}测试文档.docx`;
+            fileName = `${input.classNumber}班${input.lessonNumber || ''}测试文档.docx`;
             filePath = `${basePath}/复习文档/${fileName}`;
             contentBuffer = Buffer.from(input.content, 'base64');
             break;
           case 'extraction':
-            fileName = `${input.classNumber}班${input.dateStr}课后信息提取.md`;
+            fileName = `${input.classNumber}班${input.lessonNumber || ''}课后信息提取.md`;
             filePath = `${basePath}/课后信息/${fileName}`;
             contentBuffer = input.content;
             break;
           case 'bubbleChart':
-            fileName = `${input.studentName}${input.dateStr}气泡图.png`;
+            fileName = `${input.studentName}${input.lessonNumber || ''}气泡图.png`;
             filePath = `${basePath}/气泡图/${fileName}`;
             contentBuffer = Buffer.from(input.content, 'base64');
             break;
