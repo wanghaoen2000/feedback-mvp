@@ -362,6 +362,10 @@ export default function Home() {
   const [autoLoadTranscript, setAutoLoadTranscript] = useState(false);
   const autoLoadedTranscriptRef = useRef<string | null>(null);
 
+  // 自动从 Google Drive 本地文件夹加载上次反馈
+  const [autoLoadLastFeedback, setAutoLoadLastFeedback] = useState(false);
+  const autoLoadedLastFeedbackRef = useRef<string | null>(null);
+
   // 特殊选项
   const [isFirstLesson, setIsFirstLesson] = useState(false);
 
@@ -646,6 +650,7 @@ export default function Home() {
   const generateClassBubbleChartMutation = trpc.feedback.generateClassBubbleChart.useMutation();
   const uploadClassFileMutation = trpc.feedback.uploadClassFile.useMutation();
   const readFromDownloadsMutation = trpc.localFile.readFromDownloads.useMutation();
+  const readLastFeedbackMutation = trpc.localFile.readLastFeedback.useMutation();
   // 加载配置
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
@@ -734,13 +739,15 @@ export default function Home() {
     let localCurrentStep = 1; // 使用局部变量跟踪当前步骤，避免闭包陷阱
 
     // 创建学生信息快照（并发安全，防止生成过程中输入框被修改）
-    // 如果有自动加载的录音转文字，优先使用它（因为 setState 是异步的，transcript 可能还没更新）
+    // 如果有自动加载的内容，优先使用它（因为 setState 是异步的，状态可能还没更新）
     const resolvedTranscript = autoLoadedTranscriptRef.current || transcript;
     autoLoadedTranscriptRef.current = null;
+    const resolvedLastFeedback = autoLoadedLastFeedbackRef.current || lastFeedback;
+    autoLoadedLastFeedbackRef.current = null;
     const studentSnapshot = {
       studentName: studentName.trim(),
       lessonNumber: lessonNumber.trim(),
-      lastFeedback: lastFeedback.trim(),
+      lastFeedback: resolvedLastFeedback.trim(),
       currentNotes: currentNotes.trim(),
       transcript: resolvedTranscript.trim(),
       isFirstLesson,
@@ -1405,16 +1412,18 @@ export default function Home() {
     setBubbleChartProgress([]);
 
     // 创建小班课信息快照
-    // 如果有自动加载的录音转文字，优先使用它
+    // 如果有自动加载的内容，优先使用它
     const resolvedClassTranscript = autoLoadedTranscriptRef.current || transcript;
     autoLoadedTranscriptRef.current = null;
+    const resolvedClassLastFeedback = autoLoadedLastFeedbackRef.current || lastFeedback;
+    autoLoadedLastFeedbackRef.current = null;
     const validStudents = attendanceStudents.filter((s: string) => s.trim());
     const classSnapshot = {
       classNumber: classNumber.trim(),
       lessonNumber: lessonNumber.trim(),
       lessonDate: lessonDate.trim(),
       attendanceStudents: validStudents,
-      lastFeedback: lastFeedback.trim(),
+      lastFeedback: resolvedClassLastFeedback.trim(),
       currentNotes: currentNotes.trim(),
       transcript: resolvedClassTranscript.trim(),
     };
@@ -2093,6 +2102,34 @@ export default function Home() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 如果启用了自动加载上次反馈，从 Google Drive 本地文件夹读取
+    if (autoLoadLastFeedback) {
+      const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+      if (!name) {
+        alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
+        return;
+      }
+      if (!lessonNumber.trim()) {
+        alert('请填写课次号（用于定位上次反馈文件）');
+        return;
+      }
+      try {
+        const result = await readLastFeedbackMutation.mutateAsync({
+          studentName: studentName.trim(),
+          lessonNumber: lessonNumber.trim(),
+          courseType,
+          classNumber: classNumber.trim() || undefined,
+        });
+        autoLoadedLastFeedbackRef.current = result.content;
+        setLastFeedback(result.content);
+        setLastFeedbackFile({ name: result.fileName, content: result.content });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '读取文件失败';
+        alert(`自动加载上次反馈失败: ${message}`);
+        return;
+      }
+    }
 
     // 如果启用了自动加载录音转文字，先从 Downloads 文件夹读取
     if (autoLoadTranscript) {
@@ -3017,36 +3054,83 @@ export default function Home() {
                           : "上次课反馈"
                       }
                     </Label>
-                    {/* 文件上传 - 仅在非首次课模式下显示 */}
+                    {/* 操作区 - 仅在非首次课模式下显示 */}
                     {!((courseType === 'oneToOne' && isFirstLesson) || (courseType === 'class' && isClassFirstLesson)) && (
-                      <FileUploadInput
-                        onFileContent={(content, fileName) => {
-                          if (content && fileName) {
-                            setLastFeedbackFile({ name: fileName, content });
-                            setLastFeedback(content);
-                          } else {
-                            setLastFeedbackFile(null);
-                          }
-                        }}
-                        disabled={isGenerating}
-                      />
+                      <div className="flex items-center gap-3">
+                        {/* 自动加载上次反馈复选框 */}
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <Checkbox
+                            checked={autoLoadLastFeedback}
+                            onCheckedChange={(checked) => {
+                              const val = checked === true;
+                              setAutoLoadLastFeedback(val);
+                              if (val) {
+                                setLastFeedbackFile(null);
+                                setLastFeedback('');
+                              }
+                            }}
+                            disabled={isGenerating}
+                          />
+                          <span className="text-xs text-gray-600 flex items-center gap-1">
+                            <FolderDown className="h-3 w-3" />
+                            自动提取上次反馈
+                          </span>
+                        </label>
+                        {!autoLoadLastFeedback && (
+                          <FileUploadInput
+                            onFileContent={(content, fileName) => {
+                              if (content && fileName) {
+                                setLastFeedbackFile({ name: fileName, content });
+                                setLastFeedback(content);
+                              } else {
+                                setLastFeedbackFile(null);
+                              }
+                            }}
+                            disabled={isGenerating}
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
-                  <DebouncedTextarea
-                    id="lastFeedback"
-                    placeholder={(courseType === 'oneToOne' && isFirstLesson)
-                      ? "如有新生模板可粘贴在此，没有可留空"
-                      : (courseType === 'class' && isClassFirstLesson)
-                        ? "小班课首次课范例将自动填充，也可手动修改"
-                        : lastFeedbackFile
-                          ? `已上传文件：${lastFeedbackFile.name}`
-                          : "粘贴上次课的反馈内容..."
-                    }
-                    value={lastFeedback}
-                    onValueChange={setLastFeedback}
-                    className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${lastFeedbackFile ? 'bg-gray-50' : ''}`}
-                    disabled={isGenerating || !!lastFeedbackFile}
-                  />
+                  {/* 非首次课 + 自动加载模式 */}
+                  {autoLoadLastFeedback && !((courseType === 'oneToOne' && isFirstLesson) || (courseType === 'class' && isClassFirstLesson)) ? (
+                    <div className="h-[120px] flex flex-col items-center justify-center bg-gray-50 border border-dashed border-gray-300 rounded-md text-sm text-gray-500">
+                      <FolderDown className="h-8 w-8 mb-2 text-gray-400" />
+                      {(() => {
+                        const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+                        const lesson = parseInt(lessonNumber.replace(/[^0-9]/g, ''), 10);
+                        if (!name || isNaN(lesson) || lesson <= 1) {
+                          return <span>请先填写{courseType === 'oneToOne' ? '学生姓名' : '班号'}和课次（至少第2次课）</span>;
+                        }
+                        const prevLesson = lesson - 1;
+                        const prefix = courseType === 'class' ? `${classNumber.trim()}班` : name;
+                        return (
+                          <>
+                            <span>点击生成时将自动读取:</span>
+                            <span className="font-mono font-semibold text-blue-600 mt-1">
+                              .../{prefix}/学情反馈/{prefix}{prevLesson}学情反馈.md
+                            </span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <DebouncedTextarea
+                      id="lastFeedback"
+                      placeholder={(courseType === 'oneToOne' && isFirstLesson)
+                        ? "如有新生模板可粘贴在此，没有可留空"
+                        : (courseType === 'class' && isClassFirstLesson)
+                          ? "小班课首次课范例将自动填充，也可手动修改"
+                          : lastFeedbackFile
+                            ? `已上传文件：${lastFeedbackFile.name}`
+                            : "粘贴上次课的反馈内容..."
+                      }
+                      value={lastFeedback}
+                      onValueChange={setLastFeedback}
+                      className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${lastFeedbackFile ? 'bg-gray-50' : ''}`}
+                      disabled={isGenerating || !!lastFeedbackFile}
+                    />
+                  )}
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-gray-500">
                       {(courseType === 'oneToOne' && isFirstLesson)
