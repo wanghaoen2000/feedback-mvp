@@ -2859,9 +2859,14 @@ export default function Home() {
                         checked={isFirstLesson}
                         onCheckedChange={(checked) => {
                           setIsFirstLesson(checked);
-                          // 勾选时自动填充一对一首次课范例
-                          if (checked && firstLessonTemplate) {
-                            setLastFeedback(firstLessonTemplate);
+                          if (checked) {
+                            // 勾选时自动填充一对一首次课范例
+                            if (firstLessonTemplate) {
+                              setLastFeedback(firstLessonTemplate);
+                            }
+                          } else {
+                            // 取消勾选时清空范例内容
+                            setLastFeedback("");
                           }
                         }}
                         disabled={isGenerating}
@@ -2958,9 +2963,14 @@ export default function Home() {
                         checked={isClassFirstLesson}
                         onCheckedChange={(checked) => {
                           setIsClassFirstLesson(checked);
-                          // 勾选时自动填充小班课首次课范例
-                          if (checked && classFirstLessonTemplate) {
-                            setLastFeedback(classFirstLessonTemplate);
+                          if (checked) {
+                            // 勾选时自动填充小班课首次课范例
+                            if (classFirstLessonTemplate) {
+                              setLastFeedback(classFirstLessonTemplate);
+                            }
+                          } else {
+                            // 取消勾选时清空范例内容
+                            setLastFeedback("");
                           }
                         }}
                         disabled={isGenerating}
