@@ -2,13 +2,13 @@
  * V46h: 批量任务 Word 文档生成器
  * 将 Markdown 文本转换为 Word 文档
  */
-import { 
-  Document, 
-  Packer, 
-  Paragraph, 
-  TextRun, 
-  HeadingLevel, 
-  PageBreak, 
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+  PageBreak,
   AlignmentType,
   Table,
   TableRow,
@@ -16,7 +16,10 @@ import {
   WidthType,
   BorderStyle,
   VerticalAlign,
-  ShadingType
+  ShadingType,
+  Header,
+  Footer,
+  PageNumber
 } from "docx";
 
 /**
@@ -516,10 +519,45 @@ export async function generateBatchDocument(
     }
   }
   
-  // 创建文档
+  // 获取文档标题（文件名去掉 .docx 扩展名）
+  const documentTitle = filename.replace(/\.docx$/i, '');
+
+  // 创建文档（带页眉和页脚）
   const doc = new Document({
     sections: [{
       properties: {},
+      headers: {
+        default: new Header({
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              children: [
+                new TextRun({
+                  text: documentTitle,
+                  size: 18,  // 9pt
+                  color: '888888',
+                }),
+              ],
+            }),
+          ],
+        }),
+      },
+      footers: {
+        default: new Footer({
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [
+                new TextRun({
+                  children: [PageNumber.CURRENT],
+                  size: 18,  // 9pt
+                  color: '888888',
+                }),
+              ],
+            }),
+          ],
+        }),
+      },
       children,
     }],
   });
