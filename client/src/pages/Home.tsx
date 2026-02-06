@@ -294,8 +294,18 @@ export default function Home() {
   // 基本信息（一对一）
   const [studentName, setStudentName] = useState("");
   const [lessonNumber, setLessonNumber] = useState("");
-  const [lessonDate, setLessonDate] = useState(""); // 本次课日期，如"1月5日"
-  const [currentYear, setCurrentYear] = useState("2026"); // 年份
+  // 获取当前北京时间（UTC+8）
+  const getBeijingTime = () => {
+    const now = new Date();
+    return new Date(now.getTime() + (8 * 60 - now.getTimezoneOffset()) * 60 * 1000);
+  };
+  const [lessonDate, setLessonDate] = useState(() => {
+    const beijingTime = getBeijingTime();
+    return `${beijingTime.getUTCMonth() + 1}月${beijingTime.getUTCDate()}日`;
+  }); // 本次课日期，默认当前北京时间日期
+  const [currentYear, setCurrentYear] = useState(() => {
+    return getBeijingTime().getUTCFullYear().toString();
+  }); // 年份，默认当前北京时间年份
   
   // 小班课特有字段
   const [classNumber, setClassNumber] = useState(""); // 班号
@@ -437,7 +447,10 @@ export default function Home() {
       // apiKey 不再从服务器返回，保持为空（安全考虑）
       // setApiKey(configQuery.data.apiKey);
       setApiUrl(configQuery.data.apiUrl);
-      setCurrentYear(configQuery.data.currentYear || "2026");
+      // 只有服务器有配置时才覆盖，否则保持当前北京时间年份
+      if (configQuery.data.currentYear) {
+        setCurrentYear(configQuery.data.currentYear);
+      }
       setRoadmap(configQuery.data.roadmap || "");
       setFirstLessonTemplate(configQuery.data.firstLessonTemplate || "");
       setRoadmapClass(configQuery.data.roadmapClass || "");
@@ -2587,7 +2600,7 @@ export default function Home() {
                           onChange={(e) => setCurrentYear(e.target.value)}
                           disabled={isGenerating}
                         />
-                        <p className="text-xs text-gray-500">默认2026，修改后在高级设置中保存可持久化</p>
+                        <p className="text-xs text-gray-500">默认当前年份，修改后在高级设置中保存可持久化</p>
                       </div>
                       
                       <div className="space-y-2">
