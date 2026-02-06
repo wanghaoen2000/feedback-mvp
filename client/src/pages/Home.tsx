@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { BatchProcess } from "@/components/BatchProcess";
 import { GlobalSettings } from "@/components/GlobalSettings";
 import { RoadmapSettings } from "@/components/RoadmapSettings";
+import { FileUploadInput } from "@/components/FileUploadInput";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -30,6 +31,9 @@ import {
   User,
   Users,
   SkipForward,
+  Copy,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { VERSION_DISPLAY } from "../version.generated";
 
@@ -315,7 +319,12 @@ export default function Home() {
   const [lastFeedback, setLastFeedback] = useState("");
   const [currentNotes, setCurrentNotes] = useState("");
   const [transcript, setTranscript] = useState("");
-  
+
+  // 文件上传状态（文件名和内容）
+  const [lastFeedbackFile, setLastFeedbackFile] = useState<{ name: string; content: string } | null>(null);
+  const [currentNotesFile, setCurrentNotesFile] = useState<{ name: string; content: string } | null>(null);
+  const [transcriptFile, setTranscriptFile] = useState<{ name: string; content: string } | null>(null);
+
   // 特殊选项
   const [isFirstLesson, setIsFirstLesson] = useState(false);
   const [specialRequirements, setSpecialRequirements] = useState("");
@@ -371,6 +380,8 @@ export default function Home() {
     path?: string;
     url?: string;
   } | null>(null); // 导出结果
+  const [feedbackCopied, setFeedbackCopied] = useState(false); // 学情反馈是否已复制
+  const feedbackScrollRef = useRef<HTMLDivElement | null>(null); // 学情反馈内容滚动容器
   const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
   const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -2861,9 +2872,14 @@ export default function Home() {
                         checked={isFirstLesson}
                         onCheckedChange={(checked) => {
                           setIsFirstLesson(checked);
-                          // 勾选时自动填充一对一首次课范例
-                          if (checked && firstLessonTemplate) {
-                            setLastFeedback(firstLessonTemplate);
+                          if (checked) {
+                            // 勾选时自动填充一对一首次课范例
+                            if (firstLessonTemplate) {
+                              setLastFeedback(firstLessonTemplate);
+                            }
+                          } else {
+                            // 取消勾选时清空范例内容
+                            setLastFeedback("");
                           }
                         }}
                         disabled={isGenerating}
@@ -2960,9 +2976,14 @@ export default function Home() {
                         checked={isClassFirstLesson}
                         onCheckedChange={(checked) => {
                           setIsClassFirstLesson(checked);
-                          // 勾选时自动填充小班课首次课范例
-                          if (checked && classFirstLessonTemplate) {
-                            setLastFeedback(classFirstLessonTemplate);
+                          if (checked) {
+                            // 勾选时自动填充小班课首次课范例
+                            if (classFirstLessonTemplate) {
+                              setLastFeedback(classFirstLessonTemplate);
+                            }
+                          } else {
+                            // 取消勾选时清空范例内容
+                            setLastFeedback("");
                           }
                         }}
                         disabled={isGenerating}
@@ -3028,26 +3049,44 @@ export default function Home() {
               <div className="space-y-4">
                 {/* 上次反馈 / 新生模板 */}
                 <div className="space-y-2">
-                  <Label htmlFor="lastFeedback">
-                    {(courseType === 'oneToOne' && isFirstLesson) 
-                      ? "新生首次课模板（可选）" 
-                      : (courseType === 'class' && isClassFirstLesson)
-                        ? "小班课首次课范例"
-                        : "上次课反馈"
-                    }
-                  </Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="lastFeedback">
+                      {(courseType === 'oneToOne' && isFirstLesson)
+                        ? "新生首次课模板（可选）"
+                        : (courseType === 'class' && isClassFirstLesson)
+                          ? "小班课首次课范例"
+                          : "上次课反馈"
+                      }
+                    </Label>
+                    {/* 文件上传 - 仅在非首次课模式下显示 */}
+                    {!((courseType === 'oneToOne' && isFirstLesson) || (courseType === 'class' && isClassFirstLesson)) && (
+                      <FileUploadInput
+                        onFileContent={(content, fileName) => {
+                          if (content && fileName) {
+                            setLastFeedbackFile({ name: fileName, content });
+                            setLastFeedback(content);
+                          } else {
+                            setLastFeedbackFile(null);
+                          }
+                        }}
+                        disabled={isGenerating}
+                      />
+                    )}
+                  </div>
                   <DebouncedTextarea
                     id="lastFeedback"
                     placeholder={(courseType === 'oneToOne' && isFirstLesson)
                       ? "如有新生模板可粘贴在此，没有可留空"
                       : (courseType === 'class' && isClassFirstLesson)
                         ? "小班课首次课范例将自动填充，也可手动修改"
-                        : "粘贴上次课的反馈内容..."
+                        : lastFeedbackFile
+                          ? `已上传文件：${lastFeedbackFile.name}`
+                          : "粘贴上次课的反馈内容..."
                     }
                     value={lastFeedback}
                     onValueChange={setLastFeedback}
-                    className="h-[120px] font-mono text-sm resize-none overflow-y-auto"
-                    disabled={isGenerating}
+                    className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${lastFeedbackFile ? 'bg-gray-50' : ''}`}
+                    disabled={isGenerating || !!lastFeedbackFile}
                   />
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-gray-500">
@@ -3106,14 +3145,30 @@ export default function Home() {
 
                 {/* 本次课笔记 */}
                 <div className="space-y-2">
-                  <Label htmlFor="currentNotes">本次课笔记 *</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="currentNotes">本次课笔记 *</Label>
+                    <FileUploadInput
+                      onFileContent={(content, fileName) => {
+                        if (content && fileName) {
+                          setCurrentNotesFile({ name: fileName, content });
+                          setCurrentNotes(content);
+                        } else {
+                          setCurrentNotesFile(null);
+                        }
+                      }}
+                      disabled={isGenerating}
+                    />
+                  </div>
                   <DebouncedTextarea
                     id="currentNotes"
-                    placeholder="粘贴本次课的笔记内容...（请在笔记开头包含日期信息，AI会自动识别）"
+                    placeholder={currentNotesFile
+                      ? `已上传文件：${currentNotesFile.name}`
+                      : "粘贴本次课的笔记内容...（请在笔记开头包含日期信息，AI会自动识别）"
+                    }
                     value={currentNotes}
                     onValueChange={setCurrentNotes}
-                    className="h-[120px] font-mono text-sm resize-none overflow-y-auto"
-                    disabled={isGenerating}
+                    className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${currentNotesFile ? 'bg-gray-50' : ''}`}
+                    disabled={isGenerating || !!currentNotesFile}
                   />
                   <p className="text-xs text-gray-500">
                     包含课堂讲解的知识点、生词、长难句、错题等
@@ -3122,14 +3177,30 @@ export default function Home() {
 
                 {/* 录音转文字 */}
                 <div className="space-y-2">
-                  <Label htmlFor="transcript">录音转文字 *</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="transcript">录音转文字 *</Label>
+                    <FileUploadInput
+                      onFileContent={(content, fileName) => {
+                        if (content && fileName) {
+                          setTranscriptFile({ name: fileName, content });
+                          setTranscript(content);
+                        } else {
+                          setTranscriptFile(null);
+                        }
+                      }}
+                      disabled={isGenerating}
+                    />
+                  </div>
                   <DebouncedTextarea
                     id="transcript"
-                    placeholder="粘贴课堂录音的转文字内容..."
+                    placeholder={transcriptFile
+                      ? `已上传文件：${transcriptFile.name}`
+                      : "粘贴课堂录音的转文字内容..."
+                    }
                     value={transcript}
                     onValueChange={setTranscript}
-                    className="h-[120px] font-mono text-sm resize-none overflow-y-auto"
-                    disabled={isGenerating}
+                    className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${transcriptFile ? 'bg-gray-50' : ''}`}
+                    disabled={isGenerating || !!transcriptFile}
                   />
                   <p className="text-xs text-gray-500">
                     课堂录音转换的文字，用于提取课堂细节和互动内容
@@ -3558,11 +3629,89 @@ export default function Home() {
                       所有文件已保存到 Google Drive：
                       <br />
                       <code className="bg-gray-100 px-2 py-1 rounded text-xs mt-1 inline-block">
-                        {courseType === 'oneToOne' 
+                        {courseType === 'oneToOne'
                           ? `${driveBasePath || 'Mac/Documents/XDF/学生档案'}/${studentName}/`
                           : `${driveBasePath || 'Mac/Documents/XDF/学生档案'}/${classNumber}班/`
                         }
                       </code>
+                    </p>
+                  </div>
+                )}
+
+                {/* 学情反馈结果展示和复制 */}
+                {isComplete && feedbackContent && (
+                  <div className="p-4 bg-white rounded-lg border">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-gray-700 flex items-center gap-2">
+                        <FileText className="w-4 h-4" />
+                        学情反馈内容
+                      </h4>
+                      <div className="flex items-center gap-2">
+                        {/* 滚动按钮 */}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          title="回到顶部"
+                          onClick={() => {
+                            if (feedbackScrollRef.current) {
+                              feedbackScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+                            }
+                          }}
+                        >
+                          <ArrowUp className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          title="滚动到底部"
+                          onClick={() => {
+                            if (feedbackScrollRef.current) {
+                              feedbackScrollRef.current.scrollTo({ top: feedbackScrollRef.current.scrollHeight, behavior: 'smooth' });
+                            }
+                          }}
+                        >
+                          <ArrowDown className="w-4 h-4" />
+                        </Button>
+                        {/* 复制按钮 */}
+                        <Button
+                          size="sm"
+                          variant={feedbackCopied ? "default" : "outline"}
+                          className={feedbackCopied ? "bg-green-600 hover:bg-green-700" : ""}
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(feedbackContent);
+                              setFeedbackCopied(true);
+                            } catch (e) {
+                              alert("复制失败，请手动选择复制");
+                            }
+                          }}
+                        >
+                          {feedbackCopied ? (
+                            <>
+                              <CheckCircle2 className="w-4 h-4 mr-1" />
+                              已复制
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4 mr-1" />
+                              复制学情反馈
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                    <div
+                      ref={feedbackScrollRef}
+                      className="bg-gray-50 rounded-lg p-4 h-[120px] overflow-y-auto"
+                    >
+                      <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
+                        {feedbackContent}
+                      </pre>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      共 {feedbackContent.length} 字符
                     </p>
                   </div>
                 )}

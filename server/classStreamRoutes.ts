@@ -465,7 +465,7 @@ ${input.transcript}
       // 上传到 Google Drive
       const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
       const basePath = `${driveBasePath}/${input.studentName}`;
-      const fileName = `${input.studentName}${dateStr}阅读课反馈.md`;
+      const fileName = `${input.studentName}${input.lessonNumber || ''}学情反馈.md`;
       const folderPath = `${basePath}/学情反馈`;
       
 
@@ -690,7 +690,7 @@ ${input.feedbackContent}
       
       // 上传到 Google Drive
       const basePath = `${driveBasePath}/${input.studentName}`;
-      const fileName = `${input.studentName}${input.dateStr}复习文档.docx`;
+      const fileName = `${input.studentName}${input.lessonNumber || ''}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       
 
@@ -832,7 +832,7 @@ ${input.feedbackContent}
       // 上传到 Google Drive
       sendEvent("progress", { message: "正在上传到 Google Drive..." });
       const basePath = `${driveBasePath}/${input.studentName}`;
-      const fileName = `${input.studentName}${input.dateStr}测试文档.docx`;
+      const fileName = `${input.studentName}${input.lessonNumber || ''}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
 
       const uploadKeepAlive = setInterval(() => {
@@ -963,7 +963,7 @@ ${input.feedbackContent}
       // 上传到 Google Drive
       sendEvent("progress", { message: "正在上传到 Google Drive..." });
       const basePath = `${driveBasePath}/${input.studentName}`;
-      const fileName = `${input.studentName}${input.dateStr}课后信息提取.md`;
+      const fileName = `${input.studentName}${input.lessonNumber || ''}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
 
       const uploadKeepAlive = setInterval(() => {
@@ -1168,7 +1168,7 @@ ${input.currentNotes}
 
       // 上传到 Google Drive（期间发送 keep-alive 防止代理超时）
       const basePath = `${driveBasePath}/${input.classNumber}班`;
-      const fileName = `${input.classNumber}班${input.lessonDate || ''}复习文档.docx`;
+      const fileName = `${input.classNumber}班${input.lessonNumber || ''}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
 
 
@@ -1318,7 +1318,7 @@ ${input.currentNotes}
       // 上传到 Google Drive
       sendEvent("progress", { message: "正在上传到 Google Drive..." });
       const basePath = `${driveBasePath}/${input.classNumber}班`;
-      const fileName = `${input.classNumber}班${input.lessonDate || ''}测试文档.docx`;
+      const fileName = `${input.classNumber}班${input.lessonNumber || ''}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
 
       // 上传期间发送 keep-alive，防止代理超时
@@ -1446,7 +1446,7 @@ ${input.currentNotes}
       // 上传到 Google Drive
       sendEvent("progress", { message: "正在上传到 Google Drive...", chars: extractionContent.length });
       const basePath = `${driveBasePath}/${input.classNumber}班`;
-      const fileName = `${input.classNumber}班${input.lessonDate || ''}课后信息提取.md`;
+      const fileName = `${input.classNumber}班${input.lessonNumber || ''}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
 
       // 上传期间发送 keep-alive，防止代理超时

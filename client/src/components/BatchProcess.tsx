@@ -1136,32 +1136,6 @@ export function BatchProcess() {
               <option value="word_card">词汇卡片（精确排版）</option>
               <option value="writing_material">写作素材模板</option>
             </select>
-            {/* 模板格式说明 */}
-            <div className="mt-2">
-              <div className="text-sm text-gray-500 mb-1">格式说明：</div>
-              <div className="relative">
-                {/* 复制按钮 */}
-                <button
-                  onClick={handleCopyDescription}
-                  className="absolute top-2 right-2 p-1 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700 z-10"
-                  title="复制格式说明"
-                >
-                  {copied ? (
-                    <Check className="w-4 h-4 text-green-500" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </button>
-                
-                {/* 说明内容 */}
-                <div 
-                  className="bg-gray-50 border rounded p-3 pr-10 font-mono text-xs whitespace-pre-wrap overflow-y-auto"
-                  style={{ height: '120px' }}
-                >
-                  {TEMPLATE_DESCRIPTIONS[templateType] || '请选择模板类型'}
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* 任务编号范围 */}
@@ -1345,46 +1319,6 @@ export function BatchProcess() {
               )}
             </div>
           )}
-
-          {/* 存储路径 */}
-          <div className="space-y-2">
-            <Label htmlFor="storagePath">存储路径</Label>
-            <div className="flex gap-2">
-              <Input
-                id="storagePath"
-                type="text"
-                placeholder="Google Drive 文件夹路径"
-                value={storagePath}
-                onChange={(e) => setStoragePath(e.target.value)}
-                onBlur={async () => {
-                  const trimmedPath = storagePath.trim();
-                  // 如果为空，恢复默认值
-                  if (!trimmedPath) {
-                    setStoragePath("Mac(online)/Documents/XDF/批量任务");
-                    return;
-                  }
-                  // 如果值有变化，保存到数据库
-                  if (trimmedPath !== config?.batchStoragePath) {
-                    setIsPathSaving(true);
-                    try {
-                      await updateConfig.mutateAsync({ batchStoragePath: trimmedPath });
-                    } catch (e) {
-                      console.error('保存存储路径失败:', e);
-                    } finally {
-                      setIsPathSaving(false);
-                    }
-                  }
-                }}
-                disabled={isGenerating}
-              />
-              <Button variant="outline" size="icon" disabled={isGenerating}>
-                <FolderOpen className="w-4 h-4" />
-              </Button>
-            </div>
-            <p className="text-xs text-gray-500">
-              {isPathSaving ? '保存中...' : '文件将上传到此 Google Drive 路径'}
-            </p>
-          </div>
         </div>
 
         {/* 路书输入区域 */}
