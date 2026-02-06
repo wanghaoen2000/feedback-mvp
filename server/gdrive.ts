@@ -27,15 +27,30 @@ export interface UploadStatus {
 }
 
 /**
- * 验证文件是否存在于Google Drive
+ * 验证文件是否存在于Google Drive（通过 OAuth API）
  */
 export async function verifyFileExists(filePath: string): Promise<{ exists: boolean; size?: number }> {
   try {
-    const lsCmd = `rclone ls "${REMOTE_NAME}:${filePath}" --config ${RCLONE_CONFIG}`;
-    const { stdout } = await execAsync(lsCmd);
-    if (stdout.trim()) {
-      const match = stdout.trim().match(/^\s*(\d+)/);
-      const size = match ? parseInt(match[1], 10) : undefined;
+    const token = await getValidToken();
+    if (!token) return { exists: false };
+
+    const parts = filePath.split('/').filter(p => p);
+    const fileName = parts.pop();
+    if (!fileName) return { exists: false };
+
+    const folderPath = parts.join('/');
+    const folderId = folderPath ? await navigateToFolder(folderPath, token) : 'root';
+    if (!folderId) return { exists: false };
+
+    const q = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+    const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,size)&pageSize=1`;
+    const res = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return { exists: false };
+    const data = await res.json();
+    if (data.files && data.files.length > 0) {
+      const size = data.files[0].size ? parseInt(data.files[0].size, 10) : undefined;
       return { exists: true, size };
     }
     return { exists: false };
@@ -560,19 +575,99 @@ export async function ensureFolderExists(folderPath: string): Promise<{ success:
 }
 
 /**
- * 从 Google Drive 读取文件内容（通过 rclone cat）
+ * 通过 OAuth API 按路径导航到指定文件夹，返回其 ID
+ * @param folderPath 如 "Mac(online)/Documents/XDF/学生档案/孙浩然/学情反馈"
+ * @param token OAuth access token
+ * @returns 文件夹 ID，找不到返回 null
+ */
+async function navigateToFolder(folderPath: string, token: string): Promise<string | null> {
+  const parts = folderPath.split('/').filter(p => p);
+  let parentId = 'root';
+
+  for (const folderName of parts) {
+    const q = `name='${folderName.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=1`;
+    const res = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      console.warn(`[GDrive导航] 查找文件夹 "${folderName}" 失败: ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    if (!data.files || data.files.length === 0) {
+      console.warn(`[GDrive导航] 文件夹 "${folderName}" 不存在 (parent=${parentId})`);
+      return null;
+    }
+    parentId = data.files[0].id;
+  }
+  return parentId;
+}
+
+/**
+ * 通过 OAuth API 下载文件内容
+ */
+async function downloadFileById(fileId: string, token: string): Promise<Buffer> {
+  // 先获取文件元数据，判断是否为 Google Docs 类型（需要 export）
+  const metaUrl = `${DRIVE_API_BASE}/files/${fileId}?fields=mimeType,name`;
+  const metaRes = await fetch(metaUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!metaRes.ok) throw new Error(`获取文件元数据失败: ${metaRes.status}`);
+  const meta = await metaRes.json();
+
+  let downloadRes: Response;
+  if (meta.mimeType === 'application/vnd.google-apps.document') {
+    // Google Docs 需要通过 export 下载
+    const exportUrl = `${DRIVE_API_BASE}/files/${fileId}/export?mimeType=text/plain`;
+    downloadRes = await fetch(exportUrl, { headers: { Authorization: `Bearer ${token}` } });
+  } else {
+    const downloadUrl = `${DRIVE_API_BASE}/files/${fileId}?alt=media`;
+    downloadRes = await fetch(downloadUrl, { headers: { Authorization: `Bearer ${token}` } });
+  }
+
+  if (!downloadRes.ok) throw new Error(`下载文件失败: ${downloadRes.status}`);
+  const arrayBuffer = await downloadRes.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+/**
+ * 从 Google Drive 读取文件内容（通过 OAuth API 按路径定位）
  * @param filePath Google Drive 上的文件路径，如 "Mac(online)/Documents/XDF/学生档案/孙浩然/学情反馈/孙浩然11.md"
  * @returns 文件内容的 Buffer
  */
 export async function readFileFromGoogleDrive(filePath: string): Promise<Buffer> {
-  const catCmd = `rclone cat "${REMOTE_NAME}:${filePath}" --config ${RCLONE_CONFIG}`;
-  const { stdout } = await execAsync(catCmd, { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024 });
-  return stdout;
+  const token = await getValidToken();
+  if (!token) {
+    throw new Error('未授权 Google Drive，请先在设置中完成 OAuth 授权');
+  }
+
+  const parts = filePath.split('/').filter(p => p);
+  const fileName = parts.pop();
+  if (!fileName) throw new Error('文件路径无效');
+
+  const folderPath = parts.join('/');
+  const folderId = folderPath ? await navigateToFolder(folderPath, token) : 'root';
+  if (!folderId) {
+    throw new Error(`文件夹不存在: ${folderPath}`);
+  }
+
+  // 在目标文件夹中查找文件
+  const q = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+  const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)&pageSize=1`;
+  const res = await fetch(searchUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`查找文件失败: ${res.status}`);
+  const data = await res.json();
+  if (!data.files || data.files.length === 0) {
+    throw new Error(`文件不存在: ${fileName}`);
+  }
+
+  return downloadFileById(data.files[0].id, token);
 }
 
 /**
- * 在 Google Drive 中搜索文件
- * 策略：先在指定目录搜索，找不到再全局搜索
+ * 在 Google Drive 中搜索文件（通过 OAuth API）
+ * 策略：先在指定目录搜索，找不到再全局按文件名搜索
  * @param fileNames 要搜索的文件名列表（按优先级排序，找到第一个即返回）
  * @param searchDir 优先搜索的目录路径（可选）
  * @returns { fullPath, buffer } 或 null
@@ -581,38 +676,54 @@ export async function searchFileInGoogleDrive(
   fileNames: string[],
   searchDir?: string
 ): Promise<{ fullPath: string; buffer: Buffer } | null> {
-  // 阶段1：在指定目录中搜索（如果提供了 searchDir）
-  if (searchDir) {
-    for (const fileName of fileNames) {
-      try {
-        const lsfCmd = `rclone lsf "${REMOTE_NAME}:${searchDir}" --config ${RCLONE_CONFIG} -R --files-only --include "${fileName}"`;
-        const { stdout } = await execAsync(lsfCmd, { timeout: 30000 });
-        const matches = stdout.trim().split('\n').filter(Boolean);
-        if (matches.length > 0) {
-          const fullPath = `${searchDir}/${matches[0]}`;
-          console.log(`[GDrive搜索] 在指定目录找到: ${fullPath}`);
-          const buffer = await readFileFromGoogleDrive(fullPath);
-          return { fullPath, buffer };
-        }
-      } catch {
-        // 继续尝试下一个文件名
-      }
-    }
-    console.log(`[GDrive搜索] 指定目录 ${searchDir} 未找到，尝试全局搜索...`);
+  const token = await getValidToken();
+  if (!token) {
+    console.error('[GDrive搜索] 未授权 Google Drive');
+    return null;
   }
 
-  // 阶段2：全局搜索（遍历整个 Google Drive）
+  // 阶段1：在指定目录中精确查找（如果提供了 searchDir）
+  if (searchDir) {
+    const folderId = await navigateToFolder(searchDir, token);
+    if (folderId) {
+      for (const fileName of fileNames) {
+        try {
+          const q = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+          const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=1`;
+          const res = await fetch(searchUrl, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) continue;
+          const data = await res.json();
+          if (data.files && data.files.length > 0) {
+            const file = data.files[0];
+            console.log(`[GDrive搜索] 在指定目录找到: ${searchDir}/${file.name}`);
+            const buffer = await downloadFileById(file.id, token);
+            return { fullPath: `${searchDir}/${file.name}`, buffer };
+          }
+        } catch (err) {
+          console.warn(`[GDrive搜索] 目录搜索 "${fileName}" 失败:`, err);
+        }
+      }
+    }
+    console.log(`[GDrive搜索] 指定目录 ${searchDir} 未找到匹配文件，尝试全局搜索...`);
+  }
+
+  // 阶段2：全局按文件名搜索（不限定文件夹）
   for (const fileName of fileNames) {
     try {
-      // 全局搜索：从根目录递归查找
-      const lsfCmd = `rclone lsf "${REMOTE_NAME}:" --config ${RCLONE_CONFIG} -R --files-only --include "${fileName}"`;
-      const { stdout } = await execAsync(lsfCmd, { timeout: 120000 });
-      const matches = stdout.trim().split('\n').filter(Boolean);
-      if (matches.length > 0) {
-        const fullPath = matches[0];
-        console.log(`[GDrive搜索] 全局搜索找到: ${fullPath}`);
-        const buffer = await readFileFromGoogleDrive(fullPath);
-        return { fullPath, buffer };
+      const q = `name='${fileName.replace(/'/g, "\\'")}' and trashed=false`;
+      const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,parents)&pageSize=5`;
+      const res = await fetch(searchUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data.files && data.files.length > 0) {
+        const file = data.files[0];
+        console.log(`[GDrive搜索] 全局搜索找到: ${file.name} (id=${file.id})`);
+        const buffer = await downloadFileById(file.id, token);
+        return { fullPath: file.name, buffer };
       }
     } catch (err) {
       console.warn(`[GDrive搜索] 全局搜索 "${fileName}" 失败:`, err);
