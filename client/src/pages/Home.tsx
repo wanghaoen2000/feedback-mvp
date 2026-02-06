@@ -309,8 +309,8 @@ export default function Home() {
   
   // 小班课特有字段
   const [classNumber, setClassNumber] = useState(""); // 班号
-  const [attendanceCount, setAttendanceCount] = useState(2); // 出勤学生数
-  const [attendanceStudents, setAttendanceStudents] = useState<string[]>(['', '']); // 出勤学生名单
+  const [attendanceCount, setAttendanceCount] = useState(8); // 出勤学生数，默认8人方便浏览器记忆填充
+  const [attendanceStudents, setAttendanceStudents] = useState<string[]>(['', '', '', '', '', '', '', '']); // 出勤学生名单
   const [isClassFirstLesson, setIsClassFirstLesson] = useState(false); // 小班课首次课
   
   // 三段文本
