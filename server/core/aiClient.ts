@@ -15,6 +15,7 @@ export const DEFAULT_CONFIG: Record<string, string> = {
   roadmap: "",
   roadmapClass: "",
   driveBasePath: "Mac/Documents/XDF/学生档案",
+  classStoragePath: "", // 小班课存储路径，留空则使用 driveBasePath
   maxTokens: "64000",
   batchFilePrefix: "任务",
   batchStoragePath: "Mac(online)/Documents/XDF/批量任务",
