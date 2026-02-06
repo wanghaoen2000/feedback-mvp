@@ -354,6 +354,9 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   const currentYear = params.currentYear || (await getConfig("currentYear")) || DEFAULT_CONFIG.currentYear;
   const apiConfig = { apiModel, apiKey, apiUrl };
 
+  const folderName = `${params.classNumber}班`;
+  const basePath = `${driveBasePath}/${folderName}`;
+
   const classInput: ClassFeedbackInput = {
     classNumber: params.classNumber,
     lessonNumber: params.lessonNumber || "",
@@ -380,8 +383,6 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       dateStr = dateMatch ? dateMatch[1] : new Date().toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }).replace("/", "月") + "日";
     }
 
-    const folderName = `${params.classNumber}班`;
-    const basePath = `${driveBasePath}/${folderName}`;
     const fileName = `${folderName}${params.lessonNumber || ""}.md`;
     const folderPath = `${basePath}/学情反馈`;
     const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
@@ -417,9 +418,6 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   stepResults.extraction = { status: "running" };
   stepResults.bubbleChart = { status: "running" };
   await updateStepResults(taskId, stepResults, 2);
-
-  const folderName = `${params.classNumber}班`;
-  const basePath = `${driveBasePath}/${folderName}`;
 
   const parallelResults = await Promise.allSettled([
     // 步骤2: 复习文档
