@@ -65,11 +65,11 @@ interface BatchState {
 // 批次参数快照（用于单任务重做）
 interface BatchParams {
   roadmap: string;
-  templateType: 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material' | 'ai_code';
+  templateType: 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material';
   storagePath: string;
   batchId: string;
   filePrefix: string;
-  namingMethod: 'prefix' | 'custom' | 'ai_auto';
+  namingMethod: 'prefix' | 'custom';
   customFileNames?: Record<number, string>;
   files?: Record<number, {
     type: 'document' | 'image';
@@ -211,47 +211,11 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
 ⚠️ JSON必须能被JSON.parse()直接解析
 
 【输出文件】.docx（层级结构文档）`,
-
-  ai_code: `【自由排版（AI代码）模板】
-
-AI输出格式：可执行的 docx-js JavaScript 代码
-
-【重要】文件命名要求：
-1. 你需要在代码中自己决定输出文件名
-2. 文件名要有意义，体现文档内容
-3. 例如："托福词汇List03_图书馆场景.docx"
-4. 文件名不要包含非法字符（\\ / : * ? " < > |）
-
-代码结构要求：
-1. docx、fs、path 已作为全局变量注入，直接使用
-2. 使用 __outputDir 变量获取输出目录
-3. 使用 fs.writeFileSync 保存文件
-
-代码示例：
-const { Document, Packer, Paragraph, TextRun } = docx;
-
-// ★ 根据内容决定文件名（这是你要做的）
-const fileName = "托福词汇List03_图书馆场景.docx";
-const outputPath = path.join(__outputDir, fileName);
-
-const doc = new Document({
-  sections: [{
-    children: [
-      new Paragraph({
-        children: [new TextRun("你的内容...")]
-      })
-    ]
-  }]
-});
-
-Packer.toBuffer(doc).then(buffer => {
-  fs.writeFileSync(outputPath, buffer);
-});`,
 };
 
 export function BatchProcess() {
   // 基本设置
-  const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material' | 'ai_code'>('markdown_styled');
+  const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material'>('markdown_styled');
   const [startNumber, setStartNumber] = useState("");
   const [endNumber, setEndNumber] = useState("");
   const [concurrency, setConcurrency] = useState("5");
@@ -264,7 +228,7 @@ export function BatchProcess() {
   const [copied, setCopied] = useState(false);
 
   // 文件命名方式
-  const [namingMethod, setNamingMethod] = useState<'prefix' | 'custom' | 'ai_auto'>('prefix');
+  const [namingMethod, setNamingMethod] = useState<'prefix' | 'custom'>('prefix');
   const [customNames, setCustomNames] = useState<string>('');
   const [parsedNames, setParsedNames] = useState<Map<number, string>>(new Map());
 
@@ -317,9 +281,6 @@ export function BatchProcess() {
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
   // AbortController 引用（用于取消正在进行的 fetch 请求）
   const abortControllerRef = React.useRef<AbortController | null>(null);
-
-  // 判断是否是 AI 代码模式
-  const isAiCodeMode = templateType === 'ai_code';
 
   // 根据状态分类任务
   const runningTasks = Array.from(tasks.values()).filter(t => t.status === 'running');
@@ -1162,14 +1123,8 @@ export function BatchProcess() {
               id="templateType"
               value={templateType}
               onChange={(e) => {
-                const value = e.target.value as 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material' | 'ai_code';
+                const value = e.target.value as 'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material';
                 setTemplateType(value);
-                // ai_code 模式默认选中 AI 自主命名，其他模式默认前缀+编号
-                if (value === 'ai_code') {
-                  setNamingMethod('ai_auto');
-                } else if (namingMethod === 'ai_auto') {
-                  setNamingMethod('prefix');
-                }
                 console.log('模板类型已切换:', value);
               }}
               disabled={isGenerating}
@@ -1180,7 +1135,6 @@ export function BatchProcess() {
               <option value="markdown_file">生成MD文件（不转换）</option>
               <option value="word_card">词汇卡片（精确排版）</option>
               <option value="writing_material">写作素材模板</option>
-              <option value="ai_code">自由排版（AI代码）</option>
             </select>
             {/* 模板格式说明 */}
             <div className="mt-2">
@@ -1277,20 +1231,6 @@ export function BatchProcess() {
                   />
                   <span className="text-sm">从文本解析</span>
                 </label>
-                {isAiCodeMode && (
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="namingMethod"
-                      value="ai_auto"
-                      checked={namingMethod === 'ai_auto'}
-                      onChange={() => setNamingMethod('ai_auto')}
-                      disabled={isGenerating}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="text-sm">AI自主命名</span>
-                  </label>
-                )}
               </div>
             </div>
           </div>
