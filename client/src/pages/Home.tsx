@@ -27,7 +27,6 @@ import {
   Download,
   Search,
   MinusCircle,
-  Cloud,
   User,
   Users,
   SkipForward,
@@ -590,13 +589,6 @@ export default function Home() {
   }, [isGenerating]);
 
   // Google Drive OAuth状态
-  const [gdriveStatus, setGdriveStatus] = useState<{
-    connected: boolean;
-    loading: boolean;
-  }>({ connected: false, loading: true });
-  const [isConnectingGdrive, setIsConnectingGdrive] = useState(false);
-  const [isDisconnectingGdrive, setIsDisconnectingGdrive] = useState(false);
-  
   // 系统自检状态
   const [isChecking, setIsChecking] = useState(false);
   const [checkResults, setCheckResults] = useState<{
@@ -631,13 +623,6 @@ export default function Home() {
   const generateClassExtractionMutation = trpc.feedback.generateClassExtraction.useMutation();
   const generateClassBubbleChartMutation = trpc.feedback.generateClassBubbleChart.useMutation();
   const uploadClassFileMutation = trpc.feedback.uploadClassFile.useMutation();
-  
-  // Google Drive OAuth
-  const gdriveStatusQuery = trpc.feedback.googleAuthStatus.useQuery();
-  const gdriveAuthUrlQuery = trpc.feedback.googleAuthUrl.useQuery();
-  const gdriveDisconnectMutation = trpc.feedback.googleAuthDisconnect.useMutation();
-  const gdriveCallbackMutation = trpc.feedback.googleAuthCallback.useMutation();
-
   // 加载配置
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
@@ -2653,53 +2638,6 @@ export default function Home() {
     }
   };
 
-  // Google Drive 连接处理
-  const handleConnectGdrive = async () => {
-    setIsConnectingGdrive(true);
-    try {
-      if (gdriveAuthUrlQuery.data?.url) {
-        // 打开Google授权页面
-        window.open(gdriveAuthUrlQuery.data.url, '_blank');
-      }
-    } catch (error) {
-      console.error('Failed to get auth URL:', error);
-    } finally {
-      setIsConnectingGdrive(false);
-    }
-  };
-
-  const handleDisconnectGdrive = async () => {
-    if (!confirm('确定要断开Google Drive连接吗？断开后需要重新授权才能上传文件。')) {
-      return;
-    }
-    setIsDisconnectingGdrive(true);
-    try {
-      await gdriveDisconnectMutation.mutateAsync();
-      await gdriveStatusQuery.refetch();
-    } catch (error) {
-      console.error('Failed to disconnect:', error);
-    } finally {
-      setIsDisconnectingGdrive(false);
-    }
-  };
-
-  // 处理OAuth回调（从授权页面返回后）
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get('code');
-    if (code) {
-      // 清除URL中的code参数
-      window.history.replaceState({}, '', window.location.pathname);
-      // 处理授权回调
-      gdriveCallbackMutation.mutateAsync({ code }).then(() => {
-        gdriveStatusQuery.refetch();
-        alert('Google Drive 授权成功！');
-      }).catch((error) => {
-        alert('授权失败: ' + (error instanceof Error ? error.message : '未知错误'));
-      });
-    }
-  }, []);
-
   // 表单验证：根据课程类型检查不同的必填字段
   const isFormValid = courseType === 'oneToOne'
     ? (studentName.trim() && currentNotes.trim() && transcript.trim())
@@ -3217,88 +3155,6 @@ export default function Home() {
                   className="h-[120px] resize-none overflow-y-auto"
                   disabled={isGenerating}
                 />
-              </div>
-
-              {/* Google Drive 连接状态 */}
-              <div className="border rounded-lg overflow-hidden">
-                <div className="bg-gray-50 p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Cloud className="w-4 h-4 text-gray-600" />
-                    <span className="font-medium">Google Drive 连接</span>
-                    {gdriveStatusQuery.isLoading ? (
-                      <span className="text-sm text-gray-500">(检查中...)</span>
-                    ) : gdriveStatusQuery.data?.authorized ? (
-                      <span className="text-sm text-green-600">(✅ 已连接)</span>
-                    ) : (
-                      <span className="text-sm text-orange-600">(❌ 未连接)</span>
-                    )}
-                  </div>
-                  {gdriveStatusQuery.data?.authorized ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleDisconnectGdrive}
-                      disabled={isDisconnectingGdrive || isGenerating}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      {isDisconnectingGdrive ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          断开中...
-                        </>
-                      ) : (
-                        '断开连接'
-                      )}
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleConnectGdrive}
-                      disabled={isConnectingGdrive || isGenerating || gdriveStatusQuery.isLoading}
-                    >
-                      {isConnectingGdrive ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          连接中...
-                        </>
-                      ) : (
-                        '连接 Google Drive'
-                      )}
-                    </Button>
-                  )}
-                </div>
-                {gdriveStatusQuery.data?.expiresAt && (
-                  <div className="border-t p-3 text-sm text-gray-600">
-                    授权有效期至：{new Date(gdriveStatusQuery.data.expiresAt).toLocaleString('zh-CN')}
-                  </div>
-                )}
-                {/* 显示回调地址，方便用户复制添加到 Google Cloud Console */}
-                {gdriveAuthUrlQuery.data?.redirectUri && (
-                  <div className="border-t p-3">
-                    <div className="text-sm text-gray-600 mb-2">
-                      <span className="font-medium">回调地址</span>（需添加到 Google Cloud Console 的 Authorized redirect URIs）：
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 bg-gray-100 px-3 py-2 rounded text-sm font-mono text-gray-800 break-all">
-                        {gdriveAuthUrlQuery.data.redirectUri}
-                      </code>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          navigator.clipboard.writeText(gdriveAuthUrlQuery.data?.redirectUri || '');
-                          alert('已复制到剪贴板！');
-                        }}
-                      >
-                        复制
-                      </Button>
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* 系统自检 */}
