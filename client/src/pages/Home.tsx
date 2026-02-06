@@ -359,11 +359,11 @@ export default function Home() {
   const [transcriptFile, setTranscriptFile] = useState<{ name: string; content: string } | null>(null);
 
   // 自动从 Downloads 文件夹加载录音转文字
-  const [autoLoadTranscript, setAutoLoadTranscript] = useState(false);
+  const [autoLoadTranscript, setAutoLoadTranscript] = useState(true);
   const autoLoadedTranscriptRef = useRef<string | null>(null);
 
   // 自动从 Google Drive 本地文件夹加载上次反馈
-  const [autoLoadLastFeedback, setAutoLoadLastFeedback] = useState(false);
+  const [autoLoadLastFeedback, setAutoLoadLastFeedback] = useState(true);
   const autoLoadedLastFeedbackRef = useRef<string | null>(null);
 
   // 特殊选项
@@ -651,6 +651,7 @@ export default function Home() {
   const uploadClassFileMutation = trpc.feedback.uploadClassFile.useMutation();
   const readFromDownloadsMutation = trpc.localFile.readFromDownloads.useMutation();
   const readLastFeedbackMutation = trpc.localFile.readLastFeedback.useMutation();
+  const diagnoseMutation = trpc.localFile.diagnose.useMutation();
   // 加载配置
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
@@ -2716,9 +2717,9 @@ export default function Home() {
       </div>
       <div className="max-w-4xl mx-auto">
         {/* 标题 */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">托福阅读学情反馈系统</h1>
-          <p className="text-gray-600 mb-4">输入课堂信息，自动生成5个文档并存储到Google Drive</p>
+        <div className="text-center mb-4 sm:mb-8">
+          <h1 className="text-xl sm:text-3xl font-bold text-gray-800 mb-1">学情反馈系统</h1>
+          <p className="text-xs sm:text-base text-gray-600 mb-2 sm:mb-4">输入课堂信息，自动生成文档并存储到Google Drive</p>
           <RoadmapSettings disabled={isGenerating} />
         </div>
 
@@ -2743,8 +2744,8 @@ export default function Home() {
               <FileText className="w-5 h-5 text-blue-600" />
               课堂信息录入
             </CardTitle>
-            <CardDescription>
-              填写学生信息和课堂内容，系统将自动生成学情反馈、复习文档、测试本、课后信息提取和气泡图
+            <CardDescription className="text-xs sm:text-sm">
+              填写课堂信息，自动生成5个文档
             </CardDescription>
           </CardHeader>
           
@@ -2839,7 +2840,7 @@ export default function Home() {
                           onChange={(e) => setCurrentYear(e.target.value)}
                           disabled={isGenerating}
                         />
-                        <p className="text-xs text-gray-500">默认当前年份，可在右上角全局设置中修改</p>
+                        <p className="text-xs text-gray-500">可在设置中修改</p>
                       </div>
                       
                       <div className="space-y-2">
@@ -2858,7 +2859,7 @@ export default function Home() {
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-gray-500">可留空，AI会从笔记中自动提取</p>
+                        <p className="text-xs text-gray-500">可留空，AI自动提取</p>
                       </div>
                     </div>
 
@@ -2880,8 +2881,8 @@ export default function Home() {
                         }}
                         disabled={isGenerating}
                       />
-                      <Label htmlFor="isFirstLesson" className="cursor-pointer">
-                        新生首次课（勾选后“上次反馈”将替换为首次课范例）
+                      <Label htmlFor="isFirstLesson" className="cursor-pointer text-sm">
+                        新生首次课
                       </Label>
                     </div>
                   </>
@@ -2984,8 +2985,8 @@ export default function Home() {
                         }}
                         disabled={isGenerating}
                       />
-                      <Label htmlFor="isClassFirstLesson" className="cursor-pointer">
-                        首次课（勾选后“上次反馈”将替换为小班课首次课范例）
+                      <Label htmlFor="isClassFirstLesson" className="cursor-pointer text-sm">
+                        首次课
                       </Label>
                     </div>
 
@@ -3073,9 +3074,31 @@ export default function Home() {
                           />
                           <span className="text-xs text-gray-600 flex items-center gap-1">
                             <FolderDown className="h-3 w-3" />
-                            自动提取上次反馈
+                            云盘读取
                           </span>
                         </label>
+                        {autoLoadLastFeedback && (
+                          <button
+                            type="button"
+                            className="text-xs text-blue-500 underline hover:text-blue-700"
+                            disabled={diagnoseMutation.isPending}
+                            onClick={async () => {
+                              try {
+                                const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+                                const lesson = parseInt(lessonNumber.replace(/[^0-9]/g, ''), 10);
+                                const prevLesson = lesson > 1 ? lesson - 1 : 0;
+                                const prefix = courseType === 'class' ? `${classNumber.trim()}班` : name;
+                                const testFile = prevLesson > 0 ? `${prefix}${prevLesson}学情反馈.md` : undefined;
+                                const result = await diagnoseMutation.mutateAsync({ testFileName: testFile });
+                                alert(`Google Drive 诊断结果:\n\n${result.diagnostics.join('\n')}`);
+                              } catch (err: any) {
+                                alert(`诊断失败: ${err.message}`);
+                              }
+                            }}
+                          >
+                            {diagnoseMutation.isPending ? '诊断中...' : '诊断连接'}
+                          </button>
+                        )}
                         {!autoLoadLastFeedback && (
                           <FileUploadInput
                             onFileContent={(content, fileName) => {
@@ -3094,23 +3117,20 @@ export default function Home() {
                   </div>
                   {/* 非首次课 + 自动加载模式 */}
                   {autoLoadLastFeedback && !((courseType === 'oneToOne' && isFirstLesson) || (courseType === 'class' && isClassFirstLesson)) ? (
-                    <div className="h-[120px] flex flex-col items-center justify-center bg-gray-50 border border-dashed border-gray-300 rounded-md text-sm text-gray-500">
-                      <FolderDown className="h-8 w-8 mb-2 text-gray-400" />
+                    <div className="h-[72px] flex items-center justify-center gap-2 bg-gray-50 border border-dashed border-gray-300 rounded-md text-xs text-gray-500">
+                      <FolderDown className="h-5 w-5 text-gray-400 shrink-0" />
                       {(() => {
                         const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
                         const lesson = parseInt(lessonNumber.replace(/[^0-9]/g, ''), 10);
                         if (!name || isNaN(lesson) || lesson <= 1) {
-                          return <span>请先填写{courseType === 'oneToOne' ? '学生姓名' : '班号'}和课次（至少第2次课）</span>;
+                          return <span>请填写姓名和课次</span>;
                         }
                         const prevLesson = lesson - 1;
                         const prefix = courseType === 'class' ? `${classNumber.trim()}班` : name;
                         return (
-                          <>
-                            <span>点击生成时将自动读取:</span>
-                            <span className="font-mono font-semibold text-blue-600 mt-1">
-                              .../{prefix}/学情反馈/{prefix}{prevLesson}.md
-                            </span>
-                          </>
+                          <span className="font-mono text-blue-600 text-xs">
+                            {prefix}{prevLesson}学情反馈.md
+                          </span>
                         );
                       })()}
                     </div>
@@ -3134,10 +3154,10 @@ export default function Home() {
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-gray-500">
                       {(courseType === 'oneToOne' && isFirstLesson)
-                        ? "新生首次课可以不填此项。如需更新范例模板，可修改后点击右侧按钮保存。"
+                        ? "首次课可不填"
                         : (courseType === 'class' && isClassFirstLesson)
-                          ? "范例内容将透明转发给AI。如需更新范例模板，可修改后点击右侧按钮保存。"
-                          : "用于对比上次课内容，避免重复"
+                          ? "范例将透传给AI"
+                          : "对比上次课，避免重复"
                       }
                     </p>
                     {/* 更新范例按钮 - 只在首次课模式下显示 */}
@@ -3214,7 +3234,7 @@ export default function Home() {
                     disabled={isGenerating || !!currentNotesFile}
                   />
                   <p className="text-xs text-gray-500">
-                    包含课堂讲解的知识点、生词、长难句、错题等
+                    知识点、生词、长难句、错题等
                   </p>
                 </div>
 
@@ -3240,7 +3260,7 @@ export default function Home() {
                         />
                         <span className="text-xs text-gray-600 flex items-center gap-1">
                           <FolderDown className="h-3 w-3" />
-                          从下载文件夹自动提取
+                          云盘读取
                         </span>
                       </label>
                       {!autoLoadTranscript && (
@@ -3260,22 +3280,18 @@ export default function Home() {
                   </div>
                   {autoLoadTranscript ? (
                     // 自动加载模式：显示预期文件名
-                    <div className="h-[120px] flex flex-col items-center justify-center bg-gray-50 border border-dashed border-gray-300 rounded-md text-sm text-gray-500">
-                      <FolderDown className="h-8 w-8 mb-2 text-gray-400" />
+                    <div className="h-[72px] flex items-center justify-center gap-2 bg-gray-50 border border-dashed border-gray-300 rounded-md text-xs text-gray-500">
+                      <FolderDown className="h-5 w-5 text-gray-400 shrink-0" />
                       {(() => {
                         const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
                         const mmdd = getMMDD(lessonDate);
                         if (!name || !mmdd) {
-                          return <span>请先填写{courseType === 'oneToOne' ? '学生姓名' : '班号'}和日期</span>;
+                          return <span>请填写姓名和日期</span>;
                         }
-                        const expectedFileName = `${name}${mmdd}.docx`;
                         return (
-                          <>
-                            <span>点击生成时将自动读取:</span>
-                            <span className="font-mono font-semibold text-blue-600 mt-1">
-                              Google Drive: Downloads/{expectedFileName}
-                            </span>
-                          </>
+                          <span className="font-mono text-blue-600 text-xs">
+                            {name}{mmdd}.docx
+                          </span>
                         );
                       })()}
                     </div>
@@ -3293,48 +3309,39 @@ export default function Home() {
                     />
                   )}
                   <p className="text-xs text-gray-500">
-                    课堂录音转换的文字，用于提取课堂细节和互动内容
+                    录音转文字内容
                   </p>
                 </div>
               </div>
 
               {/* 提交按钮和停止按钮 */}
-              <div className="flex gap-3">
-                <Button 
-                  type="submit" 
-                  className="flex-1 h-12 text-lg"
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  className="flex-1 h-11 text-base"
                   disabled={isGenerating || !isFormValid}
                 >
                   {isGenerating ? (
                     <>
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      正在为「{currentGeneratingStudent}」生成 ({currentStep}/5)...
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      生成中 ({currentStep}/5)
                     </>
                   ) : (
-                    <>
-                      <FileText className="mr-2 h-5 w-5" />
-                      生成5个文档并保存到Google Drive
-                    </>
+                    '开始生成'
                   )}
                 </Button>
                 {isGenerating && (
-                  <Button 
+                  <Button
                     type="button"
                     variant="destructive"
-                    className="h-12 px-6"
+                    className="h-11 px-4"
                     onClick={handleStop}
                     disabled={isStopping}
                   >
                     {isStopping ? (
-                      <>
-                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                        停止中...
-                      </>
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <>
-                        <Square className="mr-2 h-5 w-5" />
-                        停止
-                      </>
+                      <Square className="h-4 w-4" />
                     )}
                   </Button>
                 )}
@@ -3365,13 +3372,13 @@ export default function Home() {
                         'text-blue-800'
                       }`}>
                         {isGenerating ? (
-                          courseType === 'oneToOne' 
-                            ? (isParallelPhase 
-                                ? `正在为「${currentGeneratingStudent}」并行生成4个文档...`
-                                : `正在为「${currentGeneratingStudent}」生成第 ${currentStep} 个文档...`)
+                          courseType === 'oneToOne'
+                            ? (isParallelPhase
+                                ? `${currentGeneratingStudent} 并行生成中...`
+                                : `${currentGeneratingStudent} (${currentStep}/5)`)
                             : (isClassParallelPhase
-                                ? `正在为 ${classNumber}班 并行生成4个文档...`
-                                : `正在为 ${classNumber}班 生成第 ${currentStep} 个文档...`)
+                                ? `${classNumber}班 并行生成中...`
+                                : `${classNumber}班 (${currentStep}/5)`)
                         ) :
                          isComplete ? '✅ 全部完成！' :
                          '⚠️ 生成过程中出错'}
@@ -3698,10 +3705,8 @@ export default function Home() {
         </Card>
 
         {/* 底部说明 */}
-        <div className="mt-6 text-center text-sm text-gray-500">
-          <p>系统会自动生成5个文档：学情反馈、复习文档、测试本、课后信息提取、气泡图</p>
-          <p className="mt-1">文档将按照V9路书规范格式化，并自动存储到Google Drive对应文件夹</p>
-          <p className="mt-1">日期信息将从课堂笔记中自动提取，无需手动填写</p>
+        <div className="mt-4 text-center text-xs text-gray-400">
+          <p>自动生成学情反馈、复习文档、测试本、课后信息提取、气泡图并存储到Google Drive</p>
         </div>
           </TabsContent>
 
