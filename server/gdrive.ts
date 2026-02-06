@@ -558,3 +558,14 @@ export async function ensureFolderExists(folderPath: string): Promise<{ success:
     return { success: false, error: errorMsg };
   }
 }
+
+/**
+ * 从 Google Drive 读取文件内容（通过 rclone cat）
+ * @param filePath Google Drive 上的文件路径，如 "Mac(online)/Documents/XDF/学生档案/孙浩然/学情反馈/孙浩然11.md"
+ * @returns 文件内容的 Buffer
+ */
+export async function readFileFromGoogleDrive(filePath: string): Promise<Buffer> {
+  const catCmd = `rclone cat "${REMOTE_NAME}:${filePath}" --config ${RCLONE_CONFIG}`;
+  const { stdout } = await execAsync(catCmd, { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024 });
+  return stdout;
+}

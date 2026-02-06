@@ -2151,7 +2151,7 @@ export default function Home() {
         setTranscriptFile({ name: result.fileName, content: result.content });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '读取文件失败';
-        alert(`自动加载失败: ${message}\n\n请确认文件 ${expectedFileName} 存在于 Downloads 文件夹中`);
+        alert(`自动加载失败: ${message}`);
         return;
       }
     }
@@ -3273,7 +3273,7 @@ export default function Home() {
                           <>
                             <span>点击生成时将自动读取:</span>
                             <span className="font-mono font-semibold text-blue-600 mt-1">
-                              ~/Downloads/{expectedFileName}
+                              Google Drive: Downloads/{expectedFileName}
                             </span>
                           </>
                         );

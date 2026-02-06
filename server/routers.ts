@@ -11,7 +11,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
-import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus } from "./gdrive";
+import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus, readFileFromGoogleDrive, verifyFileExists } from "./gdrive";
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
 import { 
   createLogSession, 
@@ -132,6 +132,7 @@ export const appRouter = router({
       const batchStoragePath = await getConfig("batchStoragePath");
       const maxTokens = await getConfig("maxTokens");
       const gdriveLocalBasePath = await getConfig("gdriveLocalBasePath");
+      const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath");
 
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
@@ -149,6 +150,7 @@ export const appRouter = router({
         batchStoragePath: batchStoragePath || DEFAULT_CONFIG.batchStoragePath,
         maxTokens: maxTokens || "64000",
         gdriveLocalBasePath: gdriveLocalBasePath || "",
+        gdriveDownloadsPath: gdriveDownloadsPath || "",
         // 返回是否使用默认值（apiKey 特殊处理：表示是否已配置）
         hasApiKey: !!apiKey,
         isDefault: {
@@ -180,6 +182,7 @@ export const appRouter = router({
         batchStoragePath: z.string().optional(),
         maxTokens: z.string().optional(),
         gdriveLocalBasePath: z.string().optional(),
+        gdriveDownloadsPath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -287,6 +290,14 @@ export const appRouter = router({
           }
           await setConfig("gdriveLocalBasePath", localPath, "Google Drive本地同步路径");
           updates.push("gdriveLocalBasePath");
+        }
+
+        if (input.gdriveDownloadsPath !== undefined) {
+          let dlPath = input.gdriveDownloadsPath.trim();
+          if (dlPath.startsWith('/')) dlPath = dlPath.slice(1);
+          if (dlPath.endsWith('/')) dlPath = dlPath.slice(0, -1);
+          await setConfig("gdriveDownloadsPath", dlPath, "Google Drive上Downloads文件夹路径");
+          updates.push("gdriveDownloadsPath");
         }
 
         return {
@@ -1355,8 +1366,9 @@ export const appRouter = router({
       }),
   }),
 
-  // 从本地 Downloads 文件夹读取文件
+  // 从 Google Drive 网盘读取文件
   localFile: router({
+    // 从 Google Drive 的 Downloads 文件夹读取录音转文字
     readFromDownloads: protectedProcedure
       .input(z.object({
         fileName: z.string().min(1, "请提供文件名"),
@@ -1364,16 +1376,14 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const { fileName } = input;
 
-        // 安全检查：防止路径遍历攻击
-        const baseName = path.basename(fileName);
-        if (baseName !== fileName) {
+        const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath");
+        if (!gdriveDownloadsPath) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
-            message: '文件名不合法',
+            message: '请先在全局设置 → 存储路径中配置「Downloads 文件夹路径」',
           });
         }
 
-        // 只允许 .docx / .txt / .md 扩展名
         const ext = path.extname(fileName).toLowerCase();
         if (!['.docx', '.txt', '.md'].includes(ext)) {
           throw new TRPCError({
@@ -1382,19 +1392,17 @@ export const appRouter = router({
           });
         }
 
-        const downloadsDir = path.join(os.homedir(), 'Downloads');
-        const filePath = path.join(downloadsDir, baseName);
+        const drivePath = `${gdriveDownloadsPath}/${fileName}`;
 
+        let buffer: Buffer;
         try {
-          await fs.access(filePath);
+          buffer = await readFileFromGoogleDrive(drivePath);
         } catch {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: `在 Downloads 文件夹中未找到文件: ${baseName}`,
+            message: `在 Google Drive 未找到文件: ${drivePath}`,
           });
         }
-
-        const buffer = await fs.readFile(filePath);
 
         let content: string;
         if (ext === '.docx') {
@@ -1413,11 +1421,11 @@ export const appRouter = router({
 
         return {
           content: content.trim(),
-          fileName: baseName,
+          fileName,
         };
       }),
 
-    // 从 Google Drive 本地同步文件夹读取上次学情反馈
+    // 从 Google Drive 读取上次学情反馈
     readLastFeedback: protectedProcedure
       .input(z.object({
         studentName: z.string().min(1),
@@ -1428,7 +1436,6 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const { studentName, lessonNumber, courseType, classNumber } = input;
 
-        // 计算上一次课次号
         const currentLesson = parseInt(lessonNumber.replace(/[^0-9]/g, ''), 10);
         if (isNaN(currentLesson) || currentLesson <= 1) {
           throw new TRPCError({
@@ -1438,18 +1445,10 @@ export const appRouter = router({
         }
         const prevLesson = currentLesson - 1;
 
-        // 获取 Google Drive 本地路径配置
-        const gdriveLocalBasePath = await getConfig("gdriveLocalBasePath");
-        if (!gdriveLocalBasePath) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: '请先在全局设置中配置「Google Drive 本地路径」',
-          });
-        }
+        // 使用已有的 driveBasePath 配置（跟上传学情反馈用同一个路径）
+        const driveBasePath = await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
 
         // 构建文件名和路径
-        // 一对一: {studentName}{prevLesson}.md -> {basePath}/{studentName}/学情反馈/
-        // 小班课: {classNumber}班{prevLesson}.md -> {basePath}/{classNumber}班/学情反馈/
         let folderName: string;
         let filePrefixNoSpace: string;
         let filePrefixWithSpace: string;
@@ -1463,37 +1462,38 @@ export const appRouter = router({
           filePrefixWithSpace = `${studentName} ${prevLesson}`;
         }
 
-        const feedbackDir = path.join(gdriveLocalBasePath, folderName, '学情反馈');
+        const feedbackFolder = `${driveBasePath}/${folderName}/学情反馈`;
 
-        // 尝试多种文件名变体（有/无空格）和扩展名（.md/.docx/.txt）
+        // 尝试多种文件名变体（有/无空格）和扩展名
         const extensions = ['.md', '.docx', '.txt'];
         const prefixes = [filePrefixNoSpace, filePrefixWithSpace];
-        let foundFile: string | null = null;
+        let foundPath: string | null = null;
         let foundExt: string | null = null;
+        let foundFileName: string | null = null;
 
         for (const prefix of prefixes) {
           for (const ext of extensions) {
-            const candidatePath = path.join(feedbackDir, `${prefix}${ext}`);
-            try {
-              await fs.access(candidatePath);
-              foundFile = candidatePath;
+            const candidateName = `${prefix}${ext}`;
+            const candidatePath = `${feedbackFolder}/${candidateName}`;
+            const result = await verifyFileExists(candidatePath);
+            if (result.exists) {
+              foundPath = candidatePath;
               foundExt = ext;
+              foundFileName = candidateName;
               break;
-            } catch {
-              // 继续尝试
             }
           }
-          if (foundFile) break;
+          if (foundPath) break;
         }
 
-        if (!foundFile || !foundExt) {
+        if (!foundPath || !foundExt || !foundFileName) {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: `未找到上次反馈文件: ${filePrefixNoSpace}(.md/.docx/.txt)\n查找路径: ${feedbackDir}`,
+            message: `未找到上次反馈文件: ${filePrefixNoSpace}(.md/.docx/.txt)\n查找路径: Google Drive/${feedbackFolder}`,
           });
         }
 
-        const buffer = await fs.readFile(foundFile);
+        const buffer = await readFileFromGoogleDrive(foundPath);
 
         let content: string;
         if (foundExt === '.docx') {
@@ -1512,7 +1512,7 @@ export const appRouter = router({
 
         return {
           content: content.trim(),
-          fileName: path.basename(foundFile),
+          fileName: foundFileName,
           prevLesson,
         };
       }),
