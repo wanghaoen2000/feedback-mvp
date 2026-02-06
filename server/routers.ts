@@ -1549,8 +1549,6 @@ export const appRouter = router({
           const prefixes = [
             `${classNumber}班${prevLesson}`,
             `${classNumber}班 ${prevLesson}`,
-            `${classNumber}班${prevLesson}学情反馈`,
-            `${classNumber}班 ${prevLesson}学情反馈`,
           ];
           for (const prefix of prefixes) {
             candidateFileNames.push(`${prefix}.md`, `${prefix}.docx`, `${prefix}.txt`);
@@ -1560,8 +1558,6 @@ export const appRouter = router({
           const prefixes = [
             `${studentName}${prevLesson}`,
             `${studentName} ${prevLesson}`,
-            `${studentName}${prevLesson}学情反馈`,
-            `${studentName} ${prevLesson}学情反馈`,
           ];
           for (const prefix of prefixes) {
             candidateFileNames.push(`${prefix}.md`, `${prefix}.docx`, `${prefix}.txt`);

@@ -3121,7 +3121,7 @@ export default function Home() {
                         const prefix = courseType === 'class' ? `${classNumber.trim()}班` : name;
                         return (
                           <span className="font-mono text-blue-600 text-xs">
-                            {prefix}{prevLesson}学情反馈.md
+                            {prefix}{prevLesson}.md
                           </span>
                         );
                       })()}
