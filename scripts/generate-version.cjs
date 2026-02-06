@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 // 版本号（手动维护，每次发布前更新）
-const VERSION = 'V106';
+const VERSION = 'V107';
 
 // 获取 Git commit hash
 let commitHash = 'unknown';
