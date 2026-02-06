@@ -651,6 +651,7 @@ export default function Home() {
   const uploadClassFileMutation = trpc.feedback.uploadClassFile.useMutation();
   const readFromDownloadsMutation = trpc.localFile.readFromDownloads.useMutation();
   const readLastFeedbackMutation = trpc.localFile.readLastFeedback.useMutation();
+  const diagnoseMutation = trpc.localFile.diagnose.useMutation();
   // 加载配置
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
@@ -3076,6 +3077,28 @@ export default function Home() {
                             自动提取上次反馈
                           </span>
                         </label>
+                        {autoLoadLastFeedback && (
+                          <button
+                            type="button"
+                            className="text-xs text-blue-500 underline hover:text-blue-700"
+                            disabled={diagnoseMutation.isPending}
+                            onClick={async () => {
+                              try {
+                                const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+                                const lesson = parseInt(lessonNumber.replace(/[^0-9]/g, ''), 10);
+                                const prevLesson = lesson > 1 ? lesson - 1 : 0;
+                                const prefix = courseType === 'class' ? `${classNumber.trim()}班` : name;
+                                const testFile = prevLesson > 0 ? `${prefix}${prevLesson}学情反馈.md` : undefined;
+                                const result = await diagnoseMutation.mutateAsync({ testFileName: testFile });
+                                alert(`Google Drive 诊断结果:\n\n${result.diagnostics.join('\n')}`);
+                              } catch (err: any) {
+                                alert(`诊断失败: ${err.message}`);
+                              }
+                            }}
+                          >
+                            {diagnoseMutation.isPending ? '诊断中...' : '诊断连接'}
+                          </button>
+                        )}
                         {!autoLoadLastFeedback && (
                           <FileUploadInput
                             onFileContent={(content, fileName) => {
