@@ -964,7 +964,7 @@ ${input.feedbackContent}
       sendEvent("progress", { message: "正在上传到 Google Drive..." });
       const basePath = `${driveBasePath}/${input.studentName}`;
       const fileName = `${input.studentName}${input.dateStr}课后信息提取.md`;
-      const folderPath = `${basePath}/课后信息提取`;
+      const folderPath = `${basePath}/课后信息`;
 
       const uploadKeepAlive = setInterval(() => {
         sendEvent("progress", { message: "正在上传到 Google Drive..." });
