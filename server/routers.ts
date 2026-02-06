@@ -131,6 +131,7 @@ export const appRouter = router({
       const batchFilePrefix = await getConfig("batchFilePrefix");
       const batchStoragePath = await getConfig("batchStoragePath");
       const maxTokens = await getConfig("maxTokens");
+      const gdriveLocalBasePath = await getConfig("gdriveLocalBasePath");
 
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
@@ -147,6 +148,7 @@ export const appRouter = router({
         batchFilePrefix: batchFilePrefix || DEFAULT_CONFIG.batchFilePrefix,
         batchStoragePath: batchStoragePath || DEFAULT_CONFIG.batchStoragePath,
         maxTokens: maxTokens || "64000",
+        gdriveLocalBasePath: gdriveLocalBasePath || "",
         // 返回是否使用默认值（apiKey 特殊处理：表示是否已配置）
         hasApiKey: !!apiKey,
         isDefault: {
@@ -177,6 +179,7 @@ export const appRouter = router({
         batchFilePrefix: z.string().optional(),
         batchStoragePath: z.string().optional(),
         maxTokens: z.string().optional(),
+        gdriveLocalBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -275,7 +278,17 @@ export const appRouter = router({
             updates.push("maxTokens");
           }
         }
-        
+
+        if (input.gdriveLocalBasePath !== undefined) {
+          // Google Drive 本地路径（绝对路径，允许以/开头）
+          let localPath = input.gdriveLocalBasePath.trim();
+          if (localPath.endsWith('/')) {
+            localPath = localPath.slice(0, -1);
+          }
+          await setConfig("gdriveLocalBasePath", localPath, "Google Drive本地同步路径");
+          updates.push("gdriveLocalBasePath");
+        }
+
         return {
           success: true,
           updated: updates,
@@ -1401,6 +1414,99 @@ export const appRouter = router({
         return {
           content: content.trim(),
           fileName: baseName,
+        };
+      }),
+
+    // 从 Google Drive 本地同步文件夹读取上次学情反馈
+    readLastFeedback: protectedProcedure
+      .input(z.object({
+        studentName: z.string().min(1),
+        lessonNumber: z.string().min(1),
+        courseType: z.enum(['oneToOne', 'class']).default('oneToOne'),
+        classNumber: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { studentName, lessonNumber, courseType, classNumber } = input;
+
+        // 计算上一次课次号
+        const currentLesson = parseInt(lessonNumber.replace(/[^0-9]/g, ''), 10);
+        if (isNaN(currentLesson) || currentLesson <= 1) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: '首次课没有上次反馈可加载',
+          });
+        }
+        const prevLesson = currentLesson - 1;
+
+        // 获取 Google Drive 本地路径配置
+        const gdriveLocalBasePath = await getConfig("gdriveLocalBasePath");
+        if (!gdriveLocalBasePath) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: '请先在全局设置中配置「Google Drive 本地路径」',
+          });
+        }
+
+        // 构建文件名和路径
+        // 一对一: {studentName}{prevLesson}.md -> {basePath}/{studentName}/学情反馈/
+        // 小班课: {classNumber}班{prevLesson}.md -> {basePath}/{classNumber}班/学情反馈/
+        let folderName: string;
+        let filePrefix: string;
+        if (courseType === 'class' && classNumber) {
+          folderName = `${classNumber}班`;
+          filePrefix = `${classNumber}班${prevLesson}`;
+        } else {
+          folderName = studentName;
+          filePrefix = `${studentName}${prevLesson}`;
+        }
+
+        const feedbackDir = path.join(gdriveLocalBasePath, folderName, '学情反馈');
+
+        // 尝试多种扩展名：.md, .docx, .txt
+        const extensions = ['.md', '.docx', '.txt'];
+        let foundFile: string | null = null;
+        let foundExt: string | null = null;
+
+        for (const ext of extensions) {
+          const candidatePath = path.join(feedbackDir, `${filePrefix}${ext}`);
+          try {
+            await fs.access(candidatePath);
+            foundFile = candidatePath;
+            foundExt = ext;
+            break;
+          } catch {
+            // 继续尝试下一个扩展名
+          }
+        }
+
+        if (!foundFile || !foundExt) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: `未找到上次反馈文件: ${filePrefix}(.md/.docx/.txt)\n查找路径: ${feedbackDir}`,
+          });
+        }
+
+        const buffer = await fs.readFile(foundFile);
+
+        let content: string;
+        if (foundExt === '.docx') {
+          const { parseDocxToText } = await import('./utils/documentParser');
+          content = await parseDocxToText(buffer);
+        } else {
+          content = buffer.toString('utf-8');
+        }
+
+        if (!content.trim()) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: '文件内容为空',
+          });
+        }
+
+        return {
+          content: content.trim(),
+          fileName: path.basename(foundFile),
+          prevLesson,
         };
       }),
   }),

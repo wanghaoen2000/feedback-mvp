@@ -33,6 +33,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
   const [driveBasePath, setDriveBasePath] = useState("");
   const [classStoragePath, setClassStoragePath] = useState("");
   const [batchStoragePath, setBatchStoragePath] = useState("");
+  const [gdriveLocalBasePath, setGdriveLocalBasePath] = useState("");
 
   // Google Drive 连接状态
   const [isConnectingGdrive, setIsConnectingGdrive] = useState(false);
@@ -76,6 +77,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
       setDriveBasePath(configQuery.data.driveBasePath || "");
       setClassStoragePath(configQuery.data.classStoragePath || "");
       setBatchStoragePath(configQuery.data.batchStoragePath || "");
+      setGdriveLocalBasePath(configQuery.data.gdriveLocalBasePath || "");
       // 不加载 apiKey，保持为空（安全考虑）
     }
   }, [open, configQuery.data]);
@@ -108,6 +110,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         driveBasePath: driveBasePath.trim() || undefined,
         classStoragePath: classStoragePath.trim() || undefined,
         batchStoragePath: batchStoragePath.trim() || undefined,
+        gdriveLocalBasePath: gdriveLocalBasePath.trim() || undefined,
       });
       await configQuery.refetch();
       alert("全局设置已保存！");
@@ -313,6 +316,19 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
               />
               <p className="text-xs text-muted-foreground">
                 批量生成内容的 Google Drive 存储路径
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-2 border-t">
+              <Label htmlFor="global-gdriveLocalBasePath">Google Drive 本地路径</Label>
+              <Input
+                id="global-gdriveLocalBasePath"
+                value={gdriveLocalBasePath}
+                onChange={(e) => setGdriveLocalBasePath(e.target.value)}
+                placeholder="/Users/wang/Library/CloudStorage/GoogleDrive-.../我的云端硬盘/Mac(online)/Documents/XDF/学生档案"
+              />
+              <p className="text-xs text-muted-foreground">
+                Google Drive 同步到本地的绝对路径（到「学生档案」文件夹），用于自动读取上次反馈文件。
               </p>
             </div>
           </TabsContent>
