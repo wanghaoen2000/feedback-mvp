@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Loader2, Save, FolderOpen, Key } from "lucide-react";
+import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 interface GlobalSettingsProps {
@@ -34,10 +34,35 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
   const [classStoragePath, setClassStoragePath] = useState("");
   const [batchStoragePath, setBatchStoragePath] = useState("");
 
+  // Google Drive 连接状态
+  const [isConnectingGdrive, setIsConnectingGdrive] = useState(false);
+  const [isDisconnectingGdrive, setIsDisconnectingGdrive] = useState(false);
+
+  // 系统自检状态
+  const [isChecking, setIsChecking] = useState(false);
+  const [checkResults, setCheckResults] = useState<{
+    name: string;
+    status: 'success' | 'error' | 'skipped' | 'pending';
+    message: string;
+    suggestion?: string;
+  }[]>([]);
+  const [checkSummary, setCheckSummary] = useState<{
+    passed: number;
+    total: number;
+    allPassed: boolean;
+  } | null>(null);
+
   // 获取配置
   const configQuery = trpc.config.getAll.useQuery(undefined, {
     enabled: open, // 只在对话框打开时获取
   });
+
+  // Google Drive 状态查询
+  const gdriveStatusQuery = trpc.feedback.googleAuthStatus.useQuery();
+  const gdriveAuthUrlQuery = trpc.feedback.googleAuthUrl.useQuery();
+  const gdriveDisconnectMutation = trpc.feedback.googleAuthDisconnect.useMutation();
+  const gdriveCallbackMutation = trpc.feedback.googleAuthCallback.useMutation();
+  const systemCheckMutation = trpc.feedback.systemCheck.useMutation();
 
   // 更新配置
   const updateConfigMutation = trpc.config.update.useMutation();
@@ -54,6 +79,23 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
       // 不加载 apiKey，保持为空（安全考虑）
     }
   }, [open, configQuery.data]);
+
+  // 处理OAuth回调（从授权页面返回后）
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    if (code) {
+      // 清除URL中的code参数
+      window.history.replaceState({}, '', window.location.pathname);
+      // 处理授权回调
+      gdriveCallbackMutation.mutateAsync({ code }).then(() => {
+        gdriveStatusQuery.refetch();
+        alert('Google Drive 授权成功！');
+      }).catch((error) => {
+        alert('授权失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      });
+    }
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -77,6 +119,68 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
     }
   };
 
+  // Google Drive 连接处理
+  const handleConnectGdrive = async () => {
+    setIsConnectingGdrive(true);
+    try {
+      if (gdriveAuthUrlQuery.data?.url) {
+        window.open(gdriveAuthUrlQuery.data.url, '_blank');
+      }
+    } catch (error) {
+      console.error('Failed to get auth URL:', error);
+    } finally {
+      setIsConnectingGdrive(false);
+    }
+  };
+
+  const handleDisconnectGdrive = async () => {
+    if (!confirm('确定要断开Google Drive连接吗？断开后需要重新授权才能上传文件。')) {
+      return;
+    }
+    setIsDisconnectingGdrive(true);
+    try {
+      await gdriveDisconnectMutation.mutateAsync();
+      await gdriveStatusQuery.refetch();
+    } catch (error) {
+      console.error('Failed to disconnect:', error);
+    } finally {
+      setIsDisconnectingGdrive(false);
+    }
+  };
+
+  // 系统自检
+  const handleSystemCheck = async () => {
+    setIsChecking(true);
+    setCheckResults([]);
+    setCheckSummary(null);
+
+    try {
+      const result = await systemCheckMutation.mutateAsync();
+      if (result.success) {
+        setCheckResults(result.results);
+        setCheckSummary({
+          passed: result.passed,
+          total: result.total,
+          allPassed: result.allPassed,
+        });
+      } else {
+        setCheckResults([{
+          name: '系统错误',
+          status: 'error',
+          message: result.error || '自检失败',
+        }]);
+      }
+    } catch (error) {
+      setCheckResults([{
+        name: '系统错误',
+        status: 'error',
+        message: `自检失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      }]);
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -88,12 +192,12 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         <DialogHeader>
           <DialogTitle>全局设置</DialogTitle>
           <DialogDescription>
-            API配置和存储路径设置。这些设置对一对一、小班课、批量生成全局生效。
+            API配置、存储路径和 Google Drive 连接设置。
           </DialogDescription>
         </DialogHeader>
 
         <Tabs defaultValue="api" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="api" className="flex items-center gap-2">
               <Key className="h-4 w-4" />
               API配置
@@ -101,6 +205,14 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
             <TabsTrigger value="storage" className="flex items-center gap-2">
               <FolderOpen className="h-4 w-4" />
               存储路径
+            </TabsTrigger>
+            <TabsTrigger value="gdrive" className="flex items-center gap-2">
+              <Cloud className="h-4 w-4" />
+              云盘连接
+            </TabsTrigger>
+            <TabsTrigger value="check" className="flex items-center gap-2">
+              <Search className="h-4 w-4" />
+              系统自检
             </TabsTrigger>
           </TabsList>
 
@@ -202,6 +314,175 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
               <p className="text-xs text-muted-foreground">
                 批量生成内容的 Google Drive 存储路径
               </p>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="gdrive" className="space-y-4 mt-4">
+            {/* 连接状态 */}
+            <div className="border rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Cloud className="w-5 h-5 text-gray-600" />
+                  <span className="font-medium">Google Drive</span>
+                  {gdriveStatusQuery.isLoading ? (
+                    <span className="text-sm text-gray-500">(检查中...)</span>
+                  ) : gdriveStatusQuery.data?.authorized ? (
+                    <span className="text-sm text-green-600">(✅ 已连接)</span>
+                  ) : (
+                    <span className="text-sm text-orange-600">(❌ 未连接)</span>
+                  )}
+                </div>
+                {gdriveStatusQuery.data?.authorized ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDisconnectGdrive}
+                    disabled={isDisconnectingGdrive}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    {isDisconnectingGdrive ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        断开中...
+                      </>
+                    ) : (
+                      '断开连接'
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleConnectGdrive}
+                    disabled={isConnectingGdrive || gdriveStatusQuery.isLoading}
+                  >
+                    {isConnectingGdrive ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        连接中...
+                      </>
+                    ) : (
+                      '连接 Google Drive'
+                    )}
+                  </Button>
+                )}
+              </div>
+              {gdriveStatusQuery.data?.expiresAt && (
+                <p className="text-sm text-gray-600 mt-3">
+                  授权有效期至：{new Date(gdriveStatusQuery.data.expiresAt).toLocaleString('zh-CN')}
+                </p>
+              )}
+            </div>
+
+            {/* 回调地址 */}
+            {gdriveAuthUrlQuery.data?.redirectUri && (
+              <div className="border rounded-lg p-4">
+                <div className="text-sm text-gray-600 mb-2">
+                  <span className="font-medium">回调地址</span>（需添加到 Google Cloud Console）：
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-gray-100 px-3 py-2 rounded text-xs font-mono text-gray-800 break-all">
+                    {gdriveAuthUrlQuery.data.redirectUri}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(gdriveAuthUrlQuery.data?.redirectUri || '');
+                      alert('已复制到剪贴板！');
+                    }}
+                  >
+                    复制
+                  </Button>
+                </div>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="check" className="space-y-4 mt-4">
+            {/* 系统自检 */}
+            <div className="border rounded-lg overflow-hidden">
+              <div className="bg-gray-50 p-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Search className="w-4 h-4 text-gray-600" />
+                  <span className="font-medium">系统自检</span>
+                  {checkSummary && (
+                    <span className={`text-sm ${checkSummary.allPassed ? 'text-green-600' : 'text-orange-600'}`}>
+                      ({checkSummary.passed}/{checkSummary.total} 通过)
+                    </span>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSystemCheck}
+                  disabled={isChecking}
+                >
+                  {isChecking ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      检测中...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      开始检测
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {checkResults.length > 0 && (
+                <div className="border-t divide-y">
+                  {checkResults.map((result, index) => (
+                    <div key={index} className="p-3 flex items-start gap-3">
+                      <div className="mt-0.5">
+                        {result.status === 'success' && <CheckCircle2 className="w-5 h-5 text-green-500" />}
+                        {result.status === 'error' && <XCircle className="w-5 h-5 text-red-500" />}
+                        {result.status === 'skipped' && <MinusCircle className="w-5 h-5 text-gray-400" />}
+                        {result.status === 'pending' && <Circle className="w-5 h-5 text-gray-300" />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm">{result.name}</span>
+                          <span className={`text-sm ${
+                            result.status === 'success' ? 'text-green-600' :
+                            result.status === 'error' ? 'text-red-600' :
+                            'text-gray-500'
+                          }`}>
+                            {result.message}
+                          </span>
+                        </div>
+                        {result.suggestion && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            └─ {result.suggestion}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {checkSummary && !checkSummary.allPassed && (
+                <div className="bg-orange-50 border-t p-3">
+                  <p className="text-sm text-orange-700">
+                    ⚠️ 有 {checkSummary.total - checkSummary.passed} 项需要修复，修复后才能正常生成文档
+                  </p>
+                </div>
+              )}
+
+              {checkSummary && checkSummary.allPassed && (
+                <div className="bg-green-50 border-t p-3">
+                  <p className="text-sm text-green-700">
+                    ✅ 所有检测项均通过，可以正常生成文档
+                  </p>
+                </div>
+              )}
             </div>
           </TabsContent>
         </Tabs>
