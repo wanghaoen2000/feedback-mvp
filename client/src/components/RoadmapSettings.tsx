@@ -28,7 +28,7 @@ const DebouncedTextarea = React.memo(function DebouncedTextarea({
   onChange: (value: string) => void;
 } & Omit<React.ComponentProps<typeof Textarea>, 'value' | 'onChange'>) {
   const [localValue, setLocalValue] = useState(value);
-  const timeoutRef = React.useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     setLocalValue(value);

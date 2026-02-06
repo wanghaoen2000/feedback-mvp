@@ -321,13 +321,13 @@ export const appRouter = router({
     // 保存学生/班级历史记录
     saveStudentHistory: protectedProcedure
       .input(z.object({
-        history: z.record(z.object({
+        history: z.record(z.string(), z.object({
           lesson: z.number(),
           lastUsed: z.number(),
         })),
       }))
       .mutation(async ({ input }) => {
-        await setConfig("studentLessonHistory", JSON.stringify(input.history), "学生/班级课次历史记录");
+        await setConfig("studentLessonHistory", JSON.stringify(input.history));
         return { success: true };
       }),
   }),
