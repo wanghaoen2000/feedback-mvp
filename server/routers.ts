@@ -1267,9 +1267,12 @@ export const appRouter = router({
         driveBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
+        // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
+        const classStoragePath = await getConfig("classStoragePath");
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const effectivePath = classStoragePath || driveBasePath;
         // 路径格式：{basePath}/{classNumber}班/
-        const basePath = `${driveBasePath}/${input.classNumber}班`;
+        const basePath = `${effectivePath}/${input.classNumber}班`;
         
         let fileName: string;
         let filePath: string;

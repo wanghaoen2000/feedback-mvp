@@ -1090,8 +1090,10 @@ ${input.feedbackContent}
       const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
       const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
-      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
-      
+      // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
+      const classStoragePath = await getConfig("classStoragePath");
+      const driveBasePath = input.driveBasePath || classStoragePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+
       // 创建日志会话
       log = createLogSession(
         `班级${input.classNumber}`,
@@ -1273,7 +1275,9 @@ ${input.currentNotes}
       const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
       const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
-      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
+      const classStoragePath = await getConfig("classStoragePath");
+      const driveBasePath = input.driveBasePath || classStoragePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成测试本` });
 
@@ -1400,7 +1404,9 @@ ${input.currentNotes}
       const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
       const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
-      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
+      const classStoragePath = await getConfig("classStoragePath");
+      const driveBasePath = input.driveBasePath || classStoragePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成课后信息提取` });
 
