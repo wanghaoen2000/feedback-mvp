@@ -543,6 +543,7 @@ ${input.transcript}
   // 复习文档输入验证 schema
   const reviewInputSchema = z.object({
     studentName: z.string().min(1),
+    lessonNumber: z.string().optional(),
     dateStr: z.string().min(1),
     feedbackContent: z.string().min(1),
     apiModel: z.string().optional(),
@@ -759,6 +760,7 @@ ${input.feedbackContent}
   // 测试本输入验证 schema
   const testInputSchema = z.object({
     studentName: z.string().min(1),
+    lessonNumber: z.string().optional(),
     dateStr: z.string().min(1),
     feedbackContent: z.string().min(1),
     apiModel: z.string().optional(),
@@ -889,6 +891,7 @@ ${input.feedbackContent}
   // 课后信息提取输入验证 schema
   const extractionInputSchema = z.object({
     studentName: z.string().min(1),
+    lessonNumber: z.string().optional(),
     dateStr: z.string().min(1),
     nextLessonDate: z.string().optional(),
     feedbackContent: z.string().min(1),

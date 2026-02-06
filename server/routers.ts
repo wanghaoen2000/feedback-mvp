@@ -443,6 +443,7 @@ export const appRouter = router({
     generateReview: protectedProcedure
       .input(z.object({
         studentName: z.string(),
+        lessonNumber: z.string().optional(),
         dateStr: z.string(),
         feedbackContent: z.string(),
         apiModel: z.string().optional(),
@@ -534,6 +535,7 @@ export const appRouter = router({
     generateTest: protectedProcedure
       .input(z.object({
         studentName: z.string(),
+        lessonNumber: z.string().optional(),
         dateStr: z.string(),
         feedbackContent: z.string(),
         apiModel: z.string().optional(),
@@ -624,6 +626,7 @@ export const appRouter = router({
     generateExtraction: protectedProcedure
       .input(z.object({
         studentName: z.string(),
+        lessonNumber: z.string().optional(),
         dateStr: z.string(),
         feedbackContent: z.string(),
         apiModel: z.string().optional(),
@@ -789,6 +792,7 @@ export const appRouter = router({
     uploadBubbleChart: protectedProcedure
       .input(z.object({
         studentName: z.string(),
+        lessonNumber: z.string().optional(),
         dateStr: z.string(),
         pngBase64: z.string(), // base64编码的PNG数据
         driveBasePath: z.string().optional(),
@@ -840,6 +844,7 @@ export const appRouter = router({
     verifyAll: protectedProcedure
       .input(z.object({
         studentName: z.string(),
+        lessonNumber: z.string().optional(),
         dateStr: z.string(),
         driveBasePath: z.string().optional(),
       }))
@@ -1260,6 +1265,7 @@ export const appRouter = router({
     uploadClassFile: protectedProcedure
       .input(z.object({
         classNumber: z.string(),
+        lessonNumber: z.string().optional(),
         dateStr: z.string(),
         fileType: z.enum(['feedback', 'review', 'test', 'extraction', 'bubbleChart']),
         studentName: z.string().optional(), // 反馈和气泡图需要
