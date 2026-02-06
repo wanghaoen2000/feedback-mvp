@@ -1924,7 +1924,6 @@ export default function Home() {
                 body: JSON.stringify({
                   classNumber: classNumber.trim(),
                   lessonNumber: lessonNumber.trim(),
-                  lessonDate: lessonDate.trim(),
                   attendanceStudents: validStudents,
                   lastFeedback: lastFeedback.trim(),
                   currentNotes: currentNotes.trim(),
@@ -1932,6 +1931,7 @@ export default function Home() {
                   specialRequirements: specialRequirements.trim(),
                   taskId: cfTaskId,
                   ...configSnapshot,
+                  lessonDate: lessonDate.trim(),
                 }),
               });
 
@@ -2024,7 +2024,7 @@ export default function Home() {
             try {
               const rRes = await fetch('/api/class-review-stream', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ classNumber: classNumber.trim(), lessonNumber: lessonNumber.trim(), lessonDate: dateStr, attendanceStudents: validStudents, currentNotes: currentNotes.trim(), combinedFeedback: feedbackContent, taskId: rTaskId, ...configSnapshot }),
+                body: JSON.stringify({ classNumber: classNumber.trim(), lessonNumber: lessonNumber.trim(), attendanceStudents: validStudents, currentNotes: currentNotes.trim(), combinedFeedback: feedbackContent, taskId: rTaskId, ...configSnapshot, lessonDate: dateStr }),
               });
               if (!rRes.ok) throw new Error(`HTTP ${rRes.status}`);
               const reader = rRes.body?.getReader();
@@ -2053,7 +2053,7 @@ export default function Home() {
             try {
               const tRes = await fetch('/api/class-test-stream', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ classNumber: classNumber.trim(), lessonNumber: lessonNumber.trim(), lessonDate: dateStr, attendanceStudents: validStudents, currentNotes: currentNotes.trim(), combinedFeedback: feedbackContent, taskId: tTaskId, ...configSnapshot }),
+                body: JSON.stringify({ classNumber: classNumber.trim(), lessonNumber: lessonNumber.trim(), attendanceStudents: validStudents, currentNotes: currentNotes.trim(), combinedFeedback: feedbackContent, taskId: tTaskId, ...configSnapshot, lessonDate: dateStr }),
               });
               if (!tRes.ok) throw new Error(`HTTP ${tRes.status}`);
               const reader = tRes.body?.getReader();
@@ -2082,7 +2082,7 @@ export default function Home() {
             try {
               const eRes = await fetch('/api/class-extraction-stream', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ classNumber: classNumber.trim(), lessonNumber: lessonNumber.trim(), lessonDate: dateStr, attendanceStudents: validStudents, combinedFeedback: feedbackContent, taskId: eTaskId, ...configSnapshot }),
+                body: JSON.stringify({ classNumber: classNumber.trim(), lessonNumber: lessonNumber.trim(), attendanceStudents: validStudents, combinedFeedback: feedbackContent, taskId: eTaskId, ...configSnapshot, lessonDate: dateStr }),
               });
               if (!eRes.ok) throw new Error(`HTTP ${eRes.status}`);
               const reader = eRes.body?.getReader();
