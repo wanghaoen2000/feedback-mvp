@@ -294,8 +294,18 @@ export default function Home() {
   // 基本信息（一对一）
   const [studentName, setStudentName] = useState("");
   const [lessonNumber, setLessonNumber] = useState("");
-  const [lessonDate, setLessonDate] = useState(""); // 本次课日期，如"1月5日"
-  const [currentYear, setCurrentYear] = useState("2026"); // 年份
+  // 获取当前北京时间（UTC+8）
+  const getBeijingTime = () => {
+    const now = new Date();
+    return new Date(now.getTime() + (8 * 60 - now.getTimezoneOffset()) * 60 * 1000);
+  };
+  const [lessonDate, setLessonDate] = useState(() => {
+    const beijingTime = getBeijingTime();
+    return `${beijingTime.getUTCMonth() + 1}月${beijingTime.getUTCDate()}日`;
+  }); // 本次课日期，默认当前北京时间日期
+  const [currentYear, setCurrentYear] = useState(() => {
+    return getBeijingTime().getUTCFullYear().toString();
+  }); // 年份，默认当前北京时间年份
   
   // 小班课特有字段
   const [classNumber, setClassNumber] = useState(""); // 班号
@@ -437,7 +447,10 @@ export default function Home() {
       // apiKey 不再从服务器返回，保持为空（安全考虑）
       // setApiKey(configQuery.data.apiKey);
       setApiUrl(configQuery.data.apiUrl);
-      setCurrentYear(configQuery.data.currentYear || "2026");
+      // 只有服务器有配置时才覆盖，否则保持当前北京时间年份
+      if (configQuery.data.currentYear) {
+        setCurrentYear(configQuery.data.currentYear);
+      }
       setRoadmap(configQuery.data.roadmap || "");
       setFirstLessonTemplate(configQuery.data.firstLessonTemplate || "");
       setRoadmapClass(configQuery.data.roadmapClass || "");
@@ -789,7 +802,7 @@ export default function Home() {
 
             const taskEnd = Date.now();
             setParallelTasks(prev => ({ ...prev, review: { status: 'success', startTime: taskStart, endTime: taskEnd, charCount: reviewCharCount, uploadResult: reviewUploadResult || undefined } }));
-            updateStep(1, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: reviewCharCount ? `共${reviewCharCount}字` : '复习文档已上传', endTime: taskEnd, uploadResult: reviewUploadResult });
+            updateStep(1, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: `复习文档已生成并上传，共${reviewCharCount}字`, endTime: taskEnd, uploadResult: reviewUploadResult });
             return { type: 'review', success: true, duration: taskEnd - taskStart, charCount: reviewCharCount, uploadResult: reviewUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
@@ -886,7 +899,7 @@ export default function Home() {
 
             const taskEnd = Date.now();
             setParallelTasks(prev => ({ ...prev, test: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: testUploadResult || undefined } }));
-            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: testCharCount > 0 ? `共${testCharCount}字` : '测试本已上传', endTime: taskEnd, uploadResult: testUploadResult });
+            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: `测试本已生成并上传，共${testCharCount}字`, endTime: taskEnd, uploadResult: testUploadResult });
             return { type: 'test', success: true, duration: taskEnd - taskStart, uploadResult: testUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
@@ -983,7 +996,7 @@ export default function Home() {
 
             const taskEnd = Date.now();
             setParallelTasks(prev => ({ ...prev, extraction: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: extractionUploadResult || undefined } }));
-            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: extractionCharCount > 0 ? `共${extractionCharCount}字` : '课后信息已上传', endTime: taskEnd, uploadResult: extractionUploadResult });
+            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: `课后信息已生成并上传，共${extractionCharCount}字`, endTime: taskEnd, uploadResult: extractionUploadResult });
             return { type: 'extraction', success: true, duration: taskEnd - taskStart, uploadResult: extractionUploadResult };
           } catch (error) {
             const taskEnd = Date.now();
@@ -1054,7 +1067,7 @@ export default function Home() {
 
             const taskEnd = Date.now();
             setParallelTasks(prev => ({ ...prev, bubble: { status: 'success', startTime: taskStart, endTime: taskEnd, uploadResult: uploadResult.uploadResult } }));
-            updateStep(4, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '气泡图已上传', endTime: taskEnd, uploadResult: uploadResult.uploadResult });
+            updateStep(4, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: '气泡图已生成并上传', endTime: taskEnd, uploadResult: uploadResult.uploadResult });
             return { type: 'bubble', success: true, duration: taskEnd - taskStart, uploadResult: uploadResult.uploadResult };
           } catch (error) {
             const taskEnd = Date.now();
@@ -1347,7 +1360,7 @@ export default function Home() {
       updateStep(0, {
         status: 'success',
         message: `学情反馈生成完成 (${step1Time}秒)`,
-        detail: `共${combinedFeedback.length}字`,
+        detail: `学情反馈已生成并上传，共${combinedFeedback.length}字`,
         uploadResult: {
           fileName: feedbackUploadResult.fileName,
           url: feedbackUploadResult.url,
@@ -1467,7 +1480,7 @@ export default function Home() {
             updateStep(1, {
               status: 'success',
               message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`,
-              detail: classReviewCharCount > 0 ? `共${classReviewCharCount}字` : '复习文档已上传',
+              detail: `复习文档已生成并上传，共${classReviewCharCount}字`,
               endTime: taskEnd,
               uploadResult: classReviewUploadResult
             });
@@ -1568,7 +1581,7 @@ export default function Home() {
             if (!testUploadResult) throw new Error('测试本生成失败：未收到上传结果（后端可能仍在处理，请稍后重试）');
 
             const taskEnd = Date.now();
-            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: testCharCount > 0 ? `共${testCharCount}字` : '测试本已上传', endTime: taskEnd, uploadResult: testUploadResult });
+            updateStep(2, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: `测试本已生成并上传，共${testCharCount}字`, endTime: taskEnd, uploadResult: testUploadResult });
             setClassParallelTasks(prev => ({ ...prev, test: { status: 'success', startTime: prev.test.startTime, endTime: taskEnd, uploadResult: testUploadResult || undefined } }));
             return { type: 'test', success: true, duration: taskEnd - taskStart, uploadResult: testUploadResult };
           } catch (error) {
@@ -1665,7 +1678,7 @@ export default function Home() {
             if (!extractionUploadResult) throw new Error('课后信息提取失败：未收到上传结果（后端可能仍在处理，请稍后重试）');
 
             const taskEnd = Date.now();
-            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: extractionCharCount > 0 ? `共${extractionCharCount}字` : '课后信息已上传', endTime: taskEnd, uploadResult: extractionUploadResult });
+            updateStep(3, { status: 'success', message: `完成 (${Math.round((taskEnd - taskStart) / 1000)}秒)`, detail: `课后信息已生成并上传，共${extractionCharCount}字`, endTime: taskEnd, uploadResult: extractionUploadResult });
             setClassParallelTasks(prev => ({ ...prev, extraction: { status: 'success', startTime: prev.extraction.startTime, endTime: taskEnd, uploadResult: extractionUploadResult || undefined } }));
             return { type: 'extraction', success: true, duration: taskEnd - taskStart, uploadResult: extractionUploadResult };
           } catch (error) {
@@ -1998,7 +2011,7 @@ export default function Home() {
               driveBasePath: configSnapshot.driveBasePath,
             });
 
-            updateStep(0, { status: 'success', message: '生成完成', uploadResult: { fileName: cfUploadResult.fileName, url: cfUploadResult.url, path: cfUploadResult.path } });
+            updateStep(0, { status: 'success', message: '生成完成', detail: `学情反馈已生成并上传，共${cfFeedbackContent.length}字`, uploadResult: { fileName: cfUploadResult.fileName, url: cfUploadResult.url, path: cfUploadResult.path } });
             break;
           }
 
@@ -2133,7 +2146,7 @@ export default function Home() {
             );
             
             const bubbleSuccessCount = bubbleResults.filter(r => r.status === 'fulfilled' && r.value.success).length;
-            updateStep(4, { status: 'success', message: '生成完成', detail: `已生成 ${bubbleSuccessCount}/${validStudents.length} 个气泡图` });
+            updateStep(4, { status: 'success', message: '生成完成', detail: `气泡图已生成并上传，共${bubbleSuccessCount}/${validStudents.length}个` });
             break;
         }
       } else {
@@ -2162,7 +2175,7 @@ export default function Home() {
             if (!fbResult) throw new Error('学情反馈生成失败：未收到结果');
             setFeedbackContent(fbResult.feedbackContent);
             setDateStr(fbResult.dateStr);
-            updateStep(0, { status: 'success', message: '生成完成', uploadResult: fbResult.uploadResult });
+            updateStep(0, { status: 'success', message: '生成完成', detail: `学情反馈已生成并上传，共${fbResult.feedbackContent.length}字`, uploadResult: fbResult.uploadResult });
             break;
           }
 
@@ -2245,7 +2258,7 @@ export default function Home() {
             const retryUploadResult = await uploadBubbleChartMutation.mutateAsync({
               studentName: studentName.trim(), dateStr, pngBase64: retryPngBase64, driveBasePath: configSnapshot.driveBasePath,
             });
-            updateStep(4, { status: 'success', message: '生成完成', uploadResult: retryUploadResult.uploadResult });
+            updateStep(4, { status: 'success', message: '生成完成', detail: '气泡图已生成并上传', uploadResult: retryUploadResult.uploadResult });
             break;
           }
         }
@@ -2589,7 +2602,7 @@ export default function Home() {
                           onChange={(e) => setCurrentYear(e.target.value)}
                           disabled={isGenerating}
                         />
-                        <p className="text-xs text-gray-500">默认2026，修改后在高级设置中保存可持久化</p>
+                        <p className="text-xs text-gray-500">默认当前年份，修改后在高级设置中保存可持久化</p>
                       </div>
                       
                       <div className="space-y-2">
