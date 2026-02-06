@@ -286,6 +286,32 @@ export const appRouter = router({
           message: `已重置: ${input.keys.join(", ")}`,
         };
       }),
+
+    // 获取学生/班级历史记录
+    getStudentHistory: protectedProcedure.query(async () => {
+      const historyJson = await getConfig("studentLessonHistory");
+      if (!historyJson) {
+        return {};
+      }
+      try {
+        return JSON.parse(historyJson);
+      } catch {
+        return {};
+      }
+    }),
+
+    // 保存学生/班级历史记录
+    saveStudentHistory: protectedProcedure
+      .input(z.object({
+        history: z.record(z.object({
+          lesson: z.number(),
+          lastUsed: z.number(),
+        })),
+      }))
+      .mutation(async ({ input }) => {
+        await setConfig("studentLessonHistory", JSON.stringify(input.history), "学生/班级课次历史记录");
+        return { success: true };
+      }),
   }),
 
   // 学情反馈生成 - 拆分为5个独立端点

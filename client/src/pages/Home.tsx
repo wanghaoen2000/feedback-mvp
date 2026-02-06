@@ -393,8 +393,40 @@ export default function Home() {
     lastUsed: number; // 时间戳，用于排序
   }
 
-  // 从 localStorage 获取学生课次历史
+  // 从服务器获取学生历史记录（首次加载）
+  const [studentHistoryCache, setStudentHistoryCache] = useState<Record<string, StudentRecord>>({});
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  // 从服务器获取历史记录
+  const { data: serverHistory } = trpc.config.getStudentHistory.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: Infinity, // 不自动重新获取
+  });
+
+  // 保存到服务器的 mutation
+  const saveHistoryMutation = trpc.config.saveStudentHistory.useMutation();
+
+  // 当服务器数据返回时，更新缓存
+  useEffect(() => {
+    if (serverHistory && !historyLoaded) {
+      setStudentHistoryCache(serverHistory as Record<string, StudentRecord>);
+      setHistoryLoaded(true);
+      // 同步到 localStorage 作为离线缓存
+      try {
+        localStorage.setItem(STUDENT_LESSON_STORAGE_KEY, JSON.stringify(serverHistory));
+      } catch (e) {
+        console.warn('同步到 localStorage 失败:', e);
+      }
+    }
+  }, [serverHistory, historyLoaded]);
+
+  // 从缓存或 localStorage 获取学生课次历史
   const getStudentLessonHistory = (): Record<string, StudentRecord> => {
+    // 优先使用缓存（已从服务器加载）
+    if (historyLoaded && Object.keys(studentHistoryCache).length > 0) {
+      return studentHistoryCache;
+    }
+    // 回退到 localStorage（离线或首次加载）
     try {
       const data = localStorage.getItem(STUDENT_LESSON_STORAGE_KEY);
       return data ? JSON.parse(data) : {};
@@ -426,7 +458,7 @@ export default function Home() {
       }));
   };
 
-  // 保存学生课次到 localStorage
+  // 保存学生课次到服务器和 localStorage
   const saveStudentLesson = (name: string, lesson: number) => {
     try {
       const history = getStudentLessonHistory();
@@ -445,7 +477,21 @@ export default function Home() {
         cleanedHistory[n] = r;
       });
 
+      // 更新本地缓存（立即生效）
+      setStudentHistoryCache(cleanedHistory);
+
+      // 保存到 localStorage（离线缓存）
       localStorage.setItem(STUDENT_LESSON_STORAGE_KEY, JSON.stringify(cleanedHistory));
+
+      // 异步保存到服务器（跨设备同步）
+      saveHistoryMutation.mutate(
+        { history: cleanedHistory },
+        {
+          onError: (err) => {
+            console.warn('保存学生课次到服务器失败:', err);
+          },
+        }
+      );
     } catch (e) {
       console.warn('保存学生课次失败:', e);
     }
