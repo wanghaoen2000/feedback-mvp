@@ -569,3 +569,55 @@ export async function readFileFromGoogleDrive(filePath: string): Promise<Buffer>
   const { stdout } = await execAsync(catCmd, { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024 });
   return stdout;
 }
+
+/**
+ * 在 Google Drive 中搜索文件
+ * 策略：先在指定目录搜索，找不到再全局搜索
+ * @param fileNames 要搜索的文件名列表（按优先级排序，找到第一个即返回）
+ * @param searchDir 优先搜索的目录路径（可选）
+ * @returns { fullPath, buffer } 或 null
+ */
+export async function searchFileInGoogleDrive(
+  fileNames: string[],
+  searchDir?: string
+): Promise<{ fullPath: string; buffer: Buffer } | null> {
+  // 阶段1：在指定目录中搜索（如果提供了 searchDir）
+  if (searchDir) {
+    for (const fileName of fileNames) {
+      try {
+        const lsfCmd = `rclone lsf "${REMOTE_NAME}:${searchDir}" --config ${RCLONE_CONFIG} -R --files-only --include "${fileName}"`;
+        const { stdout } = await execAsync(lsfCmd, { timeout: 30000 });
+        const matches = stdout.trim().split('\n').filter(Boolean);
+        if (matches.length > 0) {
+          const fullPath = `${searchDir}/${matches[0]}`;
+          console.log(`[GDrive搜索] 在指定目录找到: ${fullPath}`);
+          const buffer = await readFileFromGoogleDrive(fullPath);
+          return { fullPath, buffer };
+        }
+      } catch {
+        // 继续尝试下一个文件名
+      }
+    }
+    console.log(`[GDrive搜索] 指定目录 ${searchDir} 未找到，尝试全局搜索...`);
+  }
+
+  // 阶段2：全局搜索（遍历整个 Google Drive）
+  for (const fileName of fileNames) {
+    try {
+      // 全局搜索：从根目录递归查找
+      const lsfCmd = `rclone lsf "${REMOTE_NAME}:" --config ${RCLONE_CONFIG} -R --files-only --include "${fileName}"`;
+      const { stdout } = await execAsync(lsfCmd, { timeout: 120000 });
+      const matches = stdout.trim().split('\n').filter(Boolean);
+      if (matches.length > 0) {
+        const fullPath = matches[0];
+        console.log(`[GDrive搜索] 全局搜索找到: ${fullPath}`);
+        const buffer = await readFileFromGoogleDrive(fullPath);
+        return { fullPath, buffer };
+      }
+    } catch (err) {
+      console.warn(`[GDrive搜索] 全局搜索 "${fileName}" 失败:`, err);
+    }
+  }
+
+  return null;
+}

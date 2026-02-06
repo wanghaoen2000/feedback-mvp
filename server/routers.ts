@@ -11,7 +11,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
-import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus, readFileFromGoogleDrive, verifyFileExists } from "./gdrive";
+import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus, readFileFromGoogleDrive, verifyFileExists, searchFileInGoogleDrive } from "./gdrive";
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
 import { 
   createLogSession, 
@@ -1376,14 +1376,6 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const { fileName } = input;
 
-        const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath");
-        if (!gdriveDownloadsPath) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: '请先在全局设置 → 存储路径中配置「Downloads 文件夹路径」',
-          });
-        }
-
         const ext = path.extname(fileName).toLowerCase();
         if (!['.docx', '.txt', '.md'].includes(ext)) {
           throw new TRPCError({
@@ -1392,20 +1384,41 @@ export const appRouter = router({
           });
         }
 
-        const drivePath = `${gdriveDownloadsPath}/${fileName}`;
+        // 策略：先在 Downloads 目录精确读取，找不到再搜索
+        const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath");
+        let buffer: Buffer | null = null;
+        let resolvedFileName = fileName;
 
-        let buffer: Buffer;
-        try {
-          buffer = await readFileFromGoogleDrive(drivePath);
-        } catch {
+        // 阶段1：精确路径读取
+        if (gdriveDownloadsPath) {
+          try {
+            buffer = await readFileFromGoogleDrive(`${gdriveDownloadsPath}/${fileName}`);
+            console.log(`[readFromDownloads] 精确路径找到: ${gdriveDownloadsPath}/${fileName}`);
+          } catch {
+            console.log(`[readFromDownloads] 精确路径未找到，进入搜索模式...`);
+          }
+        }
+
+        // 阶段2：搜索（先在指定目录搜索，再全局搜索）
+        if (!buffer) {
+          const result = await searchFileInGoogleDrive([fileName], gdriveDownloadsPath || undefined);
+          if (result) {
+            buffer = result.buffer;
+            resolvedFileName = result.fullPath.split('/').pop() || fileName;
+            console.log(`[readFromDownloads] 搜索找到: ${result.fullPath}`);
+          }
+        }
+
+        if (!buffer) {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: `在 Google Drive 未找到文件: ${drivePath}`,
+            message: `在 Google Drive 未找到文件: ${fileName}\n已尝试: ${gdriveDownloadsPath ? `指定目录(${gdriveDownloadsPath})` : '(未配置Downloads路径)'} + 全局搜索`,
           });
         }
 
+        const resolvedExt = path.extname(resolvedFileName).toLowerCase();
         let content: string;
-        if (ext === '.docx') {
+        if (resolvedExt === '.docx') {
           const { parseDocxToText } = await import('./utils/documentParser');
           content = await parseDocxToText(buffer);
         } else {
@@ -1421,7 +1434,7 @@ export const appRouter = router({
 
         return {
           content: content.trim(),
-          fileName,
+          fileName: resolvedFileName,
         };
       }),
 
@@ -1448,59 +1461,79 @@ export const appRouter = router({
         // 使用已有的 driveBasePath 配置（跟上传学情反馈用同一个路径）
         const driveBasePath = await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
 
-        // 构建文件名和路径
+        // 构建文件名候选列表和搜索目录
         let folderName: string;
-        let filePrefixNoSpace: string;
-        let filePrefixWithSpace: string;
+        const candidateFileNames: string[] = [];
         if (courseType === 'class' && classNumber) {
           folderName = `${classNumber}班`;
-          filePrefixNoSpace = `${classNumber}班${prevLesson}`;
-          filePrefixWithSpace = `${classNumber}班 ${prevLesson}`;
+          const prefixes = [
+            `${classNumber}班${prevLesson}`,
+            `${classNumber}班 ${prevLesson}`,
+            `${classNumber}班${prevLesson}学情反馈`,
+            `${classNumber}班 ${prevLesson}学情反馈`,
+          ];
+          for (const prefix of prefixes) {
+            candidateFileNames.push(`${prefix}.md`, `${prefix}.docx`, `${prefix}.txt`);
+          }
         } else {
           folderName = studentName;
-          filePrefixNoSpace = `${studentName}${prevLesson}`;
-          filePrefixWithSpace = `${studentName} ${prevLesson}`;
+          const prefixes = [
+            `${studentName}${prevLesson}`,
+            `${studentName} ${prevLesson}`,
+            `${studentName}${prevLesson}学情反馈`,
+            `${studentName} ${prevLesson}学情反馈`,
+          ];
+          for (const prefix of prefixes) {
+            candidateFileNames.push(`${prefix}.md`, `${prefix}.docx`, `${prefix}.txt`);
+          }
         }
 
         const feedbackFolder = `${driveBasePath}/${folderName}/学情反馈`;
 
-        // 尝试多种文件名变体（有/无空格）和扩展名
-        const extensions = ['.md', '.docx', '.txt'];
-        const prefixes = [filePrefixNoSpace, filePrefixWithSpace];
-        let foundPath: string | null = null;
-        let foundExt: string | null = null;
+        // 阶段1：精确路径尝试（优先，速度快）
+        let foundBuffer: Buffer | null = null;
         let foundFileName: string | null = null;
 
-        for (const prefix of prefixes) {
-          for (const ext of extensions) {
-            const candidateName = `${prefix}${ext}`;
-            const candidatePath = `${feedbackFolder}/${candidateName}`;
-            const result = await verifyFileExists(candidatePath);
-            if (result.exists) {
-              foundPath = candidatePath;
-              foundExt = ext;
+        for (const candidateName of candidateFileNames) {
+          const candidatePath = `${feedbackFolder}/${candidateName}`;
+          try {
+            const buf = await readFileFromGoogleDrive(candidatePath);
+            if (buf.length > 0) {
+              foundBuffer = buf;
               foundFileName = candidateName;
+              console.log(`[readLastFeedback] 精确路径找到: ${candidatePath}`);
               break;
             }
+          } catch {
+            // 继续尝试下一个
           }
-          if (foundPath) break;
         }
 
-        if (!foundPath || !foundExt || !foundFileName) {
+        // 阶段2：搜索兜底（先在指定目录搜索，再全局搜索）
+        if (!foundBuffer) {
+          console.log(`[readLastFeedback] 精确路径全部未命中，进入搜索模式...`);
+          const result = await searchFileInGoogleDrive(candidateFileNames, feedbackFolder);
+          if (result) {
+            foundBuffer = result.buffer;
+            foundFileName = result.fullPath.split('/').pop() || null;
+            console.log(`[readLastFeedback] 搜索找到: ${result.fullPath}`);
+          }
+        }
+
+        if (!foundBuffer || !foundFileName) {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: `未找到上次反馈文件: ${filePrefixNoSpace}(.md/.docx/.txt)\n查找路径: Google Drive/${feedbackFolder}`,
+            message: `未找到上次反馈文件（第${prevLesson}次课）\n已尝试: 精确路径 + 目录搜索 + 全局搜索\n查找路径: Google Drive/${feedbackFolder}`,
           });
         }
 
-        const buffer = await readFileFromGoogleDrive(foundPath);
-
+        const foundExt = path.extname(foundFileName).toLowerCase();
         let content: string;
         if (foundExt === '.docx') {
           const { parseDocxToText } = await import('./utils/documentParser');
-          content = await parseDocxToText(buffer);
+          content = await parseDocxToText(foundBuffer);
         } else {
-          content = buffer.toString('utf-8');
+          content = foundBuffer.toString('utf-8');
         }
 
         if (!content.trim()) {
