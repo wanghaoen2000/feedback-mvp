@@ -383,6 +383,59 @@ export default function Home() {
     return () => { if (skipTimerRef.current) clearTimeout(skipTimerRef.current); };
   }, []);
 
+  // ========== 学生课次记忆功能 ==========
+  const STUDENT_LESSON_STORAGE_KEY = 'studentLessonHistory';
+
+  // 从 localStorage 获取学生课次历史
+  const getStudentLessonHistory = (): Record<string, number> => {
+    try {
+      const data = localStorage.getItem(STUDENT_LESSON_STORAGE_KEY);
+      return data ? JSON.parse(data) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  // 保存学生课次到 localStorage
+  const saveStudentLesson = (name: string, lesson: number) => {
+    try {
+      const history = getStudentLessonHistory();
+      history[name] = lesson;
+      localStorage.setItem(STUDENT_LESSON_STORAGE_KEY, JSON.stringify(history));
+    } catch (e) {
+      console.warn('保存学生课次失败:', e);
+    }
+  };
+
+  // 当学生姓名变化时，自动填充课次（上次课次+1）- 一对一模式
+  useEffect(() => {
+    if (!studentName.trim()) return;
+
+    const history = getStudentLessonHistory();
+    const lastLesson = history[studentName.trim()];
+
+    if (lastLesson !== undefined) {
+      // 自动填充为上次课次+1
+      const nextLesson = lastLesson + 1;
+      setLessonNumber(String(nextLesson));
+    }
+  }, [studentName]);
+
+  // 当班号变化时，自动填充课次（上次课次+1）- 小班课模式
+  useEffect(() => {
+    if (!classNumber.trim()) return;
+
+    const history = getStudentLessonHistory();
+    // 使用班号作为 key，格式如 "班级:26098"
+    const lastLesson = history[`班级:${classNumber.trim()}`];
+
+    if (lastLesson !== undefined) {
+      // 自动填充为上次课次+1
+      const nextLesson = lastLesson + 1;
+      setLessonNumber(String(nextLesson));
+    }
+  }, [classNumber]);
+
   // 生成中每秒触发重渲染，驱动耗时秒数实时刷新
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -1116,6 +1169,15 @@ export default function Home() {
 
       console.log(`[V63.7] 并行生成完成: ${successCount}/4 成功，总耗时 ${totalParallelDuration} 秒`);
 
+      // 保存学生课次到 localStorage（用于下次自动填充课次+1）
+      if (studentSnapshot.studentName && studentSnapshot.lessonNumber) {
+        const lessonNum = parseInt(studentSnapshot.lessonNumber.replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(lessonNum)) {
+          saveStudentLesson(studentSnapshot.studentName, lessonNum);
+          console.log(`[课次记忆] 已保存: ${studentSnapshot.studentName} 第${lessonNum}次课`);
+        }
+      }
+
       setIsComplete(true);
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : '生成失败';
@@ -1822,6 +1884,16 @@ export default function Home() {
       }
 
       console.log(`[V63.9] 小班课并行生成完成: ${successCount}/4 成功，总耗时 ${totalParallelDuration} 秒`);
+
+      // 保存班级课次到 localStorage（用于下次自动填充课次+1）
+      if (classSnapshot.classNumber && classSnapshot.lessonNumber) {
+        const lessonNum = parseInt(classSnapshot.lessonNumber.replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(lessonNum)) {
+          // 使用班号作为 key，格式如 "班级:26098"
+          saveStudentLesson(`班级:${classSnapshot.classNumber}`, lessonNum);
+          console.log(`[课次记忆] 已保存: ${classSnapshot.classNumber}班 第${lessonNum}次课`);
+        }
+      }
 
       // 全部成功才设置最终步骤
       localCurrentStep = 5;
