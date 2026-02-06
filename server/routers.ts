@@ -1368,6 +1368,86 @@ export const appRouter = router({
 
   // 从 Google Drive 网盘读取文件
   localFile: router({
+    // 诊断端点：测试 Google Drive OAuth 连接和文件搜索
+    diagnose: protectedProcedure
+      .input(z.object({
+        testFileName: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const diagnostics: string[] = [];
+        const { getValidToken } = await import('./googleAuth');
+
+        // 1. 检查 OAuth token
+        const token = await getValidToken();
+        if (!token) {
+          diagnostics.push('❌ OAuth token 不可用 - 请在设置中授权 Google Drive');
+          return { diagnostics, success: false };
+        }
+        diagnostics.push('✅ OAuth token 有效');
+
+        // 2. 测试 API 连接 - 列出根目录
+        try {
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files?q='root' in parents and trashed=false&fields=files(id,name,mimeType)&pageSize=10`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            const errText = await res.text();
+            diagnostics.push(`❌ Drive API 返回 ${res.status}: ${errText}`);
+            return { diagnostics, success: false };
+          }
+          const data = await res.json();
+          const folderNames = (data.files || []).map((f: any) => f.name);
+          diagnostics.push(`✅ Drive API 正常 - 根目录文件夹: ${folderNames.join(', ')}`);
+        } catch (err: any) {
+          diagnostics.push(`❌ Drive API 请求失败: ${err.message}`);
+          return { diagnostics, success: false };
+        }
+
+        // 3. 测试 driveBasePath 导航
+        const driveBasePath = await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
+        diagnostics.push(`配置路径: ${driveBasePath}`);
+
+        const parts = driveBasePath.split('/').filter((p: string) => p);
+        let parentId = 'root';
+        let navOk = true;
+        for (const folderName of parts) {
+          const q = `name='${folderName.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+          const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=5`;
+          const res = await fetch(searchUrl, { headers: { Authorization: `Bearer ${token}` } });
+          const data = await res.json();
+          if (data.files && data.files.length > 0) {
+            parentId = data.files[0].id;
+            diagnostics.push(`  ✅ 文件夹 "${folderName}" 找到 (id=${parentId})`);
+          } else {
+            diagnostics.push(`  ❌ 文件夹 "${folderName}" 不存在 (parent=${parentId})`);
+            // 列出该层级的所有文件夹以帮助诊断
+            const listQ = `'${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+            const listUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(listQ)}&fields=files(id,name)&pageSize=20`;
+            const listRes = await fetch(listUrl, { headers: { Authorization: `Bearer ${token}` } });
+            const listData = await listRes.json();
+            const available = (listData.files || []).map((f: any) => f.name);
+            diagnostics.push(`  📁 该层级可用文件夹: ${available.length > 0 ? available.join(', ') : '(空)'}`);
+            navOk = false;
+            break;
+          }
+        }
+
+        // 4. 如果提供了测试文件名，尝试全局搜索
+        if (input.testFileName) {
+          const q = `name='${input.testFileName.replace(/'/g, "\\'")}' and trashed=false`;
+          const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,parents)&pageSize=5`;
+          const res = await fetch(searchUrl, { headers: { Authorization: `Bearer ${token}` } });
+          const data = await res.json();
+          if (data.files && data.files.length > 0) {
+            diagnostics.push(`✅ 全局搜索 "${input.testFileName}" 找到 ${data.files.length} 个结果: ${data.files.map((f: any) => f.name).join(', ')}`);
+          } else {
+            diagnostics.push(`❌ 全局搜索 "${input.testFileName}" 无结果`);
+          }
+        }
+
+        return { diagnostics, success: navOk };
+      }),
+
     // 从 Google Drive 的 Downloads 文件夹读取录音转文字
     readFromDownloads: protectedProcedure
       .input(z.object({
@@ -1490,10 +1570,13 @@ export const appRouter = router({
 
         const feedbackFolder = `${driveBasePath}/${folderName}/学情反馈`;
 
-        // 阶段1：精确路径尝试（优先，速度快）
+        // 收集诊断信息
+        const diag: string[] = [];
         let foundBuffer: Buffer | null = null;
         let foundFileName: string | null = null;
 
+        // 阶段1：精确路径尝试（优先，速度快）
+        let firstError: string | null = null;
         for (const candidateName of candidateFileNames) {
           const candidatePath = `${feedbackFolder}/${candidateName}`;
           try {
@@ -1504,9 +1587,12 @@ export const appRouter = router({
               console.log(`[readLastFeedback] 精确路径找到: ${candidatePath}`);
               break;
             }
-          } catch {
-            // 继续尝试下一个
+          } catch (err: any) {
+            if (!firstError) firstError = err.message || String(err);
           }
+        }
+        if (!foundBuffer) {
+          diag.push(`精确路径: 全部未命中 (首条错误: ${firstError || 'unknown'})`);
         }
 
         // 阶段2：搜索兜底（先在指定目录搜索，再全局搜索）
@@ -1517,13 +1603,15 @@ export const appRouter = router({
             foundBuffer = result.buffer;
             foundFileName = result.fullPath.split('/').pop() || null;
             console.log(`[readLastFeedback] 搜索找到: ${result.fullPath}`);
+          } else {
+            diag.push(`搜索: 目录搜索+全局搜索均无结果`);
           }
         }
 
         if (!foundBuffer || !foundFileName) {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: `未找到上次反馈文件（第${prevLesson}次课）\n已尝试: 精确路径 + 目录搜索 + 全局搜索\n查找路径: Google Drive/${feedbackFolder}`,
+            message: `未找到第${prevLesson}次课反馈\n路径: ${feedbackFolder}\n候选: ${candidateFileNames.slice(0, 3).join(', ')}...\n诊断: ${diag.join(' | ')}\n\n请先运行「诊断」检查 OAuth 连接`,
           });
         }
 
