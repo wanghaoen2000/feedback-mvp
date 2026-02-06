@@ -298,7 +298,9 @@ export default function Home() {
   // 获取当前北京时间（UTC+8）
   const getBeijingTime = () => {
     const now = new Date();
-    return new Date(now.getTime() + (8 * 60 - now.getTimezoneOffset()) * 60 * 1000);
+    // timezoneOffset 是本地时间与UTC的差值（分钟），北京时区为-480
+    // 要转换为北京时间：先转UTC（+timezoneOffset），再转北京（+8小时）
+    return new Date(now.getTime() + (now.getTimezoneOffset() + 8 * 60) * 60 * 1000);
   };
   const [lessonDate, setLessonDate] = useState(() => {
     const beijingTime = getBeijingTime();
