@@ -14,7 +14,6 @@ import {
   generateTestContent,
   generateExtractionContent,
   generateBubbleChart,
-  generateBubbleChartSVG,
   FeedbackInput,
   ClassFeedbackInput,
   generateClassFeedbackContent,
@@ -47,18 +46,18 @@ interface StepResults {
   bubbleChart?: StepResult;
 }
 
-// 一对一输入参数
+// 一对一输入参数（字段可选性与 bgTask.submit schema 一致）
 export interface OneToOneTaskParams {
   courseType: "one-to-one";
   studentName: string;
-  lessonNumber: string;
-  lessonDate: string;
-  currentYear: string;
-  lastFeedback: string;
+  lessonNumber?: string;
+  lessonDate?: string;
+  currentYear?: string;
+  lastFeedback?: string;
   currentNotes: string;
   transcript: string;
-  isFirstLesson: boolean;
-  specialRequirements: string;
+  isFirstLesson?: boolean;
+  specialRequirements?: string;
   // 配置快照
   apiModel?: string;
   apiKey?: string;
@@ -71,14 +70,14 @@ export interface OneToOneTaskParams {
 export interface ClassTaskParams {
   courseType: "class";
   classNumber: string;
-  lessonNumber: string;
-  lessonDate: string;
-  currentYear: string;
+  lessonNumber?: string;
+  lessonDate?: string;
+  currentYear?: string;
   attendanceStudents: string[];
-  lastFeedback: string;
+  lastFeedback?: string;
   currentNotes: string;
   transcript: string;
-  specialRequirements: string;
+  specialRequirements?: string;
   // 配置快照
   apiModel?: string;
   apiKey?: string;
@@ -179,7 +178,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       lastFeedback: params.lastFeedback || "",
       currentNotes: params.currentNotes,
       transcript: params.transcript,
-      isFirstLesson: params.isFirstLesson,
+      isFirstLesson: params.isFirstLesson ?? false,
       specialRequirements: params.specialRequirements || "",
     };
 
@@ -349,7 +348,9 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   const apiKey = params.apiKey || (await getConfig("apiKey")) || DEFAULT_CONFIG.apiKey;
   const apiUrl = params.apiUrl || (await getConfig("apiUrl")) || DEFAULT_CONFIG.apiUrl;
   const roadmapClass = params.roadmapClass !== undefined ? params.roadmapClass : ((await getConfig("roadmapClass")) || "");
-  const driveBasePath = params.classStoragePath || params.driveBasePath || (await getConfig("classStoragePath")) || (await getConfig("driveBasePath")) || DEFAULT_CONFIG.driveBasePath;
+  // 小班课优先使用 classStoragePath（与 uploadClassFile 保持一致）
+  const classStoragePath = params.classStoragePath || (await getConfig("classStoragePath"));
+  const driveBasePath = classStoragePath || params.driveBasePath || (await getConfig("driveBasePath")) || DEFAULT_CONFIG.driveBasePath;
   const currentYear = params.currentYear || (await getConfig("currentYear")) || DEFAULT_CONFIG.currentYear;
   const apiConfig = { apiModel, apiKey, apiUrl };
 

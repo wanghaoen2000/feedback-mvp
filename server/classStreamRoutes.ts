@@ -1095,7 +1095,7 @@ ${input.feedbackContent}
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
       // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
       const classStoragePath = await getConfig("classStoragePath");
-      const driveBasePath = input.driveBasePath || classStoragePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
 
       // 创建日志会话
       log = createLogSession(
@@ -1280,7 +1280,7 @@ ${input.currentNotes}
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
       // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
       const classStoragePath = await getConfig("classStoragePath");
-      const driveBasePath = input.driveBasePath || classStoragePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成测试本` });
 
@@ -1409,7 +1409,7 @@ ${input.currentNotes}
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
       // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
       const classStoragePath = await getConfig("classStoragePath");
-      const driveBasePath = input.driveBasePath || classStoragePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成课后信息提取` });
 
