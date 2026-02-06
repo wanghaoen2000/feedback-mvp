@@ -32,6 +32,8 @@ import {
   Users,
   SkipForward,
   Copy,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { VERSION_DISPLAY } from "../version.generated";
 
@@ -379,6 +381,7 @@ export default function Home() {
     url?: string;
   } | null>(null); // 导出结果
   const [feedbackCopied, setFeedbackCopied] = useState(false); // 学情反馈是否已复制
+  const feedbackScrollRef = useRef<HTMLDivElement | null>(null); // 学情反馈内容滚动容器
   const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
   const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -3641,34 +3644,66 @@ export default function Home() {
                         <FileText className="w-4 h-4" />
                         学情反馈内容
                       </h4>
-                      <Button
-                        size="sm"
-                        variant={feedbackCopied ? "default" : "outline"}
-                        className={feedbackCopied ? "bg-green-600 hover:bg-green-700" : ""}
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(feedbackContent);
-                            setFeedbackCopied(true);
-                            setTimeout(() => setFeedbackCopied(false), 2000);
-                          } catch (e) {
-                            alert("复制失败，请手动选择复制");
-                          }
-                        }}
-                      >
-                        {feedbackCopied ? (
-                          <>
-                            <CheckCircle2 className="w-4 h-4 mr-1" />
-                            已复制
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-4 h-4 mr-1" />
-                            复制学情反馈
-                          </>
-                        )}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {/* 滚动按钮 */}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          title="回到顶部"
+                          onClick={() => {
+                            if (feedbackScrollRef.current) {
+                              feedbackScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+                            }
+                          }}
+                        >
+                          <ArrowUp className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          title="滚动到底部"
+                          onClick={() => {
+                            if (feedbackScrollRef.current) {
+                              feedbackScrollRef.current.scrollTo({ top: feedbackScrollRef.current.scrollHeight, behavior: 'smooth' });
+                            }
+                          }}
+                        >
+                          <ArrowDown className="w-4 h-4" />
+                        </Button>
+                        {/* 复制按钮 */}
+                        <Button
+                          size="sm"
+                          variant={feedbackCopied ? "default" : "outline"}
+                          className={feedbackCopied ? "bg-green-600 hover:bg-green-700" : ""}
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(feedbackContent);
+                              setFeedbackCopied(true);
+                            } catch (e) {
+                              alert("复制失败，请手动选择复制");
+                            }
+                          }}
+                        >
+                          {feedbackCopied ? (
+                            <>
+                              <CheckCircle2 className="w-4 h-4 mr-1" />
+                              已复制
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4 mr-1" />
+                              复制学情反馈
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </div>
-                    <div className="bg-gray-50 rounded-lg p-4 max-h-[300px] overflow-y-auto">
+                    <div
+                      ref={feedbackScrollRef}
+                      className="bg-gray-50 rounded-lg p-4 h-[120px] overflow-y-auto"
+                    >
                       <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
                         {feedbackContent}
                       </pre>
