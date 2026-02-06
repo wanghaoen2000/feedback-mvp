@@ -37,6 +37,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 import { VERSION_DISPLAY } from "../version.generated";
+import { TaskHistory } from "@/components/TaskHistory";
 
 // 步骤状态类型
 interface StepStatus {
@@ -421,6 +422,7 @@ export default function Home() {
     url?: string;
   } | null>(null); // 导出结果
   const [feedbackCopied, setFeedbackCopied] = useState(false); // 学情反馈是否已复制
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null); // 当前提交的后台任务ID
   const feedbackScrollRef = useRef<HTMLDivElement | null>(null); // 学情反馈内容滚动容器
   const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
   const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -652,6 +654,7 @@ export default function Home() {
   const readFromDownloadsMutation = trpc.localFile.readFromDownloads.useMutation();
   const readLastFeedbackMutation = trpc.localFile.readLastFeedback.useMutation();
   const diagnoseMutation = trpc.localFile.diagnose.useMutation();
+  const bgTaskSubmitMutation = trpc.bgTask.submit.useMutation();
   // 加载配置
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
@@ -2157,20 +2160,51 @@ export default function Home() {
       }
     }
 
+    // 获取最终的文本内容（可能来自自动加载）
+    const finalLastFeedback = autoLoadedLastFeedbackRef.current || lastFeedback;
+    const finalTranscript = autoLoadedTranscriptRef.current || transcript;
+
     if (courseType === 'oneToOne') {
-      // 一对一模式
+      // 一对一模式验证
       if (!studentName.trim()) { alert('请输入学生姓名'); return; }
       if (!currentNotes.trim()) { alert('请输入课堂笔记'); return; }
-      if (!autoLoadTranscript && !transcript.trim()) { alert('请输入录音转文字'); return; }
-      await runGeneration();
+      if (!autoLoadTranscript && !finalTranscript.trim()) { alert('请输入录音转文字'); return; }
     } else {
-      // 小班课模式
+      // 小班课模式验证
       if (!classNumber.trim()) { alert('请输入班号'); return; }
       const validStudents = attendanceStudents.filter((s: string) => s.trim());
       if (validStudents.length === 0) { alert('请至少添加一名出勤学生'); return; }
       if (!currentNotes.trim()) { alert('请输入课堂笔记'); return; }
-      if (!autoLoadTranscript && !transcript.trim()) { alert('请输入录音转文字'); return; }
-      await runClassGeneration();
+      if (!autoLoadTranscript && !finalTranscript.trim()) { alert('请输入录音转文字'); return; }
+    }
+
+    // 提交后台任务（服务器端执行，断网不影响）
+    try {
+      const result = await bgTaskSubmitMutation.mutateAsync({
+        courseType: courseType === 'oneToOne' ? 'one-to-one' : 'class',
+        studentName: studentName.trim() || undefined,
+        lessonNumber: lessonNumber.trim() || undefined,
+        lessonDate: lessonDate.trim() || undefined,
+        currentYear: currentYear.trim() || undefined,
+        lastFeedback: finalLastFeedback || undefined,
+        currentNotes: currentNotes.trim(),
+        transcript: finalTranscript.trim(),
+        isFirstLesson: isFirstLesson || undefined,
+        specialRequirements: undefined,
+        classNumber: classNumber.trim() || undefined,
+        attendanceStudents: courseType === 'class' ? attendanceStudents.filter((s: string) => s.trim()) : undefined,
+        apiModel: apiModel.trim() || undefined,
+        apiKey: apiKey.trim() || undefined,
+        apiUrl: apiUrl.trim() || undefined,
+        roadmap: roadmap || undefined,
+        roadmapClass: roadmapClass || undefined,
+        driveBasePath: driveBasePath.trim() || undefined,
+      });
+      setActiveTaskId(result.taskId);
+      alert(`任务已提交到后台！\n${result.displayName}\n\n即使关闭手机屏幕或断网，服务器也会继续生成。\n请在下方「任务记录」中查看进度。`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '提交失败';
+      alert(`任务提交失败: ${message}`);
     }
   };
 
@@ -3306,14 +3340,19 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* 提交按钮和停止按钮 */}
+              {/* 提交按钮 */}
               <div className="flex gap-2">
                 <Button
                   type="submit"
                   className="flex-1 h-11 text-base"
-                  disabled={isGenerating || !isFormValid}
+                  disabled={isGenerating || bgTaskSubmitMutation.isPending || !isFormValid}
                 >
-                  {isGenerating ? (
+                  {bgTaskSubmitMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      提交中...
+                    </>
+                  ) : isGenerating ? (
                     <>
                       <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                       生成中 ({currentStep}/5)
@@ -3696,9 +3735,14 @@ export default function Home() {
           </CardContent>
         </Card>
 
+        {/* 任务记录 */}
+        <div className="mt-4">
+          <TaskHistory activeTaskId={activeTaskId} />
+        </div>
+
         {/* 底部说明 */}
-        <div className="mt-4 text-center text-xs text-gray-400">
-          <p>自动生成学情反馈、复习文档、测试本、课后信息提取、气泡图并存储到Google Drive</p>
+        <div className="mt-2 text-center text-xs text-gray-400">
+          <p>提交后台生成，关屏/断网不影响 · 在「任务记录」查看进度</p>
         </div>
           </TabsContent>
 

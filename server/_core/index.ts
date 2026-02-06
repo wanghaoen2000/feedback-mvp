@@ -76,8 +76,16 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
+  server.listen(port, async () => {
     console.log(`Server running on http://localhost:${port}/`);
+    // 恢复中断的后台任务 + 清理旧任务
+    try {
+      const { recoverInterruptedTasks, cleanupOldTasks } = await import("../backgroundTaskRunner");
+      await recoverInterruptedTasks();
+      await cleanupOldTasks();
+    } catch (e) {
+      console.warn("[启动] 后台任务恢复/清理跳过:", e);
+    }
   });
 }
 

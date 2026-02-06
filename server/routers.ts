@@ -1635,6 +1635,148 @@ export const appRouter = router({
       }),
   }),
 
+  // 后台任务管理
+  bgTask: router({
+    // 提交后台任务
+    submit: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["one-to-one", "class"]),
+        // 共用字段
+        lessonNumber: z.string().optional(),
+        lessonDate: z.string().optional(),
+        currentYear: z.string().optional(),
+        lastFeedback: z.string().optional(),
+        currentNotes: z.string().min(1),
+        transcript: z.string().min(1),
+        specialRequirements: z.string().optional(),
+        // 一对一字段
+        studentName: z.string().optional(),
+        isFirstLesson: z.boolean().optional(),
+        // 小班课字段
+        classNumber: z.string().optional(),
+        attendanceStudents: z.array(z.string()).optional(),
+        // 配置快照
+        apiModel: z.string().optional(),
+        apiKey: z.string().optional(),
+        apiUrl: z.string().optional(),
+        roadmap: z.string().optional(),
+        roadmapClass: z.string().optional(),
+        driveBasePath: z.string().optional(),
+        classStoragePath: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { startBackgroundTask, cleanupOldTasks } = await import("./backgroundTaskRunner");
+        const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        // 先清理旧任务
+        await cleanupOldTasks();
+
+        // 生成任务 ID 和显示名
+        const taskId = crypto.randomUUID();
+        let displayName: string;
+        if (input.courseType === "one-to-one") {
+          if (!input.studentName) throw new TRPCError({ code: "BAD_REQUEST", message: "请输入学生姓名" });
+          displayName = `${input.studentName} 第${input.lessonNumber || "?"}次`;
+        } else {
+          if (!input.classNumber) throw new TRPCError({ code: "BAD_REQUEST", message: "请输入班号" });
+          displayName = `${input.classNumber}班 第${input.lessonNumber || "?"}次`;
+        }
+
+        // 构建参数
+        const taskParams = { ...input };
+
+        // 插入任务记录
+        await db.insert(bgTasksTable).values({
+          id: taskId,
+          courseType: input.courseType,
+          displayName,
+          status: "pending",
+          currentStep: 0,
+          totalSteps: 5,
+          inputParams: JSON.stringify(taskParams),
+        });
+
+        // 启动后台处理（不等待）
+        startBackgroundTask(taskId);
+
+        return { taskId, displayName };
+      }),
+
+    // 查询单个任务状态
+    status: protectedProcedure
+      .input(z.object({ taskId: z.string() }))
+      .query(async ({ input }) => {
+        const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        const tasks = await db.select().from(bgTasksTable).where(eq(bgTasksTable.id, input.taskId)).limit(1);
+        if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
+
+        const task = tasks[0];
+        return {
+          id: task.id,
+          courseType: task.courseType,
+          displayName: task.displayName,
+          status: task.status,
+          currentStep: task.currentStep,
+          totalSteps: task.totalSteps,
+          stepResults: task.stepResults ? JSON.parse(task.stepResults) : null,
+          errorMessage: task.errorMessage,
+          createdAt: task.createdAt.toISOString(),
+          completedAt: task.completedAt?.toISOString() || null,
+        };
+      }),
+
+    // 查询最近3天的任务历史
+    history: protectedProcedure.query(async () => {
+      const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+      const db = await getDb();
+      if (!db) return [];
+
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const tasks = await db.select({
+        id: bgTasksTable.id,
+        courseType: bgTasksTable.courseType,
+        displayName: bgTasksTable.displayName,
+        status: bgTasksTable.status,
+        currentStep: bgTasksTable.currentStep,
+        totalSteps: bgTasksTable.totalSteps,
+        stepResults: bgTasksTable.stepResults,
+        errorMessage: bgTasksTable.errorMessage,
+        createdAt: bgTasksTable.createdAt,
+        completedAt: bgTasksTable.completedAt,
+      })
+        .from(bgTasksTable)
+        .where(
+          // MySQL >= is fine for timestamp comparison
+          // We want tasks created in the last 3 days
+          // Using a raw SQL comparison is cleaner, but gt/gte with drizzle works too
+          // For simplicity, just get all and filter (small table)
+        )
+        .orderBy(bgTasksTable.createdAt);
+
+      // Filter to last 3 days and format
+      return tasks
+        .filter((t) => t.createdAt >= threeDaysAgo)
+        .reverse() // newest first
+        .map((t) => ({
+          id: t.id,
+          courseType: t.courseType,
+          displayName: t.displayName,
+          status: t.status,
+          currentStep: t.currentStep,
+          totalSteps: t.totalSteps,
+          stepResults: t.stepResults ? JSON.parse(t.stepResults) : null,
+          errorMessage: t.errorMessage,
+          createdAt: t.createdAt.toISOString(),
+          completedAt: t.completedAt?.toISOString() || null,
+        }));
+    }),
+  }),
+
   // 简单计算功能（保留MVP验证）
   calculate: router({
     compute: protectedProcedure
