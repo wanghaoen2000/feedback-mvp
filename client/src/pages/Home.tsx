@@ -2800,17 +2800,13 @@ export default function Home() {
                           />
                           {showStudentDropdown && recentStudents.length > 0 && (
                             <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                              <div className="px-3 py-2 text-xs text-gray-500 border-b bg-gray-50">
-                                最近使用的学生（点击选择）
-                              </div>
                               {recentStudents.map((s, i) => (
                                 <div
                                   key={i}
-                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
+                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer"
                                   onClick={() => handleSelectStudent(s.name)}
                                 >
                                   <span className="font-medium">{s.name}</span>
-                                  <span className="text-xs text-gray-400">上次第{s.lesson}次 → 下次第{s.lesson + 1}次</span>
                                 </div>
                               ))}
                             </div>
@@ -2905,17 +2901,13 @@ export default function Home() {
                           />
                           {showClassDropdown && recentClasses.length > 0 && (
                             <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                              <div className="px-3 py-2 text-xs text-gray-500 border-b bg-gray-50">
-                                最近使用的班级（点击选择）
-                              </div>
                               {recentClasses.map((c, i) => (
                                 <div
                                   key={i}
-                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
+                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer"
                                   onClick={() => handleSelectClass(c.classNumber)}
                                 >
                                   <span className="font-medium">{c.classNumber}班</span>
-                                  <span className="text-xs text-gray-400">上次第{c.lesson}次 → 下次第{c.lesson + 1}次</span>
                                 </div>
                               ))}
                             </div>
