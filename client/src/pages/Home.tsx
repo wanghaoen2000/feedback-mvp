@@ -2096,7 +2096,7 @@ export default function Home() {
 
     // 如果启用了自动加载录音转文字，先从 Downloads 文件夹读取
     if (autoLoadTranscript) {
-      const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+      const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
       const mmdd = getMMDD(lessonDate);
       if (!name) {
         alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
@@ -3179,7 +3179,7 @@ export default function Home() {
                     <div className="h-[120px] flex flex-col items-center justify-center bg-gray-50 border border-dashed border-gray-300 rounded-md text-sm text-gray-500">
                       <FolderDown className="h-8 w-8 mb-2 text-gray-400" />
                       {(() => {
-                        const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+                        const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
                         const mmdd = getMMDD(lessonDate);
                         if (!name || !mmdd) {
                           return <span>请先填写{courseType === 'oneToOne' ? '学生姓名' : '班号'}和日期</span>;
