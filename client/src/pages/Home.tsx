@@ -3104,11 +3104,12 @@ export default function Home() {
                         }
                         const prevLesson = lesson - 1;
                         const prefix = courseType === 'class' ? `${classNumber.trim()}班` : name;
+                        const fileName = courseType === 'class' ? `${prefix}${prevLesson}` : `${prefix} ${prevLesson}`;
                         return (
                           <>
                             <span>点击生成时将自动读取:</span>
                             <span className="font-mono font-semibold text-blue-600 mt-1">
-                              .../{prefix}/学情反馈/{prefix}{prevLesson}.md
+                              .../{prefix}/学情反馈/{fileName}.md
                             </span>
                           </>
                         );

@@ -1448,7 +1448,7 @@ export const appRouter = router({
         }
 
         // 构建文件名和路径
-        // 一对一: {studentName}{prevLesson}.md -> {basePath}/{studentName}/学情反馈/
+        // 一对一: {studentName} {prevLesson}.md -> {basePath}/{studentName}/学情反馈/
         // 小班课: {classNumber}班{prevLesson}.md -> {basePath}/{classNumber}班/学情反馈/
         let folderName: string;
         let filePrefix: string;
@@ -1457,7 +1457,7 @@ export const appRouter = router({
           filePrefix = `${classNumber}班${prevLesson}`;
         } else {
           folderName = studentName;
-          filePrefix = `${studentName}${prevLesson}`;
+          filePrefix = `${studentName} ${prevLesson}`;
         }
 
         const feedbackDir = path.join(gdriveLocalBasePath, folderName, '学情反馈');
