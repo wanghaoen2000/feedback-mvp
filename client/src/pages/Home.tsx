@@ -384,10 +384,17 @@ export default function Home() {
   }, []);
 
   // ========== 学生课次记忆功能 ==========
-  const STUDENT_LESSON_STORAGE_KEY = 'studentLessonHistory';
+  const STUDENT_LESSON_STORAGE_KEY = 'studentLessonHistoryV2';
+  const MAX_RECENT_STUDENTS = 30; // 最多保存30个最近学生
+
+  // 学生记录类型
+  interface StudentRecord {
+    lesson: number;
+    lastUsed: number; // 时间戳，用于排序
+  }
 
   // 从 localStorage 获取学生课次历史
-  const getStudentLessonHistory = (): Record<string, number> => {
+  const getStudentLessonHistory = (): Record<string, StudentRecord> => {
     try {
       const data = localStorage.getItem(STUDENT_LESSON_STORAGE_KEY);
       return data ? JSON.parse(data) : {};
@@ -396,27 +403,112 @@ export default function Home() {
     }
   };
 
+  // 获取最近使用的学生列表（按时间从近到远排序，最多30个）
+  const getRecentStudents = (): Array<{ name: string; lesson: number }> => {
+    const history = getStudentLessonHistory();
+    return Object.entries(history)
+      .filter(([name]) => !name.startsWith('班级:')) // 排除班级记录
+      .sort((a, b) => b[1].lastUsed - a[1].lastUsed) // 按时间降序
+      .slice(0, MAX_RECENT_STUDENTS)
+      .map(([name, record]) => ({ name, lesson: record.lesson }));
+  };
+
+  // 获取最近使用的班级列表（按时间从近到远排序）
+  const getRecentClasses = (): Array<{ classNumber: string; lesson: number }> => {
+    const history = getStudentLessonHistory();
+    return Object.entries(history)
+      .filter(([name]) => name.startsWith('班级:'))
+      .sort((a, b) => b[1].lastUsed - a[1].lastUsed)
+      .slice(0, MAX_RECENT_STUDENTS)
+      .map(([name, record]) => ({
+        classNumber: name.replace('班级:', ''),
+        lesson: record.lesson
+      }));
+  };
+
   // 保存学生课次到 localStorage
   const saveStudentLesson = (name: string, lesson: number) => {
     try {
       const history = getStudentLessonHistory();
-      history[name] = lesson;
-      localStorage.setItem(STUDENT_LESSON_STORAGE_KEY, JSON.stringify(history));
+      history[name] = { lesson, lastUsed: Date.now() };
+
+      // 清理超过30个的旧记录（分别清理学生和班级）
+      const students = Object.entries(history).filter(([n]) => !n.startsWith('班级:'));
+      const classes = Object.entries(history).filter(([n]) => n.startsWith('班级:'));
+
+      // 按时间排序，只保留最近30个
+      const sortedStudents = students.sort((a, b) => b[1].lastUsed - a[1].lastUsed).slice(0, MAX_RECENT_STUDENTS);
+      const sortedClasses = classes.sort((a, b) => b[1].lastUsed - a[1].lastUsed).slice(0, MAX_RECENT_STUDENTS);
+
+      const cleanedHistory: Record<string, StudentRecord> = {};
+      [...sortedStudents, ...sortedClasses].forEach(([n, r]) => {
+        cleanedHistory[n] = r;
+      });
+
+      localStorage.setItem(STUDENT_LESSON_STORAGE_KEY, JSON.stringify(cleanedHistory));
     } catch (e) {
       console.warn('保存学生课次失败:', e);
     }
   };
+
+  // 学生名下拉列表状态
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
+  const [recentStudents, setRecentStudents] = useState<Array<{ name: string; lesson: number }>>([]);
+  const studentInputRef = useRef<HTMLInputElement>(null);
+
+  // 班号下拉列表状态
+  const [showClassDropdown, setShowClassDropdown] = useState(false);
+  const [recentClasses, setRecentClasses] = useState<Array<{ classNumber: string; lesson: number }>>([]);
+  const classInputRef = useRef<HTMLInputElement>(null);
+
+  // 点击输入框时加载最近学生列表
+  const handleStudentInputFocus = () => {
+    setRecentStudents(getRecentStudents());
+    setShowStudentDropdown(true);
+  };
+
+  // 点击班号输入框时加载最近班级列表
+  const handleClassInputFocus = () => {
+    setRecentClasses(getRecentClasses());
+    setShowClassDropdown(true);
+  };
+
+  // 选择学生
+  const handleSelectStudent = (name: string) => {
+    setStudentName(name);
+    setShowStudentDropdown(false);
+  };
+
+  // 选择班级
+  const handleSelectClass = (classNum: string) => {
+    setClassNumber(classNum);
+    setShowClassDropdown(false);
+  };
+
+  // 点击外部关闭下拉列表
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (studentInputRef.current && !studentInputRef.current.parentElement?.contains(e.target as Node)) {
+        setShowStudentDropdown(false);
+      }
+      if (classInputRef.current && !classInputRef.current.parentElement?.contains(e.target as Node)) {
+        setShowClassDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // 当学生姓名变化时，自动填充课次（上次课次+1）- 一对一模式
   useEffect(() => {
     if (!studentName.trim()) return;
 
     const history = getStudentLessonHistory();
-    const lastLesson = history[studentName.trim()];
+    const record = history[studentName.trim()];
 
-    if (lastLesson !== undefined) {
+    if (record?.lesson !== undefined) {
       // 自动填充为上次课次+1
-      const nextLesson = lastLesson + 1;
+      const nextLesson = record.lesson + 1;
       setLessonNumber(String(nextLesson));
     }
   }, [studentName]);
@@ -427,11 +519,11 @@ export default function Home() {
 
     const history = getStudentLessonHistory();
     // 使用班号作为 key，格式如 "班级:26098"
-    const lastLesson = history[`班级:${classNumber.trim()}`];
+    const record = history[`班级:${classNumber.trim()}`];
 
-    if (lastLesson !== undefined) {
+    if (record?.lesson !== undefined) {
       // 自动填充为上次课次+1
-      const nextLesson = lastLesson + 1;
+      const nextLesson = record.lesson + 1;
       setLessonNumber(String(nextLesson));
     }
   }, [classNumber]);
@@ -2641,20 +2733,42 @@ export default function Home() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="studentName">学生姓名 *</Label>
-                        <Input
-                          id="studentName"
-                          placeholder="例如：张三"
-                          value={studentName}
-                          onChange={(e) => setStudentName(e.target.value)}
-                          disabled={isGenerating}
-                        />
+                        <div className="relative">
+                          <Input
+                            ref={studentInputRef}
+                            id="studentName"
+                            placeholder="例如：张三（点击选择历史）"
+                            value={studentName}
+                            onChange={(e) => setStudentName(e.target.value)}
+                            onFocus={handleStudentInputFocus}
+                            disabled={isGenerating}
+                            autoComplete="off"
+                          />
+                          {showStudentDropdown && recentStudents.length > 0 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                              <div className="px-3 py-2 text-xs text-gray-500 border-b bg-gray-50">
+                                最近使用的学生（点击选择）
+                              </div>
+                              {recentStudents.map((s, i) => (
+                                <div
+                                  key={i}
+                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
+                                  onClick={() => handleSelectStudent(s.name)}
+                                >
+                                  <span className="font-medium">{s.name}</span>
+                                  <span className="text-xs text-gray-400">上次第{s.lesson}次 → 下次第{s.lesson + 1}次</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      
+
                       <div className="space-y-2">
                         <Label htmlFor="lessonNumber">课次</Label>
                         <Input
                           id="lessonNumber"
-                          placeholder="例如：第10次课"
+                          placeholder="例如：12（自动填充）"
                           value={lessonNumber}
                           onChange={(e) => setLessonNumber(e.target.value)}
                           disabled={isGenerating}
@@ -2719,20 +2833,42 @@ export default function Home() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="classNumber">班号 *</Label>
-                        <Input
-                          id="classNumber"
-                          placeholder="例如：26098班"
-                          value={classNumber}
-                          onChange={(e) => setClassNumber(e.target.value)}
-                          disabled={isGenerating}
-                        />
+                        <div className="relative">
+                          <Input
+                            ref={classInputRef}
+                            id="classNumber"
+                            placeholder="例如：26098（点击选择历史）"
+                            value={classNumber}
+                            onChange={(e) => setClassNumber(e.target.value)}
+                            onFocus={handleClassInputFocus}
+                            disabled={isGenerating}
+                            autoComplete="off"
+                          />
+                          {showClassDropdown && recentClasses.length > 0 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                              <div className="px-3 py-2 text-xs text-gray-500 border-b bg-gray-50">
+                                最近使用的班级（点击选择）
+                              </div>
+                              {recentClasses.map((c, i) => (
+                                <div
+                                  key={i}
+                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
+                                  onClick={() => handleSelectClass(c.classNumber)}
+                                >
+                                  <span className="font-medium">{c.classNumber}班</span>
+                                  <span className="text-xs text-gray-400">上次第{c.lesson}次 → 下次第{c.lesson + 1}次</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      
+
                       <div className="space-y-2">
                         <Label htmlFor="lessonNumber">课次</Label>
                         <Input
                           id="lessonNumber"
-                          placeholder="例如：第10次课"
+                          placeholder="例如：12（自动填充）"
                           value={lessonNumber}
                           onChange={(e) => setLessonNumber(e.target.value)}
                           disabled={isGenerating}
