@@ -5,24 +5,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { BatchProcess } from "@/components/BatchProcess";
+import { GlobalSettings } from "@/components/GlobalSettings";
+import { RoadmapSettings } from "@/components/RoadmapSettings";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { trpc } from "@/lib/trpc";
-import { 
-  Loader2, 
-  CheckCircle2, 
-  AlertCircle, 
-  FileText, 
-  FolderOpen, 
+import {
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  FileText,
+  FolderOpen,
   Circle,
   XCircle,
   ExternalLink,
   RefreshCw,
-  Settings,
-  ChevronDown,
-  ChevronRight,
   Save,
   Square,
   Download,
@@ -322,8 +320,6 @@ export default function Home() {
   const [isFirstLesson, setIsFirstLesson] = useState(false);
   const [specialRequirements, setSpecialRequirements] = useState("");
 
-  // 高级设置
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [apiModel, setApiModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiUrl, setApiUrl] = useState("");
@@ -382,6 +378,197 @@ export default function Home() {
   useEffect(() => {
     return () => { if (skipTimerRef.current) clearTimeout(skipTimerRef.current); };
   }, []);
+
+  // ========== 学生课次记忆功能 ==========
+  const STUDENT_LESSON_STORAGE_KEY = 'studentLessonHistoryV2';
+  const MAX_RECENT_STUDENTS = 30; // 最多保存30个最近学生
+
+  // 学生记录类型
+  interface StudentRecord {
+    lesson: number;
+    lastUsed: number; // 时间戳，用于排序
+  }
+
+  // 从服务器获取学生历史记录（首次加载）
+  const [studentHistoryCache, setStudentHistoryCache] = useState<Record<string, StudentRecord>>({});
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  // 从服务器获取历史记录
+  const { data: serverHistory } = trpc.config.getStudentHistory.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: Infinity, // 不自动重新获取
+  });
+
+  // 保存到服务器的 mutation
+  const saveHistoryMutation = trpc.config.saveStudentHistory.useMutation();
+
+  // 当服务器数据返回时，更新缓存
+  useEffect(() => {
+    if (serverHistory && !historyLoaded) {
+      setStudentHistoryCache(serverHistory as Record<string, StudentRecord>);
+      setHistoryLoaded(true);
+      // 同步到 localStorage 作为离线缓存
+      try {
+        localStorage.setItem(STUDENT_LESSON_STORAGE_KEY, JSON.stringify(serverHistory));
+      } catch (e) {
+        console.warn('同步到 localStorage 失败:', e);
+      }
+    }
+  }, [serverHistory, historyLoaded]);
+
+  // 从缓存或 localStorage 获取学生课次历史
+  const getStudentLessonHistory = (): Record<string, StudentRecord> => {
+    // 优先使用缓存（已从服务器加载）
+    if (historyLoaded && Object.keys(studentHistoryCache).length > 0) {
+      return studentHistoryCache;
+    }
+    // 回退到 localStorage（离线或首次加载）
+    try {
+      const data = localStorage.getItem(STUDENT_LESSON_STORAGE_KEY);
+      return data ? JSON.parse(data) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  // 获取最近使用的学生列表（按时间从近到远排序，最多30个）
+  const getRecentStudents = (): Array<{ name: string; lesson: number }> => {
+    const history = getStudentLessonHistory();
+    return Object.entries(history)
+      .filter(([name]) => !name.startsWith('班级:')) // 排除班级记录
+      .sort((a, b) => b[1].lastUsed - a[1].lastUsed) // 按时间降序
+      .slice(0, MAX_RECENT_STUDENTS)
+      .map(([name, record]) => ({ name, lesson: record.lesson }));
+  };
+
+  // 获取最近使用的班级列表（按时间从近到远排序）
+  const getRecentClasses = (): Array<{ classNumber: string; lesson: number }> => {
+    const history = getStudentLessonHistory();
+    return Object.entries(history)
+      .filter(([name]) => name.startsWith('班级:'))
+      .sort((a, b) => b[1].lastUsed - a[1].lastUsed)
+      .slice(0, MAX_RECENT_STUDENTS)
+      .map(([name, record]) => ({
+        classNumber: name.replace('班级:', ''),
+        lesson: record.lesson
+      }));
+  };
+
+  // 保存学生课次到服务器和 localStorage
+  const saveStudentLesson = (name: string, lesson: number) => {
+    try {
+      const history = getStudentLessonHistory();
+      history[name] = { lesson, lastUsed: Date.now() };
+
+      // 清理超过30个的旧记录（分别清理学生和班级）
+      const students = Object.entries(history).filter(([n]) => !n.startsWith('班级:'));
+      const classes = Object.entries(history).filter(([n]) => n.startsWith('班级:'));
+
+      // 按时间排序，只保留最近30个
+      const sortedStudents = students.sort((a, b) => b[1].lastUsed - a[1].lastUsed).slice(0, MAX_RECENT_STUDENTS);
+      const sortedClasses = classes.sort((a, b) => b[1].lastUsed - a[1].lastUsed).slice(0, MAX_RECENT_STUDENTS);
+
+      const cleanedHistory: Record<string, StudentRecord> = {};
+      [...sortedStudents, ...sortedClasses].forEach(([n, r]) => {
+        cleanedHistory[n] = r;
+      });
+
+      // 更新本地缓存（立即生效）
+      setStudentHistoryCache(cleanedHistory);
+
+      // 保存到 localStorage（离线缓存）
+      localStorage.setItem(STUDENT_LESSON_STORAGE_KEY, JSON.stringify(cleanedHistory));
+
+      // 异步保存到服务器（跨设备同步）
+      saveHistoryMutation.mutate(
+        { history: cleanedHistory },
+        {
+          onError: (err) => {
+            console.warn('保存学生课次到服务器失败:', err);
+          },
+        }
+      );
+    } catch (e) {
+      console.warn('保存学生课次失败:', e);
+    }
+  };
+
+  // 学生名下拉列表状态
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
+  const [recentStudents, setRecentStudents] = useState<Array<{ name: string; lesson: number }>>([]);
+  const studentInputRef = useRef<HTMLInputElement>(null);
+
+  // 班号下拉列表状态
+  const [showClassDropdown, setShowClassDropdown] = useState(false);
+  const [recentClasses, setRecentClasses] = useState<Array<{ classNumber: string; lesson: number }>>([]);
+  const classInputRef = useRef<HTMLInputElement>(null);
+
+  // 点击输入框时加载最近学生列表
+  const handleStudentInputFocus = () => {
+    setRecentStudents(getRecentStudents());
+    setShowStudentDropdown(true);
+  };
+
+  // 点击班号输入框时加载最近班级列表
+  const handleClassInputFocus = () => {
+    setRecentClasses(getRecentClasses());
+    setShowClassDropdown(true);
+  };
+
+  // 选择学生
+  const handleSelectStudent = (name: string) => {
+    setStudentName(name);
+    setShowStudentDropdown(false);
+  };
+
+  // 选择班级
+  const handleSelectClass = (classNum: string) => {
+    setClassNumber(classNum);
+    setShowClassDropdown(false);
+  };
+
+  // 点击外部关闭下拉列表
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (studentInputRef.current && !studentInputRef.current.parentElement?.contains(e.target as Node)) {
+        setShowStudentDropdown(false);
+      }
+      if (classInputRef.current && !classInputRef.current.parentElement?.contains(e.target as Node)) {
+        setShowClassDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 当学生姓名变化时，自动填充课次（上次课次+1）- 一对一模式
+  useEffect(() => {
+    if (!studentName.trim()) return;
+
+    const history = getStudentLessonHistory();
+    const record = history[studentName.trim()];
+
+    if (record?.lesson !== undefined) {
+      // 自动填充为上次课次+1
+      const nextLesson = record.lesson + 1;
+      setLessonNumber(String(nextLesson));
+    }
+  }, [studentName]);
+
+  // 当班号变化时，自动填充课次（上次课次+1）- 小班课模式
+  useEffect(() => {
+    if (!classNumber.trim()) return;
+
+    const history = getStudentLessonHistory();
+    // 使用班号作为 key，格式如 "班级:26098"
+    const record = history[`班级:${classNumber.trim()}`];
+
+    if (record?.lesson !== undefined) {
+      // 自动填充为上次课次+1
+      const nextLesson = record.lesson + 1;
+      setLessonNumber(String(nextLesson));
+    }
+  }, [classNumber]);
 
   // 生成中每秒触发重渲染，驱动耗时秒数实时刷新
   const [, setTick] = useState(0);
@@ -1116,6 +1303,15 @@ export default function Home() {
 
       console.log(`[V63.7] 并行生成完成: ${successCount}/4 成功，总耗时 ${totalParallelDuration} 秒`);
 
+      // 保存学生课次到 localStorage（用于下次自动填充课次+1）
+      if (studentSnapshot.studentName && studentSnapshot.lessonNumber) {
+        const lessonNum = parseInt(studentSnapshot.lessonNumber.replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(lessonNum)) {
+          saveStudentLesson(studentSnapshot.studentName, lessonNum);
+          console.log(`[课次记忆] 已保存: ${studentSnapshot.studentName} 第${lessonNum}次课`);
+        }
+      }
+
       setIsComplete(true);
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : '生成失败';
@@ -1141,7 +1337,7 @@ export default function Home() {
         } else if (rawMessage.includes('insufficient_user_quota') || rawMessage.includes('预扣费额度失败')) {
           displayError = 'API余额不足，请登录DMXapi充值后重试';
         } else if (rawMessage.includes('401') || rawMessage.includes('Unauthorized')) {
-          displayError = 'API密钥无效，请在高级设置中检查密钥';
+          displayError = 'API密钥无效，请点击右上角设置按钮检查密钥';
         } else if (rawMessage.includes('403')) {
           displayError = 'API访问被拒绝，可能是余额不足或密钥权限问题';
         } else if (rawMessage.includes('429') || rawMessage.includes('rate limit')) {
@@ -1825,6 +2021,16 @@ export default function Home() {
 
       console.log(`[V63.9] 小班课并行生成完成: ${successCount}/4 成功，总耗时 ${totalParallelDuration} 秒`);
 
+      // 保存班级课次到 localStorage（用于下次自动填充课次+1）
+      if (classSnapshot.classNumber && classSnapshot.lessonNumber) {
+        const lessonNum = parseInt(classSnapshot.lessonNumber.replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(lessonNum)) {
+          // 使用班号作为 key，格式如 "班级:26098"
+          saveStudentLesson(`班级:${classSnapshot.classNumber}`, lessonNum);
+          console.log(`[课次记忆] 已保存: ${classSnapshot.classNumber}班 第${lessonNum}次课`);
+        }
+      }
+
       // 全部成功才设置最终步骤
       localCurrentStep = 5;
       setCurrentStep(5);
@@ -2289,7 +2495,7 @@ export default function Home() {
         } else if (rawMessage.includes('insufficient_user_quota') || rawMessage.includes('预扣费额度失败')) {
           displayError = 'API余额不足，请登录DMXapi充值后重试';
         } else if (rawMessage.includes('401') || rawMessage.includes('Unauthorized')) {
-          displayError = 'API密钥无效，请在高级设置中检查密钥';
+          displayError = 'API密钥无效，请点击右上角设置按钮检查密钥';
         } else if (rawMessage.includes('403')) {
           displayError = 'API访问被拒绝，可能是余额不足或密钥权限问题';
         } else if (rawMessage.includes('429') || rawMessage.includes('rate limit')) {
@@ -2496,15 +2702,17 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
-      {/* 版本号显示 */}
-      <div className="fixed top-2 right-2 text-xs text-muted-foreground z-50">
-        {VERSION_DISPLAY}
+      {/* 右上角：全局设置 + 版本号 */}
+      <div className="fixed top-2 right-2 flex items-center gap-2 z-50">
+        <GlobalSettings disabled={isGenerating} />
+        <span className="text-xs text-muted-foreground">{VERSION_DISPLAY}</span>
       </div>
       <div className="max-w-4xl mx-auto">
         {/* 标题 */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-800 mb-2">托福阅读学情反馈系统</h1>
-          <p className="text-gray-600">输入课堂信息，自动生成5个文档并存储到Google Drive</p>
+          <p className="text-gray-600 mb-4">输入课堂信息，自动生成5个文档并存储到Google Drive</p>
+          <RoadmapSettings disabled={isGenerating} />
         </div>
 
         {/* 大分页 Tab 切换 */}
@@ -2571,20 +2779,42 @@ export default function Home() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="studentName">学生姓名 *</Label>
-                        <Input
-                          id="studentName"
-                          placeholder="例如：张三"
-                          value={studentName}
-                          onChange={(e) => setStudentName(e.target.value)}
-                          disabled={isGenerating}
-                        />
+                        <div className="relative">
+                          <Input
+                            ref={studentInputRef}
+                            id="studentName"
+                            placeholder="例如：张三（点击选择历史）"
+                            value={studentName}
+                            onChange={(e) => setStudentName(e.target.value)}
+                            onFocus={handleStudentInputFocus}
+                            disabled={isGenerating}
+                            autoComplete="off"
+                          />
+                          {showStudentDropdown && recentStudents.length > 0 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                              <div className="px-3 py-2 text-xs text-gray-500 border-b bg-gray-50">
+                                最近使用的学生（点击选择）
+                              </div>
+                              {recentStudents.map((s, i) => (
+                                <div
+                                  key={i}
+                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
+                                  onClick={() => handleSelectStudent(s.name)}
+                                >
+                                  <span className="font-medium">{s.name}</span>
+                                  <span className="text-xs text-gray-400">上次第{s.lesson}次 → 下次第{s.lesson + 1}次</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      
+
                       <div className="space-y-2">
                         <Label htmlFor="lessonNumber">课次</Label>
                         <Input
                           id="lessonNumber"
-                          placeholder="例如：第10次课"
+                          placeholder="例如：12（自动填充）"
                           value={lessonNumber}
                           onChange={(e) => setLessonNumber(e.target.value)}
                           disabled={isGenerating}
@@ -2602,7 +2832,7 @@ export default function Home() {
                           onChange={(e) => setCurrentYear(e.target.value)}
                           disabled={isGenerating}
                         />
-                        <p className="text-xs text-gray-500">默认当前年份，修改后在高级设置中保存可持久化</p>
+                        <p className="text-xs text-gray-500">默认当前年份，可在右上角全局设置中修改</p>
                       </div>
                       
                       <div className="space-y-2">
@@ -2649,20 +2879,42 @@ export default function Home() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="classNumber">班号 *</Label>
-                        <Input
-                          id="classNumber"
-                          placeholder="例如：26098班"
-                          value={classNumber}
-                          onChange={(e) => setClassNumber(e.target.value)}
-                          disabled={isGenerating}
-                        />
+                        <div className="relative">
+                          <Input
+                            ref={classInputRef}
+                            id="classNumber"
+                            placeholder="例如：26098（点击选择历史）"
+                            value={classNumber}
+                            onChange={(e) => setClassNumber(e.target.value)}
+                            onFocus={handleClassInputFocus}
+                            disabled={isGenerating}
+                            autoComplete="off"
+                          />
+                          {showClassDropdown && recentClasses.length > 0 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                              <div className="px-3 py-2 text-xs text-gray-500 border-b bg-gray-50">
+                                最近使用的班级（点击选择）
+                              </div>
+                              {recentClasses.map((c, i) => (
+                                <div
+                                  key={i}
+                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
+                                  onClick={() => handleSelectClass(c.classNumber)}
+                                >
+                                  <span className="font-medium">{c.classNumber}班</span>
+                                  <span className="text-xs text-gray-400">上次第{c.lesson}次 → 下次第{c.lesson + 1}次</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      
+
                       <div className="space-y-2">
                         <Label htmlFor="lessonNumber">课次</Label>
                         <Input
                           id="lessonNumber"
-                          placeholder="例如：第10次课"
+                          placeholder="例如：12（自动填充）"
                           value={lessonNumber}
                           onChange={(e) => setLessonNumber(e.target.value)}
                           disabled={isGenerating}
@@ -2797,14 +3049,59 @@ export default function Home() {
                     className="h-[120px] font-mono text-sm resize-none overflow-y-auto"
                     disabled={isGenerating}
                   />
-                  <p className="text-xs text-gray-500">
-                    {(courseType === 'oneToOne' && isFirstLesson) 
-                      ? "新生首次课可以不填此项" 
-                      : (courseType === 'class' && isClassFirstLesson)
-                        ? "范例内容将透明转发给AI，可根据实际情况修改"
-                        : "用于对比上次课内容，避免重复"
-                    }
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-500">
+                      {(courseType === 'oneToOne' && isFirstLesson)
+                        ? "新生首次课可以不填此项。如需更新范例模板，可修改后点击右侧按钮保存。"
+                        : (courseType === 'class' && isClassFirstLesson)
+                          ? "范例内容将透明转发给AI。如需更新范例模板，可修改后点击右侧按钮保存。"
+                          : "用于对比上次课内容，避免重复"
+                      }
+                    </p>
+                    {/* 更新范例按钮 - 只在首次课模式下显示 */}
+                    {((courseType === 'oneToOne' && isFirstLesson) || (courseType === 'class' && isClassFirstLesson)) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isGenerating || savingConfig || !lastFeedback.trim()}
+                        onClick={async () => {
+                          if (!lastFeedback.trim()) {
+                            alert("范例内容为空，无法保存");
+                            return;
+                          }
+                          if (!confirm("确定要将当前内容保存为新的首次课范例吗？这将覆盖原有范例。")) {
+                            return;
+                          }
+                          setSavingConfig(true);
+                          try {
+                            const key = courseType === 'oneToOne' ? 'firstLessonTemplate' : 'classFirstLessonTemplate';
+                            const label = courseType === 'oneToOne' ? '一对一首次课范例' : '小班课首次课范例';
+                            await updateConfigMutation.mutateAsync({ [key]: lastFeedback });
+                            // 更新本地状态
+                            if (courseType === 'oneToOne') {
+                              setFirstLessonTemplate(lastFeedback);
+                            } else {
+                              setClassFirstLessonTemplate(lastFeedback);
+                            }
+                            await configQuery.refetch();
+                            alert(`${label}已更新！`);
+                          } catch (error) {
+                            alert("保存失败：" + (error instanceof Error ? error.message : "未知错误"));
+                          } finally {
+                            setSavingConfig(false);
+                          }
+                        }}
+                      >
+                        {savingConfig ? (
+                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                        ) : (
+                          <Save className="h-3 w-3 mr-1" />
+                        )}
+                        更新范例
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 {/* 本次课笔记 */}
@@ -2852,227 +3149,6 @@ export default function Home() {
                   disabled={isGenerating}
                 />
               </div>
-
-              {/* 高级设置（折叠） */}
-              <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-                <CollapsibleTrigger asChild>
-                  <Button variant="ghost" className="w-full justify-between p-4 bg-gray-50 hover:bg-gray-100">
-                    <span className="flex items-center gap-2">
-                      <Settings className="w-4 h-4" />
-                      高级设置（API配置）
-                    </span>
-                    {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="bg-gray-50 p-4 rounded-b-lg space-y-4 border-t">
-                    <p className="text-sm text-gray-600 mb-4">
-                      修改后点击"保存配置"，下次打开网页会自动使用新配置。留空则使用默认值。
-                    </p>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="apiModel">模型名称</Label>
-                      <Input
-                        id="apiModel"
-                        placeholder="例如：claude-sonnet-4-5-20250929"
-                        value={apiModel}
-                        onChange={(e) => setApiModel(e.target.value)}
-                        disabled={isGenerating}
-                      />
-                      <p className="text-xs text-gray-500">
-                        直接复制API供应商提供的模型名称，不需要做任何修改
-                      </p>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="apiKey">API密钥</Label>
-                      <Input
-                        id="apiKey"
-                        type="password"
-                        placeholder={configQuery.data?.hasApiKey ? "已配置（留空保持不变）" : "sk-xxxxxxxx"}
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        disabled={isGenerating}
-                      />
-                      <p className="text-xs text-gray-500">
-                        {configQuery.data?.hasApiKey ? "已配置密钥。如需更换请输入新密钥" : "留空则使用默认密钥"}
-                      </p>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="apiUrl">API地址</Label>
-                      <Input
-                        id="apiUrl"
-                        placeholder="例如：https://api.whatai.cc/v1"
-                        value={apiUrl}
-                        onChange={(e) => setApiUrl(e.target.value)}
-                        disabled={isGenerating}
-                      />
-                      <p className="text-xs text-gray-500">
-                        留空则使用默认地址
-                      </p>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="maxTokens">最大Token数</Label>
-                      <Input
-                        id="maxTokens"
-                        type="number"
-                        placeholder="64000"
-                        value={maxTokens}
-                        onChange={(e) => setMaxTokens(e.target.value)}
-                        disabled={isGenerating}
-                        min={1000}
-                        max={200000}
-                      />
-                      <p className="text-xs text-gray-500">
-                        AI生成的最大token数，建议范围1000-200000，默认64000
-                      </p>
-                    </div>
-
-                    {/* Google Drive 存储路径 */}
-                    <div className="border-t pt-4 mt-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="driveBasePath">Google Drive 存储路径</Label>
-                        <Input
-                          id="driveBasePath"
-                          placeholder="例如：Mac/Documents/XDF/学生档案"
-                          value={driveBasePath}
-                          onChange={(e) => setDriveBasePath(e.target.value)}
-                          disabled={isGenerating}
-                        />
-                        <p className="text-xs text-gray-500">
-                          设置文档存储的根路径。学生文件夹将自动创建在此路径下。
-                          例如：设置为 "Mac/Documents/XDF/学生档案" 后，张三的文档会存储到 "Mac/Documents/XDF/学生档案/张三/" 下。
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* 路书管理 */}
-                    <div className="border-t pt-4 mt-4 space-y-4">
-                      {/* 一对一路书 */}
-                      <div className="space-y-2">
-                        <Label htmlFor="roadmap">V9路书内容（一对一）（可选）</Label>
-                        <DebouncedTextarea
-                          id="roadmap"
-                          placeholder="粘贴更新后的V9路书内容...留空则使用系统内置的路书"
-                          value={roadmap}
-                          onValueChange={setRoadmap}
-                          className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
-                          disabled={isGenerating}
-                        />
-                        <p className="text-xs text-gray-500">
-                          用于一对一课程的路书。留空则使用系统内置的默认路书。
-                        </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setRoadmap("")}
-                          disabled={isGenerating || !roadmap}
-                        >
-                          清空路书
-                        </Button>
-                      </div>
-                      
-                      {/* 一对一首次课范例 */}
-                      <div className="space-y-2">
-                        <Label htmlFor="firstLessonTemplate">一对一首次课范例（可选）</Label>
-                        <DebouncedTextarea
-                          id="firstLessonTemplate"
-                          placeholder="粘贴一对一首次课范例内容...勾选首次课时会自动填入上次反馈"
-                          value={firstLessonTemplate}
-                          onValueChange={setFirstLessonTemplate}
-                          className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
-                          disabled={isGenerating}
-                        />
-                        <p className="text-xs text-gray-500">
-                          一对一首次课时使用的范例内容。勾选“新生首次课”后会自动填入“上次反馈”输入框。
-                        </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setFirstLessonTemplate("")}
-                          disabled={isGenerating || !firstLessonTemplate}
-                        >
-                          清空范例
-                        </Button>
-                      </div>
-                      
-                      {/* 小班课路书 */}
-                      <div className="space-y-2">
-                        <Label htmlFor="roadmapClass">小班课路书内容（可选）</Label>
-                        <DebouncedTextarea
-                          id="roadmapClass"
-                          placeholder="粘贴小班课路书内容...留空则使用系统内置的路书"
-                          value={roadmapClass}
-                          onValueChange={setRoadmapClass}
-                          className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
-                          disabled={isGenerating}
-                        />
-                        <p className="text-xs text-gray-500">
-                          用于小班课的路书。留空则使用系统内置的默认路书。
-                        </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setRoadmapClass("")}
-                          disabled={isGenerating || !roadmapClass}
-                        >
-                          清空路书
-                        </Button>
-                      </div>
-                    </div>
-                    
-                    {/* 小班课首次课范例 */}
-                    <div className="space-y-2">
-                      <Label htmlFor="classFirstLessonTemplate">小班课首次课范例（可选）</Label>
-                      <DebouncedTextarea
-                        id="classFirstLessonTemplate"
-                        placeholder="粘贴小班课首次课范例内容...勾选首次课时会自动填入上次反馈"
-                        value={classFirstLessonTemplate}
-                        onValueChange={setClassFirstLessonTemplate}
-                        className="h-[120px] font-mono text-xs resize-none overflow-y-auto"
-                        disabled={isGenerating}
-                      />
-                      <p className="text-xs text-gray-500">
-                        小班课首次课时使用的范例内容。勾选"首次课"后会自动填入"上次反馈"输入框。
-                      </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setClassFirstLessonTemplate("")}
-                        disabled={isGenerating || !classFirstLessonTemplate}
-                      >
-                        清空范例
-                      </Button>
-                    </div>
-                    
-                    <Button 
-                      type="button" 
-                      variant="outline" 
-                      onClick={handleSaveConfig}
-                      disabled={savingConfig || isGenerating}
-                      className="w-full"
-                    >
-                      {savingConfig ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          保存中...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="mr-2 h-4 w-4" />
-                          保存配置
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
 
               {/* Google Drive 连接状态 */}
               <div className="border rounded-lg overflow-hidden">

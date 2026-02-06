@@ -124,10 +124,11 @@ export const appRouter = router({
       const firstLessonTemplate = await getConfig("firstLessonTemplate");
       const classFirstLessonTemplate = await getConfig("classFirstLessonTemplate");
       const driveBasePath = await getConfig("driveBasePath");
+      const classStoragePath = await getConfig("classStoragePath");
       const batchFilePrefix = await getConfig("batchFilePrefix");
       const batchStoragePath = await getConfig("batchStoragePath");
       const maxTokens = await getConfig("maxTokens");
-      
+
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
         // 安全考虑：不返回完整 API Key，只返回空字符串。用 hasApiKey 指示是否已配置
@@ -139,6 +140,7 @@ export const appRouter = router({
         firstLessonTemplate: firstLessonTemplate || "",
         classFirstLessonTemplate: classFirstLessonTemplate || "",
         driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
+        classStoragePath: classStoragePath || "", // 小班课路径，留空则使用 driveBasePath
         batchFilePrefix: batchFilePrefix || DEFAULT_CONFIG.batchFilePrefix,
         batchStoragePath: batchStoragePath || DEFAULT_CONFIG.batchStoragePath,
         maxTokens: maxTokens || "64000",
@@ -168,6 +170,7 @@ export const appRouter = router({
         firstLessonTemplate: z.string().optional(),
         classFirstLessonTemplate: z.string().optional(),
         driveBasePath: z.string().optional(),
+        classStoragePath: z.string().optional(),
         batchFilePrefix: z.string().optional(),
         batchStoragePath: z.string().optional(),
         maxTokens: z.string().optional(),
@@ -224,10 +227,25 @@ export const appRouter = router({
           if (path.endsWith('/')) {
             path = path.slice(0, -1);
           }
-          await setConfig("driveBasePath", path, "Google Drive存储根路径");
+          await setConfig("driveBasePath", path, "一对一存储路径");
           updates.push("driveBasePath");
         }
-        
+
+        if (input.classStoragePath !== undefined) {
+          // 小班课存储路径，可以为空（空则使用 driveBasePath）
+          let path = input.classStoragePath.trim();
+          if (path) {
+            if (path.startsWith('/')) {
+              path = path.slice(1);
+            }
+            if (path.endsWith('/')) {
+              path = path.slice(0, -1);
+            }
+          }
+          await setConfig("classStoragePath", path, "小班课存储路径");
+          updates.push("classStoragePath");
+        }
+
         if (input.batchFilePrefix !== undefined) {
           await setConfig("batchFilePrefix", input.batchFilePrefix.trim() || DEFAULT_CONFIG.batchFilePrefix, "批量处理文件名前缀");
           updates.push("batchFilePrefix");
@@ -285,6 +303,32 @@ export const appRouter = router({
           reset: input.keys,
           message: `已重置: ${input.keys.join(", ")}`,
         };
+      }),
+
+    // 获取学生/班级历史记录
+    getStudentHistory: protectedProcedure.query(async () => {
+      const historyJson = await getConfig("studentLessonHistory");
+      if (!historyJson) {
+        return {};
+      }
+      try {
+        return JSON.parse(historyJson);
+      } catch {
+        return {};
+      }
+    }),
+
+    // 保存学生/班级历史记录
+    saveStudentHistory: protectedProcedure
+      .input(z.object({
+        history: z.record(z.object({
+          lesson: z.number(),
+          lastUsed: z.number(),
+        })),
+      }))
+      .mutation(async ({ input }) => {
+        await setConfig("studentLessonHistory", JSON.stringify(input.history), "学生/班级课次历史记录");
+        return { success: true };
       }),
   }),
 
@@ -1223,9 +1267,12 @@ export const appRouter = router({
         driveBasePath: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
+        // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
+        const classStoragePath = await getConfig("classStoragePath");
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const effectivePath = classStoragePath || driveBasePath;
         // 路径格式：{basePath}/{classNumber}班/
-        const basePath = `${driveBasePath}/${input.classNumber}班`;
+        const basePath = `${effectivePath}/${input.classNumber}班`;
         
         let fileName: string;
         let filePath: string;
