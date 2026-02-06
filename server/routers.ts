@@ -1450,57 +1450,66 @@ export const appRouter = router({
 
         // 构建文件名和路径
         let folderName: string;
-        let filePrefixNoSpace: string;
-        let filePrefixWithSpace: string;
+        const namePrefixes: string[] = [];
         if (courseType === 'class' && classNumber) {
           folderName = `${classNumber}班`;
-          filePrefixNoSpace = `${classNumber}班${prevLesson}`;
-          filePrefixWithSpace = `${classNumber}班 ${prevLesson}`;
+          // 尝试多种文件名变体：有/无空格，有/无"学情反馈"后缀
+          namePrefixes.push(
+            `${classNumber}班${prevLesson}`,
+            `${classNumber}班 ${prevLesson}`,
+            `${classNumber}班${prevLesson}学情反馈`,
+            `${classNumber}班 ${prevLesson}学情反馈`,
+          );
         } else {
           folderName = studentName;
-          filePrefixNoSpace = `${studentName}${prevLesson}`;
-          filePrefixWithSpace = `${studentName} ${prevLesson}`;
+          namePrefixes.push(
+            `${studentName}${prevLesson}`,
+            `${studentName} ${prevLesson}`,
+            `${studentName}${prevLesson}学情反馈`,
+            `${studentName} ${prevLesson}学情反馈`,
+          );
         }
 
         const feedbackFolder = `${driveBasePath}/${folderName}/学情反馈`;
 
-        // 尝试多种文件名变体（有/无空格）和扩展名
+        // 尝试所有文件名变体 × 扩展名，用 rclone cat 直接读取
         const extensions = ['.md', '.docx', '.txt'];
-        const prefixes = [filePrefixNoSpace, filePrefixWithSpace];
-        let foundPath: string | null = null;
+        let foundBuffer: Buffer | null = null;
         let foundExt: string | null = null;
         let foundFileName: string | null = null;
 
-        for (const prefix of prefixes) {
+        for (const prefix of namePrefixes) {
           for (const ext of extensions) {
             const candidateName = `${prefix}${ext}`;
             const candidatePath = `${feedbackFolder}/${candidateName}`;
-            const result = await verifyFileExists(candidatePath);
-            if (result.exists) {
-              foundPath = candidatePath;
-              foundExt = ext;
-              foundFileName = candidateName;
-              break;
+            try {
+              const buf = await readFileFromGoogleDrive(candidatePath);
+              if (buf.length > 0) {
+                foundBuffer = buf;
+                foundExt = ext;
+                foundFileName = candidateName;
+                break;
+              }
+            } catch {
+              // 继续尝试下一个
             }
           }
-          if (foundPath) break;
+          if (foundBuffer) break;
         }
 
-        if (!foundPath || !foundExt || !foundFileName) {
+        if (!foundBuffer || !foundExt || !foundFileName) {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: `未找到上次反馈文件: ${filePrefixNoSpace}(.md/.docx/.txt)\n查找路径: Google Drive/${feedbackFolder}`,
+            message: `未找到上次反馈文件\n尝试了: ${namePrefixes[0]}(.md/.docx/.txt) 等变体\n查找路径: Google Drive/${feedbackFolder}`,
           });
         }
-
-        const buffer = await readFileFromGoogleDrive(foundPath);
 
         let content: string;
         if (foundExt === '.docx') {
           const { parseDocxToText } = await import('./utils/documentParser');
-          content = await parseDocxToText(buffer);
+          content = await parseDocxToText(foundBuffer);
         } else {
-          content = buffer.toString('utf-8');
+          content = foundBuffer.toString('utf-8');
         }
 
         if (!content.trim()) {
