@@ -86,6 +86,61 @@ interface BatchTaskResult {
 }
 
 /**
+ * 模板类型对应的格式要求
+ * 这些会自动附加到路书后面，用户只需要写内容要求
+ */
+const TEMPLATE_FORMAT_REQUIREMENTS: Record<string, string> = {
+  // word_card: 词汇卡片模板，需要输出纯 JSON
+  word_card: `
+【输出格式要求 - 词汇卡片】
+⚠️ 你必须只输出纯 JSON，不要输出任何其他内容！
+⚠️ 不要输出 \`\`\`json 代码块标记！
+⚠️ 不要输出任何解释或说明文字！
+
+JSON 结构如下：
+{
+  "listNumber": 数字,
+  "sceneName": "场景名称",
+  "wordCount": 单词数量,
+  "words": [{
+    "num": 序号,
+    "word": "单词",
+    "phonetic": "/音标/",
+    "pos": "词性",
+    "meaning": "中文释义",
+    "example": "例句",
+    "translation": "例句翻译"
+  }]
+}`,
+
+  // writing_material: 写作素材模板，需要输出纯 JSON
+  writing_material: `
+【输出格式要求 - 写作素材】
+⚠️ 你必须只输出纯 JSON，不要输出任何其他内容！
+⚠️ 不要输出 \`\`\`json 代码块标记！
+⚠️ 不要输出任何解释或说明文字！
+
+JSON 结构如下：
+{
+  "partNum": 数字,
+  "partTitle": "Part 标题",
+  "listNum": 数字,
+  "listTitle": "List 标题",
+  "bookmarkId": "唯一书签ID",
+  "categories": [{
+    "categoryTitle": "分类标题",
+    "sections": [{
+      "sectionTitle": "小节标题",
+      "items": [{
+        "english": "English expression",
+        "chinese": "中文释义"
+      }]
+    }]
+  }]
+}`,
+};
+
+/**
  * 构建带来源标签的消息内容（公共函数）
  * 用于批量生成和单任务重做
  *
@@ -98,13 +153,17 @@ function buildBatchMessageContent(
   taskNumber: number,
   roadmapContent: string,
   sharedFileList: FileInfo[] | undefined,
-  independentFile: FileInfo | undefined
+  independentFile: FileInfo | undefined,
+  templateType?: string
 ): { systemPrompt: string; userMessage: string } {
-  // 构建 system prompt（路书部分）
+  // 获取模板格式要求（如果有）
+  const formatRequirement = templateType ? (TEMPLATE_FORMAT_REQUIREMENTS[templateType] || '') : '';
+
+  // 构建 system prompt（路书部分 + 格式要求）
   const systemPrompt = `<路书提示词>
 ${roadmapContent}
 </路书提示词>
-
+${formatRequirement}
 【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`;
 
   // 构建 user message
@@ -449,12 +508,13 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     // 日志输出
     console.log(`[BatchRoutes] 任务${taskNumber}：共享文件${sharedFileList?.length || 0}个，独立文件${independentFile ? 1 : 0}个，共${taskFileInfos.length}个`);
     
-    // 使用公共函数构建带来源标签的消息
+    // 使用公共函数构建带来源标签的消息（包含模板格式要求）
     const { systemPrompt, userMessage } = buildBatchMessageContent(
       taskNumber,
       roadmap,
       sharedFileList,
-      independentFile
+      independentFile,
+      templateType
     );
 
 
@@ -1014,12 +1074,13 @@ router.post("/retry-task", async (req: Request, res: Response) => {
 
     console.log(`[BatchRoutes] 重做任务${taskNum}：共享文件${sharedFileList?.length || 0}个，独立文件${independentFile ? 1 : 0}个`);
 
-    // 使用公共函数构建消息
+    // 使用公共函数构建消息（包含模板格式要求）
     const { systemPrompt, userMessage } = buildBatchMessageContent(
       taskNum,
       roadmap,
       sharedFileList,
-      independentFile
+      independentFile,
+      templateType
     );
 
     let lastReportedChars = 0;
