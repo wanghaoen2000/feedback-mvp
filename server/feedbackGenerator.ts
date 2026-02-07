@@ -1,4 +1,4 @@
-import { invokeWhatAI, invokeWhatAIStream, MODELS, APIConfig } from "./whatai";
+import { invokeWhatAI, invokeWhatAIStream, WhatAIMessage, MODELS, APIConfig } from "./whatai";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
 import sharp from "sharp";
 
@@ -381,6 +381,7 @@ export function stripAIMetaCommentary(text: string): string {
   }
 
   // 从尾部剔除 AI 结语（空行 + 常见结尾模式）
+  // 注意：【⚠️ 内容截断警告】是系统添加的截断标记，绝不能删除
   const epiloguePatterns = [
     /^[✅✓☑️📝📄🎉🎊]\s/,
     /^(生成完成|测试本生成完成|复习文档生成完成|课后信息提取完成)/,
@@ -393,6 +394,7 @@ export function stripAIMetaCommentary(text: string): string {
   while (lines.length > 0) {
     const trimmed = lines[lines.length - 1].trim();
     if (trimmed === '') { lines.pop(); continue; }
+    if (trimmed.startsWith('【⚠️')) break; // 保留系统截断警告
     if (epiloguePatterns.some(p => p.test(trimmed))) { lines.pop(); continue; }
     break;
   }
@@ -558,16 +560,196 @@ ${feedback}
   }
 }
 
+/** 替换 SVG 中所有字体声明为中文字体，确保服务器端 Cairo/Pango 渲染正确 */
+export function injectChineseFontIntoSVG(svgString: string): string {
+  const CJK_FONT = '"WenQuanYi Zen Hei", "Noto Sans CJK SC", sans-serif';
+  let result = svgString;
+  // 1. 注入全局 CSS 样式（覆盖继承的字体）
+  const fontStyle = `<style>text, tspan { font-family: ${CJK_FONT} !important; }</style>`;
+  result = result.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
+  // 2. 替换所有内联 font-family 属性（CSS !important 无法覆盖 SVG 属性）
+  result = result.replace(/font-family="[^"]*"/g, `font-family=${CJK_FONT}`);
+  result = result.replace(/font-family='[^']*'/g, `font-family=${CJK_FONT}`);
+  // 3. 替换内联 style 中的 font-family
+  result = result.replace(/font-family:\s*[^;"']+/g, `font-family: ${CJK_FONT}`);
+  return result;
+}
+
 /**
  * SVG转PNG（注入中文字体确保服务器端渲染不乱码）
  */
 async function svgToPng(svgString: string): Promise<Buffer> {
-  // 在SVG开头注入font-family样式，覆盖AI生成的字体声明
-  const fontStyle = `<style>text, tspan { font-family: "WenQuanYi Zen Hei", "Noto Sans CJK SC", "SimHei", sans-serif !important; }</style>`;
-  const injected = svgString.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
+  const injected = injectChineseFontIntoSVG(svgString);
   return await sharp(Buffer.from(injected))
     .png()
     .toBuffer();
+}
+
+// ========== 截断自动续写 ==========
+
+const TRUNCATION_MARKER = '【⚠️ 内容截断警告】';
+const MAX_CONTINUATIONS = 3; // 最多续写3次（共4轮），约可产出 24000+ 字符
+
+/** 生成元信息，用于前端展示诊断数据 */
+export interface GenerationMeta {
+  mode: 'non-stream' | 'stream';       // 调用模式
+  rounds: number;                       // 总轮次
+  totalPromptTokens: number;            // 输入token总数
+  totalCompletionTokens: number;        // 输出token总数
+  finishReason: string;                 // 最终finish_reason
+  roundDetails: Array<{ chars: number; promptTokens: number; completionTokens: number; finishReason: string }>;
+}
+
+/**
+ * 非流式带自动续写的AI调用（用于后台任务）
+ *
+ * 关键区别：不带 stream:true 参数。
+ * 某些API代理（如DMXapi）对流式输出有独立的token上限（约8192），
+ * 但非流式可能允许更大的输出。后台任务不需要实时流式进度，
+ * 所以优先用非流式，配合续写做兜底。
+ *
+ * 返回 { content, meta } — meta 包含 token 用量、轮次等诊断信息
+ */
+async function invokeNonStreamWithContinuation(
+  systemPrompt: string,
+  userPrompt: string,
+  config?: APIConfig,
+  label: string = '反馈'
+): Promise<{ content: string; meta: GenerationMeta }> {
+  let fullContent = '';
+  let messages: WhatAIMessage[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  const meta: GenerationMeta = {
+    mode: 'non-stream',
+    rounds: 0,
+    totalPromptTokens: 0,
+    totalCompletionTokens: 0,
+    finishReason: '',
+    roundDetails: [],
+  };
+
+  for (let round = 0; round <= MAX_CONTINUATIONS; round++) {
+    console.log(`[${label}] ${round === 0 ? '开始非流式生成...' : `第${round}次续写（已累计${fullContent.length}字符）...`}`);
+
+    const response = await invokeWhatAI(
+      messages,
+      { max_tokens: 64000, timeout: 600000, retries: 1 },
+      config,
+    );
+
+    const content = response.choices?.[0]?.message?.content || '';
+    const finishReason = response.choices?.[0]?.finish_reason || 'unknown';
+    const usage = response.usage;
+    const pt = usage?.prompt_tokens || 0;
+    const ct = usage?.completion_tokens || 0;
+
+    console.log(`[${label}] 第${round + 1}轮完成，本轮${content.length}字符, finish_reason: ${finishReason}`);
+    if (usage) {
+      console.log(`[${label}] Token用量: 输入=${pt}, 输出=${ct}, 总计=${usage.total_tokens}`);
+    }
+
+    meta.rounds = round + 1;
+    meta.totalPromptTokens += pt;
+    meta.totalCompletionTokens += ct;
+    meta.finishReason = finishReason;
+    meta.roundDetails.push({ chars: content.length, promptTokens: pt, completionTokens: ct, finishReason });
+
+    if (finishReason === 'length' || finishReason === 'max_tokens') {
+      // 被截断，累积内容并续写
+      fullContent += content;
+      if (round < MAX_CONTINUATIONS) {
+        console.log(`[${label}] 截断检测到，已累计${fullContent.length}字符，自动续写...`);
+        messages = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+          { role: "assistant", content: fullContent },
+          { role: "user", content: "你的回答被截断了，请从截断处继续输出。直接继续输出剩余内容，不要重复已有内容，不要添加过渡语句。" },
+        ];
+      } else {
+        console.error(`[${label}] 已达到最大续写次数(${MAX_CONTINUATIONS})，当前${fullContent.length}字符`);
+      }
+    } else {
+      // 正常完成（finish_reason === 'stop' 等）
+      fullContent += content;
+      if (round > 0) {
+        console.log(`[${label}] 续写完成，共${round + 1}轮，总长度: ${fullContent.length}字符`);
+      }
+      break;
+    }
+  }
+
+  return { content: fullContent, meta };
+}
+
+/**
+ * 带自动续写的流式AI调用
+ * 当API输出被截断时（DMXapi可能限制单次输出token数），
+ * 自动将已有内容作为assistant消息发回，请求AI继续输出，
+ * 循环拼接直到完整或达到最大续写次数。
+ * @param signal 外部取消信号（SSE客户端断连时中止）
+ */
+export async function invokeWithContinuation(
+  systemPrompt: string,
+  userPrompt: string,
+  config?: APIConfig,
+  onChunk?: (chunk: string) => void,
+  label: string = '反馈',
+  signal?: AbortSignal
+): Promise<string> {
+  let fullContent = '';
+  let messages: WhatAIMessage[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  for (let round = 0; round <= MAX_CONTINUATIONS; round++) {
+    // 检查外部取消
+    if (signal?.aborted) {
+      throw new Error('生成已取消（客户端断开）');
+    }
+
+    console.log(`[${label}] ${round === 0 ? '开始流式生成...' : `第${round}次续写（已累计${fullContent.length}字符）...`}`);
+
+    const chunk = await invokeWhatAIStream(
+      messages,
+      { max_tokens: 64000, signal },
+      config,
+      onChunk
+    );
+
+    // 检查是否包含截断标记
+    const markerIdx = chunk.indexOf(TRUNCATION_MARKER);
+    if (markerIdx >= 0) {
+      // 去掉截断标记，保留有效内容
+      const cleanChunk = chunk.substring(0, markerIdx).trimEnd();
+      fullContent += cleanChunk;
+
+      if (round < MAX_CONTINUATIONS) {
+        console.log(`[${label}] 第${round + 1}次截断检测到，已累计${fullContent.length}字符，自动续写...`);
+        // 将完整已生成内容作为assistant回复，追加续写指令
+        messages = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+          { role: "assistant", content: fullContent },
+          { role: "user", content: "你的回答被截断了，请从截断处继续输出。直接继续输出剩余内容，不要重复已有内容，不要添加过渡语句。" },
+        ];
+      } else {
+        console.error(`[${label}] 已达到最大续写次数(${MAX_CONTINUATIONS})，内容可能不完整，当前${fullContent.length}字符`);
+      }
+    } else {
+      // 无截断，正常完成
+      fullContent += chunk;
+      if (round > 0) {
+        console.log(`[${label}] 续写完成，共${round + 1}轮，总长度: ${fullContent.length}字符`);
+      }
+      break;
+    }
+  }
+
+  return fullContent;
 }
 
 // ========== 导出的生成函数 ==========
@@ -575,7 +757,7 @@ async function svgToPng(svgString: string): Promise<Buffer> {
 /**
  * 步骤1: 生成学情反馈文档
  */
-export async function generateFeedbackContent(input: FeedbackInput, config?: APIConfig): Promise<string> {
+export async function generateFeedbackContent(input: FeedbackInput, config?: APIConfig): Promise<{ content: string; meta: GenerationMeta }> {
   // 直接使用录音原文，不再压缩
   const prompt = `## 学生信息
 - 学生姓名：${input.studentName}
@@ -609,24 +791,16 @@ ${input.transcript}
     ? config.roadmap
     : FEEDBACK_SYSTEM_PROMPT;
 
-  // 使用流式输出防止超时
-  // 一对一反馈也使用较大的 max_tokens，防止长录音/复杂路书导致截断
-  console.log(`[学情反馈] 开始流式生成...`);
-  const content = await invokeWhatAIStream(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: prompt },
-    ],
-    { max_tokens: 64000 },
+  // 后台任务用非流式调用（可能绕过代理的流式输出token限制）+ 自动续写兜底
+  const result = await invokeNonStreamWithContinuation(
+    systemPrompt,
+    prompt,
     config,
-    (chunk) => {
-      // 每收到一块内容就打印进度（防止超时）
-      process.stdout.write('.');
-    }
+    '学情反馈'
   );
-  console.log(`\n[学情反馈] 流式生成完成，内容长度: ${content.length}字符`);
+  console.log(`[学情反馈] 生成完成，内容长度: ${result.content.length}字符`);
 
-  return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
+  return { content: stripAIMetaCommentary(cleanMarkdownAndHtml(result.content)), meta: result.meta };
 }
 
 /**
@@ -851,7 +1025,8 @@ export async function generateFeedbackDocuments(
   try {
     // 步骤1: 生成学情反馈
     updateStep(0, 'running', '正在生成学情反馈...');
-    feedback = await generateFeedbackContent(input);
+    const feedbackResult = await generateFeedbackContent(input);
+    feedback = feedbackResult.content;
     updateStep(0, 'success', '学情反馈生成完成');
 
     // 步骤2: 生成复习文档
@@ -988,7 +1163,7 @@ export async function generateClassFeedbackContent(
   input: ClassFeedbackInput,
   roadmap: string,
   apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
-): Promise<string> {
+): Promise<{ content: string; meta: GenerationMeta }> {
   // 构建 user prompt，包含所有学生名单和课堂信息
   const studentList = input.attendanceStudents.filter(s => s.trim()).join('、');
   
@@ -1025,20 +1200,17 @@ ${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\
     apiUrl: apiConfig.apiUrl,
   };
   
-  // 小班课反馈内容较长（6人以上可能超过15000字），使用更大的 max_tokens
-  const content = await invokeWhatAIStream(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    { max_tokens: 64000 },  // 小班课需要更大的输出限制
+  // 后台任务用非流式调用（可能绕过代理的流式输出token限制）+ 自动续写兜底
+  const result = await invokeNonStreamWithContinuation(
+    systemPrompt,
+    userPrompt,
     config,
-    () => process.stdout.write('.')
+    '小班课反馈'
   );
 
-  console.log(`\n[小班课反馈] 学情反馈生成完成，长度: ${content.length} 字符`);
+  console.log(`[小班课反馈] 生成完成，长度: ${result.content.length} 字符`);
 
-  return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
+  return { content: stripAIMetaCommentary(cleanMarkdownAndHtml(result.content)), meta: result.meta };
 }
 
 /**

@@ -21,6 +21,7 @@ import {
   generateClassTestContent,
   generateClassExtractionContent,
   generateClassBubbleChartSVG,
+  GenerationMeta,
 } from "./feedbackGenerator";
 import {
   uploadToGoogleDrive,
@@ -38,6 +39,39 @@ function assertUploadSuccess(result: UploadStatus, context: string): void {
 /** 并发任务控制：防止同时运行过多任务打爆 AI API 限速 */
 const MAX_CONCURRENT_TASKS = 3;
 let _runningTaskCount = 0;
+
+/** 任务取消信号：taskId → AbortController */
+const _cancelSignals = new Map<string, AbortController>();
+
+/** 请求取消任务（外部调用） */
+export function cancelBackgroundTask(taskId: string): boolean {
+  const controller = _cancelSignals.get(taskId);
+  if (controller) {
+    console.log(`[后台任务] ${taskId} 收到取消请求`);
+    controller.abort();
+    return true;
+  }
+  return false;
+}
+
+/** 检查任务是否已被取消 */
+function isCancelled(taskId: string): boolean {
+  return _cancelSignals.get(taskId)?.signal.aborted ?? false;
+}
+
+/** 在关键步骤间检查取消，若已取消则更新DB并抛出 */
+async function checkCancellation(taskId: string, stepResults: StepResults, currentStep: number): Promise<void> {
+  if (isCancelled(taskId)) {
+    await updateTask(taskId, {
+      status: "cancelled",
+      stepResults: JSON.stringify(stepResults),
+      currentStep,
+      errorMessage: "用户手动取消",
+      completedAt: new Date(),
+    });
+    throw new Error(`任务 ${taskId} 已被用户取消`);
+  }
+}
 
 /**
  * 给日期字符串添加星期信息（与 classStreamRoutes.ts 保持一致）
@@ -65,7 +99,7 @@ function addWeekdayToDate(dateStr: string): string {
 
 // 步骤结果类型
 interface StepResult {
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "truncated" | "failed";
   fileName?: string;
   url?: string;
   path?: string;
@@ -74,6 +108,7 @@ interface StepResult {
   duration?: number; // 步骤耗时（秒）
   error?: string;
   content?: string; // 反馈全文（仅 feedback 步骤）
+  genInfo?: string;  // 生成诊断信息（模式、轮次、token用量）
 }
 
 interface StepResults {
@@ -162,11 +197,17 @@ export function startBackgroundTask(taskId: string) {
   }
 
   _runningTaskCount++;
+  _cancelSignals.set(taskId, new AbortController());
   console.log(`[后台任务] ${taskId} 开始（当前并发: ${_runningTaskCount}/${MAX_CONCURRENT_TASKS}）`);
 
   // 不 await，让它在后台运行
   runTask(taskId)
     .catch((err) => {
+      // 用户取消不算异常
+      if (isCancelled(taskId)) {
+        console.log(`[后台任务] ${taskId} 已被用户取消`);
+        return;
+      }
       console.error(`[后台任务] ${taskId} 顶层异常:`, err);
       updateTask(taskId, {
         status: "failed",
@@ -174,6 +215,7 @@ export function startBackgroundTask(taskId: string) {
       }).catch(() => {});
     })
     .finally(() => {
+      _cancelSignals.delete(taskId);
       _runningTaskCount--;
       console.log(`[后台任务] ${taskId} 结束（当前并发: ${_runningTaskCount}/${MAX_CONCURRENT_TASKS}）`);
     });
@@ -251,7 +293,9 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       specialRequirements: params.specialRequirements || "",
     };
 
-    feedbackContent = await generateFeedbackContent(feedbackInput, config);
+    const feedbackResult = await generateFeedbackContent(feedbackInput, config);
+    feedbackContent = feedbackResult.content;
+    const feedbackMeta = feedbackResult.meta;
     if (!feedbackContent || !feedbackContent.trim()) {
       throw new Error("AI 返回内容为空");
     }
@@ -271,8 +315,9 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     assertUploadSuccess(uploadResult, "学情反馈");
 
     const step1Duration = Math.round((Date.now() - step1Start) / 1000);
+    const isTruncated = feedbackMeta.finishReason === 'length' || feedbackMeta.finishReason === 'max_tokens';
     stepResults.feedback = {
-      status: "completed",
+      status: isTruncated ? "truncated" : "completed",
       fileName,
       url: uploadResult.url || "",
       path: uploadResult.path || "",
@@ -280,8 +325,16 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       chars: feedbackContent.length,
       duration: step1Duration,
       content: feedbackContent,
+      // 生成诊断信息：模式、轮次、token用量
+      genInfo: `${feedbackMeta.mode} · ${feedbackMeta.rounds}轮 · 输入${feedbackMeta.totalPromptTokens}t/输出${feedbackMeta.totalCompletionTokens}t · ${feedbackMeta.finishReason}`,
+      ...(isTruncated ? { error: `续写${feedbackMeta.rounds}轮后仍被截断（输出${feedbackMeta.totalCompletionTokens}token）` } : {}),
     };
-    console.log(`[后台任务] ${taskId} 步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字)`);
+    if (isTruncated) {
+      failedSteps++;
+      console.warn(`[后台任务] ${taskId} 步骤1截断: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字) ⚠️ 内容不完整`);
+    } else {
+      console.log(`[后台任务] ${taskId} 步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字, ${feedbackMeta.mode} ${feedbackMeta.rounds}轮)`);
+    }
   } catch (err: any) {
     stepResults.feedback = { status: "failed", error: err?.message || String(err) };
     failedSteps++;
@@ -299,6 +352,9 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     });
     return;
   }
+
+  // 取消检查点：步骤1完成后、步骤2-5开始前
+  await checkCancellation(taskId, stepResults, 1);
 
   // ===== 步骤 2-5: 并行执行 =====
   stepResults.review = { status: "running" };
@@ -447,7 +503,9 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   await updateStepResults(taskId, stepResults, 1);
 
   try {
-    feedbackContent = await generateClassFeedbackContent(classInput, roadmapClass, apiConfig);
+    const classResult = await generateClassFeedbackContent(classInput, roadmapClass, apiConfig);
+    feedbackContent = classResult.content;
+    const classMeta = classResult.meta;
     if (!feedbackContent || !feedbackContent.trim()) throw new Error("AI 返回内容为空");
 
     dateStr = params.lessonDate || "";
@@ -462,16 +520,25 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     assertUploadSuccess(uploadResult, "班课学情反馈");
 
     const step1Duration = Math.round((Date.now() - step1Start) / 1000);
+    const isTruncated = classMeta.finishReason === 'length' || classMeta.finishReason === 'max_tokens';
     stepResults.feedback = {
-      status: "completed",
+      status: isTruncated ? "truncated" : "completed",
       fileName,
       url: uploadResult.url || "",
       path: uploadResult.path || "",
       chars: feedbackContent.length,
       duration: step1Duration,
       content: feedbackContent,
+      // 生成诊断信息：模式、轮次、token用量
+      genInfo: `${classMeta.mode} · ${classMeta.rounds}轮 · 输入${classMeta.totalPromptTokens}t/输出${classMeta.totalCompletionTokens}t · ${classMeta.finishReason}`,
+      ...(isTruncated ? { error: `续写${classMeta.rounds}轮后仍被截断（输出${classMeta.totalCompletionTokens}token）` } : {}),
     };
-    console.log(`[后台任务] ${taskId} 班课步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字)`);
+    if (isTruncated) {
+      failedSteps++;
+      console.warn(`[后台任务] ${taskId} 班课步骤1截断: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字) ⚠️ 内容不完整`);
+    } else {
+      console.log(`[后台任务] ${taskId} 班课步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字, ${classMeta.mode} ${classMeta.rounds}轮)`);
+    }
   } catch (err: any) {
     stepResults.feedback = { status: "failed", error: err?.message || String(err) };
     failedSteps++;
@@ -488,6 +555,9 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     });
     return;
   }
+
+  // 取消检查点：步骤1完成后、步骤2-5开始前
+  await checkCancellation(taskId, stepResults, 1);
 
   // ===== 步骤 2-5: 并行执行 =====
   stepResults.review = { status: "running" };
@@ -548,10 +618,10 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
             params.lessonNumber || "",
             { ...apiConfig, roadmapClass }
           );
-          // SVG → PNG（注入中文字体防止乱码）
+          // SVG → PNG（替换内联字体+注入CSS，解决中文乱码）
+          const { injectChineseFontIntoSVG } = await import("./feedbackGenerator");
           const sharp = (await import("sharp")).default;
-          const fontStyle = `<style>text, tspan { font-family: "WenQuanYi Zen Hei", "Noto Sans CJK SC", "SimHei", sans-serif !important; }</style>`;
-          const injectedSvg = svgContent.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
+          const injectedSvg = injectChineseFontIntoSVG(svgContent);
           const pngBuffer = await sharp(Buffer.from(injectedSvg)).png().toBuffer();
           const fileName = `${studentName}${params.lessonNumber || ""}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;

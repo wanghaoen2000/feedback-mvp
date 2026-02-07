@@ -5,8 +5,8 @@
 import crypto from "crypto";
 import { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { invokeWhatAIStream, APIConfig } from "./whatai";
-import { ClassFeedbackInput, textToDocx, cleanMarkdownAndHtml, stripAIMetaCommentary, generateClassTestContent, generateClassExtractionContent, generateTestContent, generateExtractionContent } from "./feedbackGenerator";
+import { APIConfig } from "./whatai";
+import { ClassFeedbackInput, textToDocx, cleanMarkdownAndHtml, stripAIMetaCommentary, generateClassTestContent, generateClassExtractionContent, generateTestContent, generateExtractionContent, invokeWithContinuation } from "./feedbackGenerator";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive } from "./gdrive";
 import { 
   createLogSession, 
@@ -243,24 +243,21 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       let charCount = 0;
       let lastProgressTime = Date.now();
       
-      // 调用流式 API，实时发送进度
-      // 小班课反馈内容较长（6人以上可能超过15000字），使用更大的 max_tokens
-      const content = await invokeWhatAIStream(
-        [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        { max_tokens: 64000, signal: clientAbort.signal },  // 小班课需要更大的输出限制；客户端断连时中止
+      // 调用带自动续写的流式API（截断时自动继续生成，拼接完整内容）
+      const content = await invokeWithContinuation(
+        systemPrompt,
+        userPrompt,
         config,
         (chunk: string) => {
           charCount += chunk.length;
-          // 每秒最多发送一次进度更新，避免过于频繁
           const now = Date.now();
           if (now - lastProgressTime >= 1000) {
             sendEvent("progress", { chars: charCount });
             lastProgressTime = now;
           }
-        }
+        },
+        '小班课反馈SSE',
+        clientAbort.signal
       );
 
       // 清理内容（markdown/HTML 标记 + AI 元评论）
@@ -447,24 +444,21 @@ ${input.transcript}
       let charCount = 0;
       let lastProgressTime = Date.now();
       
-      // 调用流式 API，实时发送进度
-      // 一对一反馈也使用较大的 max_tokens，防止长录音/复杂路书导致截断
-      const content = await invokeWhatAIStream(
-        [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        { max_tokens: 64000, signal: clientAbort.signal },
+      // 调用带自动续写的流式API（截断时自动继续生成，拼接完整内容）
+      const content = await invokeWithContinuation(
+        systemPrompt,
+        userPrompt,
         config,
         (chunk: string) => {
           charCount += chunk.length;
-          // 每秒最多发送一次进度更新，避免过于频繁
           const now = Date.now();
           if (now - lastProgressTime >= 1000) {
             sendEvent("progress", { chars: charCount });
             lastProgressTime = now;
           }
-        }
+        },
+        '学情反馈SSE',
+        clientAbort.signal
       );
       
       // 清理内容（markdown/HTML 标记 + AI 元评论）
@@ -692,13 +686,10 @@ ${input.feedbackContent}
       let charCount = 0;
       let lastProgressTime = Date.now();
 
-      // 复习文档也可能很长，使用与学情反馈相同的 max_tokens
-      const reviewContent = await invokeWhatAIStream(
-        [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        { max_tokens: 64000, signal: clientAbort.signal },
+      // 调用带自动续写的流式API（截断时自动继续生成，拼接完整内容）
+      const reviewContent = await invokeWithContinuation(
+        systemPrompt,
+        userPrompt,
         config,
         (chunk: string) => {
           charCount += chunk.length;
@@ -707,7 +698,9 @@ ${input.feedbackContent}
             sendEvent("progress", { chars: charCount });
             lastProgressTime = now;
           }
-        }
+        },
+        '复习文档SSE',
+        clientAbort.signal
       );
 
       // 校验内容非空
@@ -1202,13 +1195,10 @@ ${input.currentNotes}
       let charCount = 0;
       let lastProgressTime = Date.now();
 
-      // 复习文档也可能很长，使用与学情反馈相同的 max_tokens
-      const reviewContent = await invokeWhatAIStream(
-        [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        { max_tokens: 64000, signal: clientAbort.signal },
+      // 调用带自动续写的流式API（截断时自动继续生成，拼接完整内容）
+      const reviewContent = await invokeWithContinuation(
+        systemPrompt,
+        userPrompt,
         config,
         (chunk: string) => {
           charCount += chunk.length;
@@ -1217,7 +1207,9 @@ ${input.currentNotes}
             sendEvent("progress", { chars: charCount });
             lastProgressTime = now;
           }
-        }
+        },
+        '小班课复习SSE',
+        clientAbort.signal
       );
 
       // 校验内容非空
