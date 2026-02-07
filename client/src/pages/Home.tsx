@@ -2208,7 +2208,7 @@ export default function Home() {
       const displayName = courseType === 'class' ? `${rawName}班` : rawName;
       const expectedFileName = `${displayName}${mmdd}.docx`;
       try {
-        const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName });
+        const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName, allowSplit: true });
         autoLoadedTranscriptRef.current = result.content;
         setTranscript(result.content);
         setTranscriptFile({ name: result.fileName, content: result.content });
