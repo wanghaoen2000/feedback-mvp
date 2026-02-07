@@ -204,21 +204,21 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
 
         <Tabs defaultValue="api" className="w-full">
           <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="api" className="flex items-center gap-2">
-              <Key className="h-4 w-4" />
-              API配置
+            <TabsTrigger value="api" className="flex items-center gap-1 px-1 text-xs">
+              <Key className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">API</span>配置
             </TabsTrigger>
-            <TabsTrigger value="storage" className="flex items-center gap-2">
-              <FolderOpen className="h-4 w-4" />
-              存储路径
+            <TabsTrigger value="storage" className="flex items-center gap-1 px-1 text-xs">
+              <FolderOpen className="h-4 w-4 shrink-0" />
+              路径
             </TabsTrigger>
-            <TabsTrigger value="gdrive" className="flex items-center gap-2">
-              <Cloud className="h-4 w-4" />
-              云盘连接
+            <TabsTrigger value="gdrive" className="flex items-center gap-1 px-1 text-xs">
+              <Cloud className="h-4 w-4 shrink-0" />
+              云盘
             </TabsTrigger>
-            <TabsTrigger value="check" className="flex items-center gap-2">
-              <Search className="h-4 w-4" />
-              系统自检
+            <TabsTrigger value="check" className="flex items-center gap-1 px-1 text-xs">
+              <Search className="h-4 w-4 shrink-0" />
+              自检
             </TabsTrigger>
           </TabsList>
 
@@ -292,7 +292,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                 placeholder="Mac/Documents/XDF/学生档案"
               />
               <p className="text-xs text-muted-foreground">
-                一对一课程内容的 Google Drive 存储路径
+                一对一课程存储路径
               </p>
             </div>
 
@@ -305,7 +305,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                 placeholder="Mac/Documents/XDF/学生档案"
               />
               <p className="text-xs text-muted-foreground">
-                小班课内容的 Google Drive 存储路径。留空则使用一对一路径。
+                小班课存储路径，留空则用一对一路径
               </p>
             </div>
 
@@ -318,7 +318,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                 placeholder="Mac(online)/Documents/XDF/批量任务"
               />
               <p className="text-xs text-muted-foreground">
-                批量生成内容的 Google Drive 存储路径
+                批量生成存储路径
               </p>
             </div>
 
@@ -332,18 +332,18 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                 placeholder="Mac M3/Downloads"
               />
               <p className="text-xs text-muted-foreground">
-                Google Drive 网盘上 Downloads 文件夹的路径，用于自动提取录音转文字文件。
+                网盘上 Downloads 路径，用于提取录音转文字
               </p>
             </div>
           </TabsContent>
 
           <TabsContent value="gdrive" className="space-y-4 mt-4">
             {/* 连接状态 */}
-            <div className="border rounded-lg p-4">
-              <div className="flex items-center justify-between">
+            <div className="border rounded-lg p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Cloud className="w-5 h-5 text-gray-600" />
-                  <span className="font-medium">Google Drive</span>
+                  <Cloud className="w-5 h-5 text-gray-600 shrink-0" />
+                  <span className="font-medium text-sm">Google Drive</span>
                   {gdriveStatusQuery.isLoading ? (
                     <span className="text-sm text-gray-500">(检查中...)</span>
                   ) : gdriveStatusQuery.data?.authorized ? (
@@ -398,18 +398,19 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
 
             {/* 回调地址 */}
             {gdriveAuthUrlQuery.data?.redirectUri && (
-              <div className="border rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-2">
-                  <span className="font-medium">回调地址</span>（需添加到 Google Cloud Console）：
+              <div className="border rounded-lg p-3">
+                <div className="text-xs text-gray-600 mb-2">
+                  <span className="font-medium">回调地址</span>（需添加到 Google Cloud Console）
                 </div>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-gray-100 px-3 py-2 rounded text-xs font-mono text-gray-800 break-all">
+                <div className="space-y-2">
+                  <code className="block bg-gray-100 px-3 py-2 rounded text-xs font-mono text-gray-800 break-all">
                     {gdriveAuthUrlQuery.data.redirectUri}
                   </code>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
+                    className="w-full sm:w-auto"
                     onClick={() => {
                       navigator.clipboard.writeText(gdriveAuthUrlQuery.data?.redirectUri || '');
                       alert('已复制到剪贴板！');
@@ -425,13 +426,13 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
           <TabsContent value="check" className="space-y-4 mt-4">
             {/* 系统自检 */}
             <div className="border rounded-lg overflow-hidden">
-              <div className="bg-gray-50 p-4 flex items-center justify-between">
+              <div className="bg-gray-50 p-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Search className="w-4 h-4 text-gray-600" />
-                  <span className="font-medium">系统自检</span>
+                  <Search className="w-4 h-4 text-gray-600 shrink-0" />
+                  <span className="font-medium text-sm">系统自检</span>
                   {checkSummary && (
-                    <span className={`text-sm ${checkSummary.allPassed ? 'text-green-600' : 'text-orange-600'}`}>
-                      ({checkSummary.passed}/{checkSummary.total} 通过)
+                    <span className={`text-xs ${checkSummary.allPassed ? 'text-green-600' : 'text-orange-600'}`}>
+                      ({checkSummary.passed}/{checkSummary.total})
                     </span>
                   )}
                 </div>
@@ -517,7 +518,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
             ) : (
               <>
                 <Save className="mr-2 h-4 w-4" />
-                保存全局设置
+                保存设置
               </>
             )}
           </Button>

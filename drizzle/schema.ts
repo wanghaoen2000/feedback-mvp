@@ -49,3 +49,22 @@ export const googleTokens = mysqlTable("google_tokens", {
 
 export type GoogleToken = typeof googleTokens.$inferSelect;
 export type InsertGoogleToken = typeof googleTokens.$inferInsert;
+
+// 后台任务表 - 支持服务器端离线生成
+export const backgroundTasks = mysqlTable("background_tasks", {
+  id: varchar("id", { length: 36 }).primaryKey(), // UUID
+  courseType: varchar("course_type", { length: 20 }).notNull(), // 'one-to-one' | 'class'
+  displayName: varchar("display_name", { length: 200 }).notNull(), // "孙浩然 第12次" 等
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | running | completed | failed | partial
+  currentStep: int("current_step").notNull().default(0),
+  totalSteps: int("total_steps").notNull().default(5),
+  inputParams: text("input_params").notNull(), // JSON: 所有生成参数
+  stepResults: text("step_results"), // JSON: 每步结果
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type BackgroundTask = typeof backgroundTasks.$inferSelect;
+export type InsertBackgroundTask = typeof backgroundTasks.$inferInsert;

@@ -227,18 +227,20 @@ export async function uploadToGoogleDrive(
     if (onStatus) onStatus({ ...status });
   };
 
-  // 尝试使用OAuth上传
-  try {
-    const token = await getValidToken();
-    if (token) {
-      console.log(`[GDrive] 使用OAuth上传: ${fileName}`);
+  // 尝试使用OAuth上传（带重试，防止网络抖动导致一次性失败）
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const token = await getValidToken();
+      if (!token) break; // 无token，跳到rclone
+
+      console.log(`[GDrive] 使用OAuth上传: ${fileName}${attempt > 0 ? ` (第${attempt + 1}次)` : ''}`);
       updateStatus({ status: 'uploading', message: '正在使用OAuth创建文件夹...' });
-      
+
       const folderId = await getOrCreateFolderWithOAuth(folderPath, token);
-      
+
       updateStatus({ message: '正在上传文件...' });
       const result = await uploadFileWithOAuth(content, fileName, folderId, token);
-      
+
       const fullPath = `${folderPath}/${fileName}`;
       updateStatus({
         status: 'success',
@@ -247,11 +249,17 @@ export async function uploadToGoogleDrive(
         path: fullPath,
         verified: true,
       });
-      
+
       return status;
+    } catch (oauthError: any) {
+      if (attempt < maxRetries - 1) {
+        const delay = 2000 * (attempt + 1);
+        console.log(`[GDrive] OAuth上传失败(第${attempt + 1}次)，${delay / 1000}秒后重试: ${oauthError?.message || oauthError}`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        console.log(`[GDrive] OAuth上传失败(${maxRetries}次尝试): ${oauthError?.message || oauthError}`);
+      }
     }
-  } catch (oauthError) {
-    console.log(`[GDrive] OAuth上传失败，尝试rclone: ${oauthError}`);
   }
 
   // Fallback到rclone
@@ -346,18 +354,20 @@ export async function uploadBinaryToGoogleDrive(
     if (onStatus) onStatus({ ...status });
   };
 
-  // 尝试使用OAuth上传
-  try {
-    const token = await getValidToken();
-    if (token) {
-      console.log(`[GDrive] 使用OAuth上传二进制文件: ${fileName}`);
+  // 尝试使用OAuth上传（带重试，防止网络抖动导致一次性失败）
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const token = await getValidToken();
+      if (!token) break; // 无token，跳到rclone
+
+      console.log(`[GDrive] 使用OAuth上传二进制文件: ${fileName}${attempt > 0 ? ` (第${attempt + 1}次)` : ''}`);
       updateStatus({ status: 'uploading', message: '正在使用OAuth创建文件夹...' });
-      
+
       const folderId = await getOrCreateFolderWithOAuth(folderPath, token);
-      
+
       updateStatus({ message: '正在上传文件...' });
       const result = await uploadFileWithOAuth(content, fileName, folderId, token);
-      
+
       const fullPath = `${folderPath}/${fileName}`;
       updateStatus({
         status: 'success',
@@ -366,11 +376,17 @@ export async function uploadBinaryToGoogleDrive(
         path: fullPath,
         verified: true,
       });
-      
+
       return status;
+    } catch (oauthError: any) {
+      if (attempt < maxRetries - 1) {
+        const delay = 2000 * (attempt + 1);
+        console.log(`[GDrive] OAuth上传二进制失败(第${attempt + 1}次)，${delay / 1000}秒后重试: ${oauthError?.message || oauthError}`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        console.log(`[GDrive] OAuth上传二进制失败(${maxRetries}次尝试): ${oauthError?.message || oauthError}`);
+      }
     }
-  } catch (oauthError) {
-    console.log(`[GDrive] OAuth上传二进制文件失败，尝试rclone: ${oauthError}`);
   }
 
   // Fallback到rclone
