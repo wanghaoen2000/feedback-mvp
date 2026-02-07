@@ -2,6 +2,7 @@ import { invokeWhatAI, invokeWhatAIStream, WhatAIMessage, MODELS, APIConfig } fr
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
 import { Resvg } from "@resvg/resvg-js";
 import { existsSync } from "fs";
+import { resolve } from "path";
 
 
 // 录音转文字压缩配置
@@ -602,20 +603,24 @@ export function injectChineseFontIntoSVG(svgString: string): string {
 /**
  * SVG转PNG（注入中文字体确保服务器端渲染不乱码）
  */
-// 在服务器上 loadSystemFonts 可能因 fontconfig 问题找不到字体，
-// 所以显式指定字体文件路径和目录作为后备
+// Node 进程可能在沙箱/容器中，看不到 /usr/share/fonts。
+// 所以优先从项目本地 fonts/ 目录加载字体，系统路径作为后备。
+const PROJECT_FONT_DIR = resolve(process.cwd(), 'fonts');
 const CJK_FONT_CANDIDATES = [
+  // 项目本地（最可靠，不受沙箱限制）
+  resolve(PROJECT_FONT_DIR, 'wqy-zenhei.ttc'),
+  resolve(PROJECT_FONT_DIR, 'wqy-microhei.ttc'),
+  resolve(PROJECT_FONT_DIR, 'NotoSansCJK-Regular.ttc'),
+  // 系统路径（非沙箱环境下的后备）
   '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
-  '/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc',
-  '/usr/share/fonts/truetype/wqy-zenhei/wqy-zenhei.ttc',
-  '/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc',
   '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
-  '/usr/share/fonts/wqy-microhei/wqy-microhei.ttc',
   '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc',
-  '/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc',
 ];
-const FONT_DIRS_TO_SCAN = ['/usr/share/fonts', '/usr/local/share/fonts'];
+const FONT_DIRS_TO_SCAN = [
+  PROJECT_FONT_DIR,
+  '/usr/share/fonts',
+  '/usr/local/share/fonts',
+];
 
 // 启动时查找一次，缓存结果
 let _cachedFontFiles: string[] | null = null;
@@ -624,8 +629,12 @@ export function getResvgFontConfig() {
   if (_cachedFontFiles === null) {
     _cachedFontFiles = CJK_FONT_CANDIDATES.filter(f => existsSync(f));
     _cachedFontDirs = FONT_DIRS_TO_SCAN.filter(d => existsSync(d));
+    console.log(`[字体] 项目字体目录: ${PROJECT_FONT_DIR} (${existsSync(PROJECT_FONT_DIR) ? '存在' : '不存在'})`);
     console.log(`[字体] 找到CJK字体文件: ${_cachedFontFiles.length > 0 ? _cachedFontFiles.join(', ') : '无'}`);
     console.log(`[字体] 字体扫描目录: ${_cachedFontDirs!.length > 0 ? _cachedFontDirs!.join(', ') : '无'}`);
+    if (_cachedFontFiles.length === 0 && _cachedFontDirs.length <= 1) {
+      console.warn(`[字体] ⚠️ 未找到任何CJK字体！请将 wqy-zenhei.ttc 复制到 ${PROJECT_FONT_DIR}/`);
+    }
   }
   return { fontFiles: _cachedFontFiles, fontDirs: _cachedFontDirs! };
 }
