@@ -381,6 +381,7 @@ export function stripAIMetaCommentary(text: string): string {
   }
 
   // 从尾部剔除 AI 结语（空行 + 常见结尾模式）
+  // 注意：【⚠️ 内容截断警告】是系统添加的截断标记，绝不能删除
   const epiloguePatterns = [
     /^[✅✓☑️📝📄🎉🎊]\s/,
     /^(生成完成|测试本生成完成|复习文档生成完成|课后信息提取完成)/,
@@ -393,6 +394,7 @@ export function stripAIMetaCommentary(text: string): string {
   while (lines.length > 0) {
     const trimmed = lines[lines.length - 1].trim();
     if (trimmed === '') { lines.pop(); continue; }
+    if (trimmed.startsWith('【⚠️')) break; // 保留系统截断警告
     if (epiloguePatterns.some(p => p.test(trimmed))) { lines.pop(); continue; }
     break;
   }
@@ -558,13 +560,26 @@ ${feedback}
   }
 }
 
+/** 替换 SVG 中所有字体声明为中文字体，确保服务器端 Cairo/Pango 渲染正确 */
+export function injectChineseFontIntoSVG(svgString: string): string {
+  const CJK_FONT = '"WenQuanYi Zen Hei", "Noto Sans CJK SC", sans-serif';
+  let result = svgString;
+  // 1. 注入全局 CSS 样式（覆盖继承的字体）
+  const fontStyle = `<style>text, tspan { font-family: ${CJK_FONT} !important; }</style>`;
+  result = result.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
+  // 2. 替换所有内联 font-family 属性（CSS !important 无法覆盖 SVG 属性）
+  result = result.replace(/font-family="[^"]*"/g, `font-family=${CJK_FONT}`);
+  result = result.replace(/font-family='[^']*'/g, `font-family=${CJK_FONT}`);
+  // 3. 替换内联 style 中的 font-family
+  result = result.replace(/font-family:\s*[^;"']+/g, `font-family: ${CJK_FONT}`);
+  return result;
+}
+
 /**
  * SVG转PNG（注入中文字体确保服务器端渲染不乱码）
  */
 async function svgToPng(svgString: string): Promise<Buffer> {
-  // 在SVG开头注入font-family样式，覆盖AI生成的字体声明
-  const fontStyle = `<style>text, tspan { font-family: "WenQuanYi Zen Hei", "Noto Sans CJK SC", "SimHei", sans-serif !important; }</style>`;
-  const injected = svgString.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
+  const injected = injectChineseFontIntoSVG(svgString);
   return await sharp(Buffer.from(injected))
     .png()
     .toBuffer();
@@ -625,6 +640,10 @@ ${input.transcript}
     }
   );
   console.log(`\n[学情反馈] 流式生成完成，内容长度: ${content.length}字符`);
+
+  if (content.includes('【⚠️ 内容截断警告】')) {
+    console.error(`[学情反馈] ⚠️ 内容被截断！原始长度: ${content.length} 字符`);
+  }
 
   return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
 }
@@ -1037,6 +1056,10 @@ ${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\
   );
 
   console.log(`\n[小班课反馈] 学情反馈生成完成，长度: ${content.length} 字符`);
+
+  if (content.includes('【⚠️ 内容截断警告】')) {
+    console.error(`[小班课反馈] ⚠️ 内容被截断！原始长度: ${content.length} 字符`);
+  }
 
   return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
 }

@@ -332,8 +332,8 @@ export async function invokeWhatAIStream(
                     onChunk(content);
                   }
                 }
-                // 检测 finish_reason
-                const reason = parsed.choices?.[0]?.finish_reason;
+                // 检测 finish_reason（兼容 OpenAI 的 'length' 和 Claude 的 'max_tokens'）
+                const reason = parsed.choices?.[0]?.finish_reason || parsed.stop_reason;
                 if (reason) {
                   finishReason = reason;
                 }
@@ -348,11 +348,12 @@ export async function invokeWhatAIStream(
         reader.cancel().catch(() => {}); // 释放底层连接，防止资源泄漏
       }
 
-      // 检测是否因 token 限制而截断
-      if (finishReason === 'length') {
-        console.warn(`[WhatAI流式] ⚠️ 警告: 输出被截断（达到 max_tokens 限制: ${max_tokens}）`);
+      // 检测是否因 token 限制而截断（兼容 OpenAI 'length' 和 Claude 'max_tokens'）
+      if (finishReason === 'length' || finishReason === 'max_tokens') {
+        console.warn(`[WhatAI流式] ⚠️ 警告: 输出被截断（finish_reason=${finishReason}，max_tokens=${max_tokens}）`);
         console.warn(`[WhatAI流式] 当前输出长度: ${fullContent.length} 字符`);
-        fullContent += `\n\n---\n⚠️ 注意：以上内容因长度限制被截断（已达到 ${max_tokens} token 上限），实际内容可能不完整。`;
+        // 使用【】格式防止被 stripAIMetaCommentary 的 /^---+$/ 模式剥离
+        fullContent += `\n\n【⚠️ 内容截断警告】以上内容因长度限制被截断（已达到 ${max_tokens} token 上限，finish_reason=${finishReason}），实际内容可能不完整。`;
       }
 
       console.log(`[WhatAI流式] 响应完成，内容长度: ${fullContent.length}字符, finish_reason: ${finishReason || 'unknown'}`);

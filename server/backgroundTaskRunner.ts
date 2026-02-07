@@ -65,7 +65,7 @@ function addWeekdayToDate(dateStr: string): string {
 
 // 步骤结果类型
 interface StepResult {
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "truncated" | "failed";
   fileName?: string;
   url?: string;
   path?: string;
@@ -271,8 +271,9 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     assertUploadSuccess(uploadResult, "学情反馈");
 
     const step1Duration = Math.round((Date.now() - step1Start) / 1000);
+    const isTruncated = feedbackContent.includes('【⚠️ 内容截断警告】');
     stepResults.feedback = {
-      status: "completed",
+      status: isTruncated ? "truncated" : "completed",
       fileName,
       url: uploadResult.url || "",
       path: uploadResult.path || "",
@@ -280,8 +281,14 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       chars: feedbackContent.length,
       duration: step1Duration,
       content: feedbackContent,
+      ...(isTruncated ? { error: "内容因token上限被截断，反馈不完整" } : {}),
     };
-    console.log(`[后台任务] ${taskId} 步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字)`);
+    if (isTruncated) {
+      failedSteps++;
+      console.warn(`[后台任务] ${taskId} 步骤1截断: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字) ⚠️ 内容不完整`);
+    } else {
+      console.log(`[后台任务] ${taskId} 步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字)`);
+    }
   } catch (err: any) {
     stepResults.feedback = { status: "failed", error: err?.message || String(err) };
     failedSteps++;
@@ -462,16 +469,23 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     assertUploadSuccess(uploadResult, "班课学情反馈");
 
     const step1Duration = Math.round((Date.now() - step1Start) / 1000);
+    const isTruncated = feedbackContent.includes('【⚠️ 内容截断警告】');
     stepResults.feedback = {
-      status: "completed",
+      status: isTruncated ? "truncated" : "completed",
       fileName,
       url: uploadResult.url || "",
       path: uploadResult.path || "",
       chars: feedbackContent.length,
       duration: step1Duration,
       content: feedbackContent,
+      ...(isTruncated ? { error: "内容因token上限被截断，反馈不完整" } : {}),
     };
-    console.log(`[后台任务] ${taskId} 班课步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字)`);
+    if (isTruncated) {
+      failedSteps++;
+      console.warn(`[后台任务] ${taskId} 班课步骤1截断: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字) ⚠️ 内容不完整`);
+    } else {
+      console.log(`[后台任务] ${taskId} 班课步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字)`);
+    }
   } catch (err: any) {
     stepResults.feedback = { status: "failed", error: err?.message || String(err) };
     failedSteps++;
@@ -548,10 +562,10 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
             params.lessonNumber || "",
             { ...apiConfig, roadmapClass }
           );
-          // SVG → PNG（注入中文字体防止乱码）
+          // SVG → PNG（替换内联字体+注入CSS，解决中文乱码）
+          const { injectChineseFontIntoSVG } = await import("./feedbackGenerator");
           const sharp = (await import("sharp")).default;
-          const fontStyle = `<style>text, tspan { font-family: "WenQuanYi Zen Hei", "Noto Sans CJK SC", "SimHei", sans-serif !important; }</style>`;
-          const injectedSvg = svgContent.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
+          const injectedSvg = injectChineseFontIntoSVG(svgContent);
           const pngBuffer = await sharp(Buffer.from(injectedSvg)).png().toBuffer();
           const fileName = `${studentName}${params.lessonNumber || ""}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
