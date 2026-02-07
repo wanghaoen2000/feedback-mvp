@@ -1264,19 +1264,19 @@ ${input.currentNotes}
     apiKey: apiConfig.apiKey,
     apiUrl: apiConfig.apiUrl,
   };
-  const reviewContent = await invokeWhatAIStream(
+  const reviewContent = await invokeWhatAI(
     [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    { max_tokens: 8000 },
+    { max_tokens: 64000, timeout: 600000, retries: 1 },
     config,
-    () => process.stdout.write('.')
   );
-  console.log(`\n[小班课复习文档] 生成完成`);
+  const rawReview = reviewContent.choices?.[0]?.message?.content || '';
+  console.log(`\n[小班课复习文档] 生成完成，长度: ${rawReview.length}字符, finish_reason: ${reviewContent.choices?.[0]?.finish_reason}`);
 
   // 清理 AI 元评论和 markdown 标记
-  const cleanedReviewContent = stripAIMetaCommentary(cleanMarkdownAndHtml(reviewContent));
+  const cleanedReviewContent = stripAIMetaCommentary(cleanMarkdownAndHtml(rawReview));
 
   // 转换为 docx
   const doc = new Document({
@@ -1338,27 +1338,16 @@ ${input.currentNotes}
     apiUrl: apiConfig.apiUrl,
   };
 
-  let charCount = 0;
-  let lastProgressTime = Date.now();
-  const testContent = await invokeWhatAIStream(
+  const testResponse = await invokeWhatAI(
     [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    { max_tokens: 8000 },
+    { max_tokens: 64000, timeout: 600000, retries: 1 },
     config,
-    (chunk: string) => {
-      process.stdout.write('.');
-      charCount += chunk.length;
-      // 每秒最多上报一次进度
-      const now = Date.now();
-      if (onProgress && now - lastProgressTime >= 1000) {
-        onProgress(charCount);
-        lastProgressTime = now;
-      }
-    }
   );
-  console.log(`\n[小班课测试本] 生成完成`);
+  const testContent = testResponse.choices?.[0]?.message?.content || '';
+  console.log(`\n[小班课测试本] 生成完成，长度: ${testContent.length}字符, finish_reason: ${testResponse.choices?.[0]?.finish_reason}`);
 
   // 清理 AI 元评论和 markdown 标记
   const cleanedTestContent = stripAIMetaCommentary(cleanMarkdownAndHtml(testContent));
@@ -1429,27 +1418,16 @@ ${combinedFeedback}
     apiUrl: apiConfig.apiUrl,
   };
 
-  let charCount = 0;
-  let lastProgressTime = Date.now();
-  const extractionContent = await invokeWhatAIStream(
+  const extractionResponse = await invokeWhatAI(
     [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    { max_tokens: 4000 },
+    { max_tokens: 16000, timeout: 600000, retries: 1 },
     config,
-    (chunk: string) => {
-      process.stdout.write('.');
-      charCount += chunk.length;
-      // 每秒最多上报一次进度
-      const now = Date.now();
-      if (onProgress && now - lastProgressTime >= 1000) {
-        onProgress(charCount);
-        lastProgressTime = now;
-      }
-    }
   );
-  console.log(`\n[小班课课后信息] 生成完成`);
+  const extractionContent = extractionResponse.choices?.[0]?.message?.content || '';
+  console.log(`\n[小班课课后信息] 生成完成，长度: ${extractionContent.length}字符, finish_reason: ${extractionResponse.choices?.[0]?.finish_reason}`);
 
   return stripAIMetaCommentary(cleanMarkdownAndHtml(extractionContent));
 }
