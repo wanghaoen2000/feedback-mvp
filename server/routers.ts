@@ -114,7 +114,7 @@ const classFeedbackInputSchema = z.object({
   lessonNumber: z.string().optional(),
   lessonDate: z.string().optional(), // 本次课日期，如"1月15日"
   currentYear: z.string().optional(), // 年份，如"2026"
-  attendanceStudents: z.array(z.string()).min(2, "至少需要2名学生"),
+  attendanceStudents: z.array(z.string()).min(1, "至少需要1名出勤学生"),
   lastFeedback: z.string().optional(),
   currentNotes: z.string().min(1, "请输入本次课笔记"),
   transcript: z.string().min(1, "请输入录音转文字"),
@@ -416,7 +416,7 @@ export const appRouter = router({
         
         try {
           // 组合年份和日期，并添加星期信息
-          const lessonDate = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : "";
+          const lessonDate = input.lessonDate ? addWeekdayToDate(input.lessonDate.includes('年') ? input.lessonDate : `${currentYear}年${input.lessonDate}`) : "";
           
           const feedbackContent = await generateFeedbackContent({
             studentName: input.studentName,
@@ -1079,7 +1079,7 @@ export const appRouter = router({
         console.log(`[小班课] 路书长度: ${roadmapClass?.length || 0} 字符`);
         
         // 组合年份和日期，并添加星期信息（和一对一保持一致）
-        const lessonDate = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : "";
+        const lessonDate = input.lessonDate ? addWeekdayToDate(input.lessonDate.includes('年') ? input.lessonDate : `${currentYear}年${input.lessonDate}`) : "";
         
         const classInput: ClassFeedbackInput = {
           classNumber: input.classNumber,

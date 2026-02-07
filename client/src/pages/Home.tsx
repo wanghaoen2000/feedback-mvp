@@ -447,6 +447,19 @@ export default function Home() {
     return () => { if (skipTimerRef.current) clearTimeout(skipTimerRef.current); };
   }, []);
 
+  // 监听后台任务完成，自动清除 activeTaskId（解锁 retryStep）
+  const activeTaskMonitor = trpc.bgTask.history.useQuery(undefined, {
+    enabled: !!activeTaskId,
+    refetchInterval: activeTaskId ? 5000 : false,
+  });
+  useEffect(() => {
+    if (!activeTaskId || !activeTaskMonitor.data) return;
+    const task = activeTaskMonitor.data.find((t: any) => t.id === activeTaskId);
+    if (task && task.status !== 'running' && task.status !== 'pending') {
+      setActiveTaskId(null);
+    }
+  }, [activeTaskId, activeTaskMonitor.data]);
+
   // ========== 学生课次记忆功能 ==========
   const STUDENT_LESSON_STORAGE_KEY = 'studentLessonHistoryV2';
   const MAX_RECENT_STUDENTS = 30; // 最多保存30个最近学生

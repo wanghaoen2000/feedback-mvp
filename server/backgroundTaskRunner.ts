@@ -193,7 +193,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   await updateStepResults(taskId, stepResults, 1);
 
   try {
-    const lessonDate = params.lessonDate ? addWeekdayToDate(`${currentYear}年${params.lessonDate}`) : "";
+    const lessonDate = params.lessonDate ? addWeekdayToDate(params.lessonDate.includes('年') ? params.lessonDate : `${currentYear}年${params.lessonDate}`) : "";
     const feedbackInput: FeedbackInput = {
       studentName: params.studentName,
       lessonNumber: params.lessonNumber || "",
@@ -384,7 +384,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   const classInput: ClassFeedbackInput = {
     classNumber: params.classNumber,
     lessonNumber: params.lessonNumber || "",
-    lessonDate: params.lessonDate ? addWeekdayToDate(`${currentYear}年${params.lessonDate}`) : "",
+    lessonDate: params.lessonDate ? addWeekdayToDate(params.lessonDate.includes('年') ? params.lessonDate : `${currentYear}年${params.lessonDate}`) : "",
     nextLessonDate: "",
     attendanceStudents: params.attendanceStudents,
     lastFeedback: params.lastFeedback || "",
