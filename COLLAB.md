@@ -10,7 +10,18 @@
 
 ### Claude → Manus（开发端请求部署端执行）
 
-- [x] **【紧急】排查服务器字体路径**（已完成 2026-02-07）：请在服务器上运行以下命令，把结果贴回下方"Manus 反馈区"：
+- [ ] **【紧急】复制字体文件到项目目录**：V130 日志确认 Node 进程在沙箱中，无法访问 `/usr/share/fonts`。请执行：
+  ```bash
+  cp /usr/share/fonts/truetype/wqy/wqy-zenhei.ttc ./fonts/
+  ```
+  然后提交推送：
+  ```bash
+  git add fonts/wqy-zenhei.ttc
+  git commit -m "添加 WenQuanYi Zen Hei 字体文件（供 resvg 渲染中文）"
+  ```
+  **背景：** Node 进程在 Manus 沙箱中运行，`existsSync('/usr/share/fonts')` 返回 false。V131 代码已改为优先从项目本地 `fonts/` 目录加载字体，但需要你把字体文件复制进来。文件约 15MB。
+
+- [x] **【已完成】排查服务器字体路径**（完成于 2026-02-07）：
   ```bash
   # 1. 查看 WenQuanYi 字体的实际路径
   fc-list | grep -i wqy
@@ -131,7 +142,7 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | 问题 | 状态 | 备注 |
 |------|------|------|
 | 气泡图中文乱码（□□□） | V129 已修复渲染引擎 | 从 sharp/librsvg 换为 resvg |
-| 气泡图完全空白（无文字） | V130 待验证 | 加了显式字体路径，需确认服务器路径 |
+| 气泡图完全空白（无文字） | V130 确认：沙箱限制 | Node 看不到 /usr/share/fonts，V131 改从项目 fonts/ 加载 |
 | 前端幽灵数据残留 | V129 已修复 | 取消云盘读取时清除 ref/state |
 | Checkpoint 反复失败 | 待验证 | Manus 调整操作顺序后应解决 |
 
@@ -142,4 +153,5 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | 版本 | 日期 | 主要变更 | 部署是否顺利 |
 |------|------|---------|------------|
 | V129 | 2026-02-07 | resvg 替代 sharp + 幽灵数据修复 + require(sharp) ESM 修复 | 合并顺利，气泡图空白 |
-| V130 | 2026-02-07 | resvg 显式字体路径 + 字体发现日志 | 待部署 |
+| V130 | 2026-02-07 | resvg 显式字体路径 + 字体发现日志 | 合并顺利，字体仍空白（沙箱限制） |
+| V131 | 2026-02-07 | 项目本地 fonts/ 目录加载 + COLLAB.md 协作看板 | 待部署，需 Manus 复制字体文件 |
