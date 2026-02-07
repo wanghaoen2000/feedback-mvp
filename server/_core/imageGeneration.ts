@@ -50,6 +50,8 @@ export async function generateImage(
     baseUrl
   ).toString();
 
+  const imgController = new AbortController();
+  const imgTimer = setTimeout(() => imgController.abort(), 120_000); // 2分钟超时
   const response = await fetch(fullUrl, {
     method: "POST",
     headers: {
@@ -62,7 +64,8 @@ export async function generateImage(
       prompt: options.prompt,
       original_images: options.originalImages || [],
     }),
-  });
+    signal: imgController.signal,
+  }).finally(() => clearTimeout(imgTimer));
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");

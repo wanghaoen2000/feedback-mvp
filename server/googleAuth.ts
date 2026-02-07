@@ -51,6 +51,8 @@ export async function handleCallback(code: string): Promise<{ success: boolean; 
   
   try {
     // 用授权码换取token
+    const authController = new AbortController();
+    const authTimer = setTimeout(() => authController.abort(), 30_000); // 30秒
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: {
@@ -63,7 +65,8 @@ export async function handleCallback(code: string): Promise<{ success: boolean; 
         grant_type: "authorization_code",
         redirect_uri: redirectUri,
       }),
-    });
+      signal: authController.signal,
+    }).finally(() => clearTimeout(authTimer));
 
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.text();
@@ -142,6 +145,8 @@ async function _getValidToken(): Promise<string | null> {
     console.log("[GoogleAuth] Token expired or expiring soon, refreshing...");
 
     // 刷新token
+    const refreshController = new AbortController();
+    const refreshTimer = setTimeout(() => refreshController.abort(), 30_000); // 30秒
     const refreshResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: {
@@ -153,7 +158,8 @@ async function _getValidToken(): Promise<string | null> {
         refresh_token: token.refreshToken,
         grant_type: "refresh_token",
       }),
-    });
+      signal: refreshController.signal,
+    }).finally(() => clearTimeout(refreshTimer));
 
     if (!refreshResponse.ok) {
       const errorData = await refreshResponse.text();

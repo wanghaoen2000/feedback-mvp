@@ -94,7 +94,9 @@ export async function transcribeAudio(
     let audioBuffer: Buffer;
     let mimeType: string;
     try {
-      const response = await fetch(options.audioUrl);
+      const audioController = new AbortController();
+      const audioTimer = setTimeout(() => audioController.abort(), 60_000); // 60秒超时
+      const response = await fetch(options.audioUrl, { signal: audioController.signal }).finally(() => clearTimeout(audioTimer));
       if (!response.ok) {
         return {
           error: "Failed to download audio file",
@@ -152,6 +154,8 @@ export async function transcribeAudio(
       baseUrl
     ).toString();
 
+    const transcribeController = new AbortController();
+    const transcribeTimer = setTimeout(() => transcribeController.abort(), 300_000); // 5分钟超时
     const response = await fetch(fullUrl, {
       method: "POST",
       headers: {
@@ -159,7 +163,8 @@ export async function transcribeAudio(
         "Accept-Encoding": "identity",
       },
       body: formData,
-    });
+      signal: transcribeController.signal,
+    }).finally(() => clearTimeout(transcribeTimer));
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");

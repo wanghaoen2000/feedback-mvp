@@ -627,7 +627,10 @@ async function ensureTable(): Promise<void> {
       await db.execute(sql`ALTER TABLE \`background_tasks\` MODIFY COLUMN \`input_params\` mediumtext NOT NULL`);
       await db.execute(sql`ALTER TABLE \`background_tasks\` MODIFY COLUMN \`step_results\` mediumtext`);
       await db.execute(sql`ALTER TABLE \`system_config\` MODIFY COLUMN \`value\` mediumtext NOT NULL`);
-    } catch { /* 已经是 mediumtext 则忽略 */ }
+    } catch (alterErr: any) {
+      // ALTER TABLE 失败可能有多种原因，不能盲目忽略
+      console.warn("[后台任务] 列类型升级失败(可能已是mediumtext):", alterErr?.message || alterErr);
+    }
     console.log("[后台任务] 表已就绪");
   } catch (err: any) {
     console.error("[后台任务] 建表失败:", err?.message || err);
