@@ -605,7 +605,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       return { fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
-    // 步骤5: 气泡图（每个学生一张）+ 调试日志
+    // 步骤5: 气泡图（每个学生一张）
     (async () => {
       const t = Date.now();
       const students = params.attendanceStudents.filter((s) => s.trim());
@@ -617,7 +617,6 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
         `班号: ${params.classNumber}`,
         `课次: ${params.lessonNumber || "未指定"}`,
         `学生: ${students.join(", ")}`,
-        `sharp版本: ${require("sharp").versions?.sharp || "unknown"}`,
         ``,
       ];
       for (const studentName of students) {
@@ -677,7 +676,20 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
           if (err?.stack) console.error(`[后台任务] ${taskId} 气泡图堆栈:`, err.stack);
         }
       }
-      // 上传调试日志到课后信息文件夹
+      if (successCount === 0 && students.length > 0) {
+        // 即使全部失败也要先上传日志再抛错
+        try {
+          debugLines.push(`\n=== 全部失败，上传日志用于诊断 ===`);
+          const debugContent = debugLines.join("\n");
+          const debugFileName = `${folderName}${params.lessonNumber || ""}气泡图调试日志.txt`;
+          const debugFolderPath = `${basePath}/课后信息`;
+          await uploadToGoogleDrive(debugContent, debugFileName, debugFolderPath);
+          console.log(`[后台任务] ${taskId} 调试日志已上传（全部失败情况）`);
+        } catch (e: any) { console.error(`[后台任务] 调试日志上传失败:`, e?.message); }
+        throw new Error(`全部${students.length}个学生气泡图生成失败（最后错误见服务器日志）`);
+      }
+      const failedCount = students.length - successCount;
+      // 无论成功还是部分失败，都上传调试日志
       try {
         const debugContent = debugLines.join("\n");
         const debugFileName = `${folderName}${params.lessonNumber || ""}气泡图调试日志.txt`;
@@ -687,10 +699,6 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       } catch (debugErr: any) {
         console.error(`[后台任务] ${taskId} 调试日志上传失败:`, debugErr?.message);
       }
-      if (successCount === 0 && students.length > 0) {
-        throw new Error(`全部${students.length}个学生气泡图生成失败（最后错误见服务器日志）`);
-      }
-      const failedCount = students.length - successCount;
       if (failedCount > 0) {
         throw new Error(`气泡图部分失败(${successCount}/${students.length}成功)`);
       }
