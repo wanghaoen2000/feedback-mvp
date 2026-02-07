@@ -680,7 +680,7 @@ export default function Home() {
     }
   }, [studentName]);
 
-  // 当班号变化时，自动填充课次（上次课次+1）- 小班课模式
+  // 当班号变化时，自动填充课次和学生名单 - 小班课模式
   useEffect(() => {
     if (!classNumber.trim()) return;
 
@@ -692,6 +692,14 @@ export default function Home() {
       // 自动填充为上次课次+1
       const nextLesson = record.lesson + 1;
       setLessonNumber(String(nextLesson));
+    }
+    // 自动填充历史积累的学生名单
+    if (record?.students && record.students.length > 0) {
+      const slots = Array(MAX_CLASS_STUDENTS).fill('');
+      record.students.forEach((s: string, i: number) => {
+        if (i < MAX_CLASS_STUDENTS) slots[i] = s;
+      });
+      setAttendanceStudents(slots);
     }
   }, [classNumber]);
 
