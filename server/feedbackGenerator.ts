@@ -559,10 +559,13 @@ ${feedback}
 }
 
 /**
- * SVG转PNG
+ * SVG转PNG（注入中文字体确保服务器端渲染不乱码）
  */
 async function svgToPng(svgString: string): Promise<Buffer> {
-  return await sharp(Buffer.from(svgString))
+  // 在SVG开头注入font-family样式，覆盖AI生成的字体声明
+  const fontStyle = `<style>text, tspan { font-family: "WenQuanYi Zen Hei", "Noto Sans CJK SC", "SimHei", sans-serif !important; }</style>`;
+  const injected = svgString.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
+  return await sharp(Buffer.from(injected))
     .png()
     .toBuffer();
 }
