@@ -3194,6 +3194,11 @@ export default function Home() {
                               if (val) {
                                 setLastFeedbackFile(null);
                                 setLastFeedback('');
+                              } else {
+                                // 取消云盘读取时，清除已加载的数据（防止幽灵数据残留）
+                                autoLoadedLastFeedbackRef.current = null;
+                                setLastFeedback('');
+                                setLastFeedbackFile(null);
                               }
                             }}
                             disabled={isGenerating}
@@ -3346,6 +3351,11 @@ export default function Home() {
                             if (val) {
                               setCurrentNotesFile(null);
                               setCurrentNotes('');
+                            } else {
+                              // 取消云盘读取时，清除已加载的数据（防止幽灵数据残留）
+                              autoLoadedCurrentNotesRef.current = null;
+                              setCurrentNotes('');
+                              setCurrentNotesFile(null);
                             }
                           }}
                           disabled={isGenerating}
@@ -3421,6 +3431,11 @@ export default function Home() {
                               // 启用自动加载时，清除手动上传的文件和文本
                               setTranscriptFile(null);
                               setTranscript('');
+                            } else {
+                              // 取消云盘读取时，清除已加载的数据（防止幽灵数据残留）
+                              autoLoadedTranscriptRef.current = null;
+                              setTranscript('');
+                              setTranscriptFile(null);
                             }
                           }}
                           disabled={isGenerating}
