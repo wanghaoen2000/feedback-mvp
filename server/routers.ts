@@ -1523,13 +1523,22 @@ export const appRouter = router({
     // 从 Google Drive 读取上次学情反馈
     readLastFeedback: protectedProcedure
       .input(z.object({
-        studentName: z.string().min(1),
+        studentName: z.string().default(""),
         lessonNumber: z.string().min(1),
         courseType: z.enum(['oneToOne', 'class']).default('oneToOne'),
         classNumber: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const { studentName, lessonNumber, courseType, classNumber } = input;
+
+        // 一对一模式必须有学生姓名
+        if (courseType === 'oneToOne' && !studentName.trim()) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '请输入学生姓名' });
+        }
+        // 小班课模式必须有班号
+        if (courseType === 'class' && !classNumber?.trim()) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '请输入班号' });
+        }
 
         const currentLesson = parseInt(lessonNumber.replace(/[^0-9]/g, ''), 10);
         if (isNaN(currentLesson) || currentLesson <= 1) {

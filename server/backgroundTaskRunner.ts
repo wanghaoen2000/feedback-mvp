@@ -27,6 +27,30 @@ import {
   uploadBinaryToGoogleDrive,
 } from "./gdrive";
 
+/**
+ * 给日期字符串添加星期信息（与 classStreamRoutes.ts 保持一致）
+ */
+function addWeekdayToDate(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  if (dateStr.includes('周') || dateStr.includes('星期')) return dateStr;
+  try {
+    const match = dateStr.match(/(\d{4})年?(\d{1,2})月(\d{1,2})日?/);
+    if (!match) {
+      const shortMatch = dateStr.match(/(\d{1,2})月(\d{1,2})日?/);
+      if (!shortMatch) return dateStr;
+      const year = new Date().getFullYear();
+      const date = new Date(year, parseInt(shortMatch[1], 10) - 1, parseInt(shortMatch[2], 10));
+      const weekday = ['日', '一', '二', '三', '四', '五', '六'][date.getDay()];
+      return `${dateStr}（周${weekday}）`;
+    }
+    const date = new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10));
+    const weekday = ['日', '一', '二', '三', '四', '五', '六'][date.getDay()];
+    return `${dateStr}（周${weekday}）`;
+  } catch {
+    return dateStr;
+  }
+}
+
 // 步骤结果类型
 interface StepResult {
   status: "pending" | "running" | "completed" | "failed";
@@ -169,7 +193,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   await updateStepResults(taskId, stepResults, 1);
 
   try {
-    const lessonDate = params.lessonDate ? `${currentYear}年${params.lessonDate}` : "";
+    const lessonDate = params.lessonDate ? addWeekdayToDate(`${currentYear}年${params.lessonDate}`) : "";
     const feedbackInput: FeedbackInput = {
       studentName: params.studentName,
       lessonNumber: params.lessonNumber || "",
@@ -360,7 +384,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   const classInput: ClassFeedbackInput = {
     classNumber: params.classNumber,
     lessonNumber: params.lessonNumber || "",
-    lessonDate: params.lessonDate ? `${currentYear}年${params.lessonDate}` : "",
+    lessonDate: params.lessonDate ? addWeekdayToDate(`${currentYear}年${params.lessonDate}`) : "",
     nextLessonDate: "",
     attendanceStudents: params.attendanceStudents,
     lastFeedback: params.lastFeedback || "",
@@ -453,7 +477,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     // 步骤5: 气泡图（每个学生一张）
     (async () => {
       const students = params.attendanceStudents.filter((s) => s.trim());
-      const results: string[] = [];
+      let successCount = 0;
       for (const studentName of students) {
         try {
           const svgContent = await generateClassBubbleChartSVG(
@@ -470,12 +494,15 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
           const fileName = `${studentName}${params.lessonNumber || ""}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
           await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
-          results.push(`${studentName}: OK`);
+          successCount++;
         } catch (err: any) {
-          results.push(`${studentName}: 失败(${err?.message || String(err)})`);
+          console.error(`[后台任务] ${taskId} 气泡图 ${studentName} 失败:`, err?.message || err);
         }
       }
-      return { fileName: `${students.length}个学生气泡图`, uploadResult: { url: "", path: "" }, chars: 0 };
+      if (successCount === 0 && students.length > 0) {
+        throw new Error(`全部${students.length}个学生气泡图生成失败`);
+      }
+      return { fileName: `气泡图(${successCount}/${students.length}成功)`, uploadResult: { url: "", path: "" }, chars: successCount };
     })(),
   ]);
 
