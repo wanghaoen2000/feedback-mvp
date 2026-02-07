@@ -524,6 +524,13 @@ export async function generateBatchDocument(
 
   // 创建文档（带页眉和页脚）
   const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: { name: "微软雅黑", eastAsia: "微软雅黑" } },
+        },
+      },
+    },
     sections: [{
       properties: {},
       headers: {
