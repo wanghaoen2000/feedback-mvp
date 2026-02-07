@@ -22,6 +22,7 @@ import {
   generateClassExtractionContent,
   generateClassBubbleChartSVG,
   svgToPng,
+  getResvgFontConfig,
   injectChineseFontIntoSVG,
   GenerationMeta,
 } from "./feedbackGenerator";
@@ -611,12 +612,15 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       const students = params.attendanceStudents.filter((s) => s.trim());
       let successCount = 0;
       // 收集调试信息（只记录第一个学生的完整SVG，其余只记录摘要）
+      const fontConfig = getResvgFontConfig();
       const debugLines: string[] = [
         `=== 气泡图调试日志 ===`,
         `时间: ${new Date().toISOString()}`,
         `班号: ${params.classNumber}`,
         `课次: ${params.lessonNumber || "未指定"}`,
         `学生: ${students.join(", ")}`,
+        `CJK字体文件: ${fontConfig.fontFiles.length > 0 ? fontConfig.fontFiles.join(', ') : '未找到任何CJK字体文件！'}`,
+        `字体扫描目录: ${fontConfig.fontDirs.join(', ') || '无'}`,
         ``,
       ];
       for (const studentName of students) {

@@ -1,6 +1,7 @@
 import { invokeWhatAI, invokeWhatAIStream, WhatAIMessage, MODELS, APIConfig } from "./whatai";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
 import { Resvg } from "@resvg/resvg-js";
+import { existsSync } from "fs";
 
 
 // 录音转文字压缩配置
@@ -601,11 +602,42 @@ export function injectChineseFontIntoSVG(svgString: string): string {
 /**
  * SVG转PNG（注入中文字体确保服务器端渲染不乱码）
  */
+// 在服务器上 loadSystemFonts 可能因 fontconfig 问题找不到字体，
+// 所以显式指定字体文件路径和目录作为后备
+const CJK_FONT_CANDIDATES = [
+  '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+  '/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc',
+  '/usr/share/fonts/truetype/wqy-zenhei/wqy-zenhei.ttc',
+  '/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc',
+  '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+  '/usr/share/fonts/wqy-microhei/wqy-microhei.ttc',
+  '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+  '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc',
+  '/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc',
+];
+const FONT_DIRS_TO_SCAN = ['/usr/share/fonts', '/usr/local/share/fonts'];
+
+// 启动时查找一次，缓存结果
+let _cachedFontFiles: string[] | null = null;
+let _cachedFontDirs: string[] | null = null;
+export function getResvgFontConfig() {
+  if (_cachedFontFiles === null) {
+    _cachedFontFiles = CJK_FONT_CANDIDATES.filter(f => existsSync(f));
+    _cachedFontDirs = FONT_DIRS_TO_SCAN.filter(d => existsSync(d));
+    console.log(`[字体] 找到CJK字体文件: ${_cachedFontFiles.length > 0 ? _cachedFontFiles.join(', ') : '无'}`);
+    console.log(`[字体] 字体扫描目录: ${_cachedFontDirs!.length > 0 ? _cachedFontDirs!.join(', ') : '无'}`);
+  }
+  return { fontFiles: _cachedFontFiles, fontDirs: _cachedFontDirs! };
+}
+
 export async function svgToPng(svgString: string): Promise<Buffer> {
   const injected = injectChineseFontIntoSVG(svgString);
+  const { fontFiles, fontDirs } = getResvgFontConfig();
   const resvg = new Resvg(injected, {
     font: {
       loadSystemFonts: true,
+      fontFiles,
+      fontDirs,
       defaultFontFamily: 'WenQuanYi Zen Hei',
     },
   });
