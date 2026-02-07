@@ -19,6 +19,7 @@ export const DEFAULT_CONFIG: Record<string, string> = {
   maxTokens: "64000",
   batchFilePrefix: "任务",
   batchStoragePath: "Mac(online)/Documents/XDF/批量任务",
+  batchConcurrency: "50",
 };
 
 /**
