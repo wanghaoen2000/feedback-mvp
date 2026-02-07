@@ -3207,7 +3207,7 @@ export default function Home() {
                         const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
                         const lesson = parseInt(lessonNumber.replace(/[^0-9]/g, ''), 10);
                         if (!name || isNaN(lesson) || lesson <= 1) {
-                          return <span>请填写姓名和课次</span>;
+                          return <span className="text-gray-400">请填写{courseType === 'oneToOne' ? '姓名' : '班号'}和课次</span>;
                         }
                         const prevLesson = lesson - 1;
                         const prefix = courseType === 'class' ? `${classNumber.trim()}班` : name;
@@ -3335,7 +3335,7 @@ export default function Home() {
                         const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
                         const lesson = lessonNumber.trim();
                         if (!name || !lesson) {
-                          return <span>请填写姓名和课次号</span>;
+                          return <span className="text-gray-400">请填写{courseType === 'oneToOne' ? '姓名' : '班号'}和课次</span>;
                         }
                         return (
                           <span className="font-mono text-blue-600 text-xs">
@@ -3410,7 +3410,7 @@ export default function Home() {
                         const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
                         const mmdd = getMMDD(lessonDate);
                         if (!name || !mmdd) {
-                          return <span>请填写姓名和日期</span>;
+                          return <span className="text-gray-400">请填写{courseType === 'oneToOne' ? '姓名' : '班号'}和日期</span>;
                         }
                         return (
                           <span className="font-mono text-blue-600 text-xs">
