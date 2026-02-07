@@ -318,7 +318,9 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
 
   // 处理并行结果
   let completedSteps = 1; // 步骤1已完成
-  for (const result of parallelResults) {
+  const stepNames: ("review" | "test" | "extraction" | "bubbleChart")[] = ["review", "test", "extraction", "bubbleChart"];
+  for (let i = 0; i < parallelResults.length; i++) {
+    const result = parallelResults[i];
     if (result.status === "fulfilled") {
       const { step, fileName, uploadResult, chars, duration } = result.value;
       stepResults[step] = {
@@ -333,25 +335,11 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       completedSteps++;
       console.log(`[后台任务] ${taskId} ${step} 完成: ${fileName} (${duration}秒)`);
     } else {
-      const errMsg = result.reason?.message || String(result.reason);
-      // 判断是哪个步骤失败
-      const stepName = errMsg.includes("复习") ? "review" :
-                       errMsg.includes("测试") ? "test" :
-                       errMsg.includes("信息") ? "extraction" : "bubbleChart";
-      // 因为 Promise.allSettled 不保证顺序映射到步骤名，用索引
-      failedSteps++;
-    }
-  }
-
-  // 用索引映射来更准确地设置失败步骤
-  const stepNames: ("review" | "test" | "extraction" | "bubbleChart")[] = ["review", "test", "extraction", "bubbleChart"];
-  for (let i = 0; i < parallelResults.length; i++) {
-    const result = parallelResults[i];
-    if (result.status === "rejected") {
       stepResults[stepNames[i]] = {
         status: "failed",
         error: result.reason?.message || String(result.reason),
       };
+      failedSteps++;
       console.error(`[后台任务] ${taskId} ${stepNames[i]} 失败:`, result.reason);
     }
   }
@@ -362,7 +350,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
 
   await updateTask(taskId, {
     status: finalStatus,
-    currentStep: 5,
+    currentStep: completedSteps,
     stepResults: JSON.stringify(stepResults),
     errorMessage: allCompleted ? null : `${failedSteps} 个步骤失败`,
     completedAt: new Date(),
@@ -526,6 +514,10 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       if (successCount === 0 && students.length > 0) {
         throw new Error(`全部${students.length}个学生气泡图生成失败`);
       }
+      const failedCount = students.length - successCount;
+      if (failedCount > 0) {
+        throw new Error(`气泡图部分失败(${successCount}/${students.length}成功)`);
+      }
       return { fileName: `气泡图(${successCount}/${students.length}成功)`, uploadResult: { url: "", path: "" }, chars: successCount, duration: Math.round((Date.now() - t) / 1000) };
     })(),
   ]);
@@ -560,7 +552,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
 
   await updateTask(taskId, {
     status: finalStatus,
-    currentStep: 5,
+    currentStep: completedSteps,
     stepResults: JSON.stringify(stepResults),
     errorMessage: allCompleted ? null : `${failedSteps} 个步骤失败`,
     completedAt: new Date(),

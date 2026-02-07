@@ -1802,7 +1802,7 @@ export const appRouter = router({
           status: task.status,
           currentStep: task.currentStep,
           totalSteps: task.totalSteps,
-          stepResults: task.stepResults ? JSON.parse(task.stepResults) : null,
+          stepResults: (() => { try { return task.stepResults ? JSON.parse(task.stepResults) : null; } catch { return null; } })(),
           errorMessage: task.errorMessage,
           createdAt: task.createdAt.toISOString(),
           completedAt: task.completedAt?.toISOString() || null,
@@ -1834,7 +1834,12 @@ export const appRouter = router({
 
       return tasks.map((t) => {
           // 从历史列表中剥离 feedback.content（太大，按需加载）
-          const stepResults = t.stepResults ? JSON.parse(t.stepResults) : null;
+          let stepResults = null;
+          try {
+            stepResults = t.stepResults ? JSON.parse(t.stepResults) : null;
+          } catch {
+            console.error(`[bgTask.history] 任务 ${t.id} stepResults JSON损坏`);
+          }
           if (stepResults?.feedback?.content) {
             delete stepResults.feedback.content;
           }
@@ -1867,7 +1872,12 @@ export const appRouter = router({
           .limit(1);
         if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
 
-        const stepResults = tasks[0].stepResults ? JSON.parse(tasks[0].stepResults) : null;
+        let stepResults = null;
+        try {
+          stepResults = tasks[0].stepResults ? JSON.parse(tasks[0].stepResults) : null;
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "任务数据损坏，无法解析" });
+        }
         const content = stepResults?.feedback?.content || null;
         if (!content) throw new TRPCError({ code: "NOT_FOUND", message: "反馈内容不可用（可能是旧任务）" });
         return { content };
