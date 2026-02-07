@@ -590,6 +590,100 @@ async function svgToPng(svgString: string): Promise<Buffer> {
 const TRUNCATION_MARKER = '【⚠️ 内容截断警告】';
 const MAX_CONTINUATIONS = 3; // 最多续写3次（共4轮），约可产出 24000+ 字符
 
+/** 生成元信息，用于前端展示诊断数据 */
+export interface GenerationMeta {
+  mode: 'non-stream' | 'stream';       // 调用模式
+  rounds: number;                       // 总轮次
+  totalPromptTokens: number;            // 输入token总数
+  totalCompletionTokens: number;        // 输出token总数
+  finishReason: string;                 // 最终finish_reason
+  roundDetails: Array<{ chars: number; promptTokens: number; completionTokens: number; finishReason: string }>;
+}
+
+/**
+ * 非流式带自动续写的AI调用（用于后台任务）
+ *
+ * 关键区别：不带 stream:true 参数。
+ * 某些API代理（如DMXapi）对流式输出有独立的token上限（约8192），
+ * 但非流式可能允许更大的输出。后台任务不需要实时流式进度，
+ * 所以优先用非流式，配合续写做兜底。
+ *
+ * 返回 { content, meta } — meta 包含 token 用量、轮次等诊断信息
+ */
+async function invokeNonStreamWithContinuation(
+  systemPrompt: string,
+  userPrompt: string,
+  config?: APIConfig,
+  label: string = '反馈'
+): Promise<{ content: string; meta: GenerationMeta }> {
+  let fullContent = '';
+  let messages: WhatAIMessage[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  const meta: GenerationMeta = {
+    mode: 'non-stream',
+    rounds: 0,
+    totalPromptTokens: 0,
+    totalCompletionTokens: 0,
+    finishReason: '',
+    roundDetails: [],
+  };
+
+  for (let round = 0; round <= MAX_CONTINUATIONS; round++) {
+    console.log(`[${label}] ${round === 0 ? '开始非流式生成...' : `第${round}次续写（已累计${fullContent.length}字符）...`}`);
+
+    const response = await invokeWhatAI(
+      messages,
+      { max_tokens: 64000, timeout: 600000, retries: 1 },
+      config,
+    );
+
+    const content = response.choices?.[0]?.message?.content || '';
+    const finishReason = response.choices?.[0]?.finish_reason || 'unknown';
+    const usage = response.usage;
+    const pt = usage?.prompt_tokens || 0;
+    const ct = usage?.completion_tokens || 0;
+
+    console.log(`[${label}] 第${round + 1}轮完成，本轮${content.length}字符, finish_reason: ${finishReason}`);
+    if (usage) {
+      console.log(`[${label}] Token用量: 输入=${pt}, 输出=${ct}, 总计=${usage.total_tokens}`);
+    }
+
+    meta.rounds = round + 1;
+    meta.totalPromptTokens += pt;
+    meta.totalCompletionTokens += ct;
+    meta.finishReason = finishReason;
+    meta.roundDetails.push({ chars: content.length, promptTokens: pt, completionTokens: ct, finishReason });
+
+    if (finishReason === 'length' || finishReason === 'max_tokens') {
+      // 被截断，累积内容并续写
+      fullContent += content;
+      if (round < MAX_CONTINUATIONS) {
+        console.log(`[${label}] 截断检测到，已累计${fullContent.length}字符，自动续写...`);
+        messages = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+          { role: "assistant", content: fullContent },
+          { role: "user", content: "你的回答被截断了，请从截断处继续输出。直接继续输出剩余内容，不要重复已有内容，不要添加过渡语句。" },
+        ];
+      } else {
+        console.error(`[${label}] 已达到最大续写次数(${MAX_CONTINUATIONS})，当前${fullContent.length}字符`);
+      }
+    } else {
+      // 正常完成（finish_reason === 'stop' 等）
+      fullContent += content;
+      if (round > 0) {
+        console.log(`[${label}] 续写完成，共${round + 1}轮，总长度: ${fullContent.length}字符`);
+      }
+      break;
+    }
+  }
+
+  return { content: fullContent, meta };
+}
+
 /**
  * 带自动续写的流式AI调用
  * 当API输出被截断时（DMXapi可能限制单次输出token数），
@@ -663,7 +757,7 @@ export async function invokeWithContinuation(
 /**
  * 步骤1: 生成学情反馈文档
  */
-export async function generateFeedbackContent(input: FeedbackInput, config?: APIConfig): Promise<string> {
+export async function generateFeedbackContent(input: FeedbackInput, config?: APIConfig): Promise<{ content: string; meta: GenerationMeta }> {
   // 直接使用录音原文，不再压缩
   const prompt = `## 学生信息
 - 学生姓名：${input.studentName}
@@ -697,17 +791,16 @@ ${input.transcript}
     ? config.roadmap
     : FEEDBACK_SYSTEM_PROMPT;
 
-  // 使用带自动续写的流式调用，防止截断导致内容不完整
-  const content = await invokeWithContinuation(
+  // 后台任务用非流式调用（可能绕过代理的流式输出token限制）+ 自动续写兜底
+  const result = await invokeNonStreamWithContinuation(
     systemPrompt,
     prompt,
     config,
-    () => process.stdout.write('.'),
     '学情反馈'
   );
-  console.log(`\n[学情反馈] 生成完成，内容长度: ${content.length}字符`);
+  console.log(`[学情反馈] 生成完成，内容长度: ${result.content.length}字符`);
 
-  return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
+  return { content: stripAIMetaCommentary(cleanMarkdownAndHtml(result.content)), meta: result.meta };
 }
 
 /**
@@ -932,7 +1025,8 @@ export async function generateFeedbackDocuments(
   try {
     // 步骤1: 生成学情反馈
     updateStep(0, 'running', '正在生成学情反馈...');
-    feedback = await generateFeedbackContent(input);
+    const feedbackResult = await generateFeedbackContent(input);
+    feedback = feedbackResult.content;
     updateStep(0, 'success', '学情反馈生成完成');
 
     // 步骤2: 生成复习文档
@@ -1069,7 +1163,7 @@ export async function generateClassFeedbackContent(
   input: ClassFeedbackInput,
   roadmap: string,
   apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
-): Promise<string> {
+): Promise<{ content: string; meta: GenerationMeta }> {
   // 构建 user prompt，包含所有学生名单和课堂信息
   const studentList = input.attendanceStudents.filter(s => s.trim()).join('、');
   
@@ -1106,18 +1200,17 @@ ${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\
     apiUrl: apiConfig.apiUrl,
   };
   
-  // 使用带自动续写的流式调用，小班课内容较长，防止截断
-  const content = await invokeWithContinuation(
+  // 后台任务用非流式调用（可能绕过代理的流式输出token限制）+ 自动续写兜底
+  const result = await invokeNonStreamWithContinuation(
     systemPrompt,
     userPrompt,
     config,
-    () => process.stdout.write('.'),
     '小班课反馈'
   );
 
-  console.log(`\n[小班课反馈] 生成完成，长度: ${content.length} 字符`);
+  console.log(`[小班课反馈] 生成完成，长度: ${result.content.length} 字符`);
 
-  return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
+  return { content: stripAIMetaCommentary(cleanMarkdownAndHtml(result.content)), meta: result.meta };
 }
 
 /**
