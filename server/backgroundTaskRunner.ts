@@ -5,7 +5,7 @@
 
 import { getDb } from "./db";
 import { backgroundTasks } from "../drizzle/schema";
-import { eq, lt, sql } from "drizzle-orm";
+import { eq, lt, and, sql } from "drizzle-orm";
 import { getConfigValue as getConfig } from "./core/aiClient";
 import { DEFAULT_CONFIG } from "./core/aiClient";
 import {
@@ -545,18 +545,41 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
 }
 
 /**
- * 清理3天以上的旧任务
+ * 清理3天以上的旧任务 + 超时自愈（运行超过30分钟的任务标记为失败）
  */
 export async function cleanupOldTasks(): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
 
+  // 1. 清理3天前的旧任务
   const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
   const result = await db.delete(backgroundTasks).where(lt(backgroundTasks.createdAt, threeDaysAgo));
   const count = (result as any)?.[0]?.affectedRows || 0;
   if (count > 0) {
     console.log(`[后台任务] 清理了 ${count} 条3天前的旧任务`);
   }
+
+  // 2. 超时自愈：运行超过30分钟的任务标记为失败（防止卡死在running状态）
+  try {
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const staleResult = await db.update(backgroundTasks)
+      .set({
+        status: "failed",
+        errorMessage: "任务超时（超过30分钟未完成）",
+        completedAt: new Date(),
+      })
+      .where(and(
+        eq(backgroundTasks.status, "running"),
+        lt(backgroundTasks.createdAt, thirtyMinAgo)
+      ));
+    const staleCount = (staleResult as any)?.[0]?.affectedRows || 0;
+    if (staleCount > 0) {
+      console.log(`[后台任务] 超时自愈：标记 ${staleCount} 个卡死任务为失败`);
+    }
+  } catch (err: any) {
+    console.error("[后台任务] 超时自愈失败:", err?.message || err);
+  }
+
   return count;
 }
 
