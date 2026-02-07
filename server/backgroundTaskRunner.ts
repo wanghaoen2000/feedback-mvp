@@ -605,10 +605,11 @@ async function ensureTable(): Promise<void> {
       \`completed_at\` timestamp NULL,
       PRIMARY KEY (\`id\`)
     )`);
-    // 兼容旧表：如果表已存在且 input_params/step_results 还是 text，升级为 mediumtext
+    // 兼容旧表：text → mediumtext 升级（防止大文本超过 64KB 限制）
     try {
       await db.execute(sql`ALTER TABLE \`background_tasks\` MODIFY COLUMN \`input_params\` mediumtext NOT NULL`);
       await db.execute(sql`ALTER TABLE \`background_tasks\` MODIFY COLUMN \`step_results\` mediumtext`);
+      await db.execute(sql`ALTER TABLE \`system_config\` MODIFY COLUMN \`value\` mediumtext NOT NULL`);
     } catch { /* 已经是 mediumtext 则忽略 */ }
     console.log("[后台任务] 表已就绪");
   } catch (err: any) {
