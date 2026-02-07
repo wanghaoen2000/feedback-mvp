@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "f5aed731-68fc-43f3-9d4a-efa8c2b9683d",
+  "id": "e38e36e0-d35f-4461-862a-7ac0bac8575f",
   "prevId": "17328fe2-c2f4-4076-8f9d-26ac56f83c57",
   "tables": {
     "background_tasks": {
@@ -54,14 +54,14 @@
         },
         "input_params": {
           "name": "input_params",
-          "type": "text",
+          "type": "mediumtext",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
         "step_results": {
           "name": "step_results",
-          "type": "text",
+          "type": "mediumtext",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -192,7 +192,7 @@
         },
         "value": {
           "name": "value",
-          "type": "text",
+          "type": "mediumtext",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false

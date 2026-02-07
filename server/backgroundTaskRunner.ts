@@ -597,14 +597,20 @@ async function ensureTable(): Promise<void> {
       \`status\` varchar(20) NOT NULL DEFAULT 'pending',
       \`current_step\` int NOT NULL DEFAULT 0,
       \`total_steps\` int NOT NULL DEFAULT 5,
-      \`input_params\` text NOT NULL,
-      \`step_results\` text,
+      \`input_params\` mediumtext NOT NULL,
+      \`step_results\` mediumtext,
       \`error_message\` text,
       \`created_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
       \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       \`completed_at\` timestamp NULL,
       PRIMARY KEY (\`id\`)
     )`);
+    // 兼容旧表：text → mediumtext 升级（防止大文本超过 64KB 限制）
+    try {
+      await db.execute(sql`ALTER TABLE \`background_tasks\` MODIFY COLUMN \`input_params\` mediumtext NOT NULL`);
+      await db.execute(sql`ALTER TABLE \`background_tasks\` MODIFY COLUMN \`step_results\` mediumtext`);
+      await db.execute(sql`ALTER TABLE \`system_config\` MODIFY COLUMN \`value\` mediumtext NOT NULL`);
+    } catch { /* 已经是 mediumtext 则忽略 */ }
     console.log("[后台任务] 表已就绪");
   } catch (err: any) {
     console.error("[后台任务] 建表失败:", err?.message || err);

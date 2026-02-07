@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mediumtext, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -29,7 +29,7 @@ export type InsertUser = typeof users.$inferInsert;
 export const systemConfig = mysqlTable("system_config", {
   id: int("id").autoincrement().primaryKey(),
   key: varchar("key", { length: 64 }).notNull().unique(),
-  value: text("value").notNull(),
+  value: mediumtext("value").notNull(),
   description: text("description"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -58,8 +58,8 @@ export const backgroundTasks = mysqlTable("background_tasks", {
   status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | running | completed | failed | partial
   currentStep: int("current_step").notNull().default(0),
   totalSteps: int("total_steps").notNull().default(5),
-  inputParams: text("input_params").notNull(), // JSON: 所有生成参数
-  stepResults: text("step_results"), // JSON: 每步结果
+  inputParams: mediumtext("input_params").notNull(), // JSON: 所有生成参数（可能很大，含完整笔记/转录文本）
+  stepResults: mediumtext("step_results"), // JSON: 每步结果
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
