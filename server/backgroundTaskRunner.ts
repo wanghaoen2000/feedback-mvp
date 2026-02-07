@@ -32,6 +32,16 @@ import {
   uploadBinaryToGoogleDrive,
   UploadStatus,
 } from "./gdrive";
+import {
+  createLogSession,
+  startStep,
+  stepSuccess,
+  stepFailed,
+  endLogSession,
+  logInfo,
+  logError,
+} from "./logger";
+import { parseError } from "./errorHandler";
 
 /** 上传后检查结果，失败则抛出错误（uploadToGoogleDrive 失败时返回 status:'error' 而不是 throw） */
 function assertUploadSuccess(result: UploadStatus, context: string): void {
@@ -257,10 +267,25 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   const config = { apiModel, apiKey, apiUrl, roadmap };
   const taskStartTime = Date.now();
 
+  // 创建日志会话
+  const log = createLogSession(
+    params.studentName,
+    { apiUrl, apiModel, maxTokens: 64000 },
+    {
+      notesLength: params.currentNotes?.length || 0,
+      transcriptLength: params.transcript?.length || 0,
+      lastFeedbackLength: params.lastFeedback?.length || 0,
+    },
+    params.lessonNumber,
+    params.lessonDate,
+  );
+  logInfo(log, 'task', `后台任务 ${taskId}`);
+
   // ===== 步骤 1: 学情反馈 =====
   const step1Start = Date.now();
   stepResults.feedback = { status: "running" };
   await updateStepResults(taskId, stepResults, 1);
+  startStep(log, 'feedback');
 
   try {
     const lessonDate = params.lessonDate ? addWeekdayToDate(params.lessonDate.includes('年') ? params.lessonDate : `${currentYear}年${params.lessonDate}`) : "";
@@ -315,24 +340,29 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       content: feedbackContent,
       rawContent: feedbackRawContent,  // 原始AI输出（清洗前），用于诊断换行等问题
       // 生成诊断信息：模式、轮次、token用量
-      genInfo: `${feedbackMeta.mode} · ${feedbackMeta.rounds}轮 · 输入${feedbackMeta.totalPromptTokens}t/输出${feedbackMeta.totalCompletionTokens}t · ${feedbackMeta.finishReason}`,
+      genInfo: feedbackMeta.totalPromptTokens > 0
+        ? `${feedbackMeta.mode} · ${feedbackMeta.rounds}轮 · 输入${feedbackMeta.totalPromptTokens}t/输出${feedbackMeta.totalCompletionTokens}t · ${feedbackMeta.finishReason}`
+        : `${feedbackMeta.mode} · ${feedbackMeta.rounds}轮 · ${feedbackContent.length}字 · ${feedbackMeta.finishReason}`,
       ...(isTruncated ? { error: `续写${feedbackMeta.rounds}轮后仍被截断（输出${feedbackMeta.totalCompletionTokens}token）` } : {}),
     };
     if (isTruncated) {
       failedSteps++;
       console.warn(`[后台任务] ${taskId} 步骤1截断: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字) ⚠️ 内容不完整`);
     } else {
+      stepSuccess(log, 'feedback', feedbackContent.length);
       console.log(`[后台任务] ${taskId} 步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字, ${feedbackMeta.mode} ${feedbackMeta.rounds}轮)`);
     }
   } catch (err: any) {
     stepResults.feedback = { status: "failed", error: err?.message || String(err) };
     failedSteps++;
+    stepFailed(log, 'feedback', parseError(err, 'feedback'));
     console.error(`[后台任务] ${taskId} 步骤1失败:`, err);
   }
   await updateStepResults(taskId, stepResults, 1);
 
   // 如果步骤1失败，后续步骤无法执行
   if (!feedbackContent) {
+    endLogSession(log);
     await updateTask(taskId, {
       status: "failed",
       stepResults: JSON.stringify(stepResults),
@@ -439,6 +469,8 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   const allCompleted = failedSteps === 0;
   const finalStatus = allCompleted ? "completed" : completedSteps > 1 ? "partial" : "failed";
 
+  endLogSession(log);
+
   await updateTask(taskId, {
     status: finalStatus,
     currentStep: completedSteps,
@@ -473,6 +505,20 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   const folderName = `${params.classNumber}班`;
   const basePath = `${driveBasePath}/${folderName}`;
 
+  // 创建日志会话
+  const log = createLogSession(
+    `班级${params.classNumber}`,
+    { apiUrl: apiConfig.apiUrl || '', apiModel: apiConfig.apiModel || '', maxTokens: 64000 },
+    {
+      notesLength: params.currentNotes?.length || 0,
+      transcriptLength: params.transcript?.length || 0,
+      lastFeedbackLength: params.lastFeedback?.length || 0,
+    },
+    params.lessonNumber,
+    params.lessonDate,
+  );
+  logInfo(log, 'task', `后台任务 ${taskId}`);
+
   const taskStartTime = Date.now();
   const classInput: ClassFeedbackInput = {
     classNumber: params.classNumber,
@@ -490,6 +536,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   const step1Start = Date.now();
   stepResults.feedback = { status: "running" };
   await updateStepResults(taskId, stepResults, 1);
+  startStep(log, 'feedback');
 
   try {
     const classResult = await generateClassFeedbackContent(classInput, roadmapClass, apiConfig);
@@ -524,23 +571,28 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       content: feedbackContent,
       rawContent: classRawContent,  // 原始AI输出（清洗前），用于诊断换行等问题
       // 生成诊断信息：模式、轮次、token用量
-      genInfo: `${classMeta.mode} · ${classMeta.rounds}轮 · 输入${classMeta.totalPromptTokens}t/输出${classMeta.totalCompletionTokens}t · ${classMeta.finishReason}`,
+      genInfo: classMeta.totalPromptTokens > 0
+        ? `${classMeta.mode} · ${classMeta.rounds}轮 · 输入${classMeta.totalPromptTokens}t/输出${classMeta.totalCompletionTokens}t · ${classMeta.finishReason}`
+        : `${classMeta.mode} · ${classMeta.rounds}轮 · ${feedbackContent.length}字 · ${classMeta.finishReason}`,
       ...(isTruncated ? { error: `续写${classMeta.rounds}轮后仍被截断（输出${classMeta.totalCompletionTokens}token）` } : {}),
     };
     if (isTruncated) {
       failedSteps++;
       console.warn(`[后台任务] ${taskId} 班课步骤1截断: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字) ⚠️ 内容不完整`);
     } else {
+      stepSuccess(log, 'feedback', feedbackContent.length);
       console.log(`[后台任务] ${taskId} 班课步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字, ${classMeta.mode} ${classMeta.rounds}轮)`);
     }
   } catch (err: any) {
     stepResults.feedback = { status: "failed", error: err?.message || String(err) };
     failedSteps++;
+    stepFailed(log, 'feedback', parseError(err, 'feedback'));
     console.error(`[后台任务] ${taskId} 班课步骤1失败:`, err);
   }
   await updateStepResults(taskId, stepResults, 1);
 
   if (!feedbackContent) {
+    endLogSession(log);
     await updateTask(taskId, {
       status: "failed",
       stepResults: JSON.stringify(stepResults),
@@ -730,6 +782,8 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
 
   const allCompleted = failedSteps === 0;
   const finalStatus = allCompleted ? "completed" : completedSteps > 1 ? "partial" : "failed";
+
+  endLogSession(log);
 
   await updateTask(taskId, {
     status: finalStatus,

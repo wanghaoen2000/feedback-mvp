@@ -812,14 +812,16 @@ export interface GenerationMeta {
 }
 
 /**
- * 非流式带自动续写的AI调用（用于后台任务）
+ * 流式带自动续写的AI调用（用于后台任务）
  *
- * 关键区别：不带 stream:true 参数。
- * 某些API代理（如DMXapi）对流式输出有独立的token上限（约8192），
- * 但非流式可能允许更大的输出。后台任务不需要实时流式进度，
- * 所以优先用非流式，配合续写做兜底。
+ * 使用流式API（stream:true）保持连接活跃，防止长时间生成时
+ * 中间网络层（Cloudflare/CDN/NAT）因连接空闲而断开。
+ * 非流式调用在等待6-7分钟的大输出时，TCP连接无数据流动，
+ * 极易被中间层判定为空闲连接并终止（导致 "fetch failed"）。
  *
- * 返回 { content, meta } — meta 包含 token 用量、轮次等诊断信息
+ * 代价：流式模式无法获取精确的 token 用量统计。
+ *
+ * 返回 { content, meta } — meta 包含轮次等诊断信息
  */
 async function invokeNonStreamWithContinuation(
   systemPrompt: string,
@@ -834,7 +836,7 @@ async function invokeNonStreamWithContinuation(
   ];
 
   const meta: GenerationMeta = {
-    mode: 'non-stream',
+    mode: 'stream',
     rounds: 0,
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
@@ -843,33 +845,35 @@ async function invokeNonStreamWithContinuation(
   };
 
   for (let round = 0; round <= MAX_CONTINUATIONS; round++) {
-    console.log(`[${label}] ${round === 0 ? '开始非流式生成...' : `第${round}次续写（已累计${fullContent.length}字符）...`}`);
+    console.log(`[${label}] ${round === 0 ? '开始流式生成（后台）...' : `第${round}次续写（已累计${fullContent.length}字符）...`}`);
 
-    const response = await invokeWhatAI(
+    const streamResult = await invokeWhatAIStream(
       messages,
       { max_tokens: 64000, timeout: 600000, retries: 1 },
       config,
     );
 
-    const content = response.choices?.[0]?.message?.content || '';
-    const finishReason = response.choices?.[0]?.finish_reason || 'unknown';
-    const usage = response.usage;
-    const pt = usage?.prompt_tokens || 0;
-    const ct = usage?.completion_tokens || 0;
+    // 检查截断标记（由 invokeWhatAIStream 在 finish_reason=length 时追加）
+    const markerIdx = streamResult.indexOf(TRUNCATION_MARKER);
+    let content: string;
+    let isTruncated: boolean;
 
-    console.log(`[${label}] 第${round + 1}轮完成，本轮${content.length}字符, finish_reason: ${finishReason}`);
-    if (usage) {
-      console.log(`[${label}] Token用量: 输入=${pt}, 输出=${ct}, 总计=${usage.total_tokens}`);
+    if (markerIdx >= 0) {
+      content = streamResult.substring(0, markerIdx).trimEnd();
+      isTruncated = true;
+    } else {
+      content = streamResult;
+      isTruncated = false;
     }
 
-    meta.rounds = round + 1;
-    meta.totalPromptTokens += pt;
-    meta.totalCompletionTokens += ct;
-    meta.finishReason = finishReason;
-    meta.roundDetails.push({ chars: content.length, promptTokens: pt, completionTokens: ct, finishReason });
+    const finishReason = isTruncated ? 'length' : 'stop';
+    console.log(`[${label}] 第${round + 1}轮完成，本轮${content.length}字符, finish_reason: ${finishReason}`);
 
-    if (finishReason === 'length' || finishReason === 'max_tokens') {
-      // 被截断，累积内容并续写
+    meta.rounds = round + 1;
+    meta.finishReason = finishReason;
+    meta.roundDetails.push({ chars: content.length, promptTokens: 0, completionTokens: 0, finishReason });
+
+    if (isTruncated) {
       fullContent += content;
       if (round < MAX_CONTINUATIONS) {
         console.log(`[${label}] 截断检测到，已累计${fullContent.length}字符，自动续写...`);
@@ -883,7 +887,6 @@ async function invokeNonStreamWithContinuation(
         console.error(`[${label}] 已达到最大续写次数(${MAX_CONTINUATIONS})，当前${fullContent.length}字符`);
       }
     } else {
-      // 正常完成（finish_reason === 'stop' 等）
       fullContent += content;
       if (round > 0) {
         console.log(`[${label}] 续写完成，共${round + 1}轮，总长度: ${fullContent.length}字符`);
