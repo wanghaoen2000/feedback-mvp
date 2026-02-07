@@ -156,6 +156,7 @@ export const appRouter = router({
       const classStoragePath = await getConfig("classStoragePath");
       const batchFilePrefix = await getConfig("batchFilePrefix");
       const batchStoragePath = await getConfig("batchStoragePath");
+      const batchConcurrency = await getConfig("batchConcurrency");
       const maxTokens = await getConfig("maxTokens");
       const gdriveLocalBasePath = await getConfig("gdriveLocalBasePath");
       const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath");
@@ -174,6 +175,7 @@ export const appRouter = router({
         classStoragePath: classStoragePath || "", // 小班课路径，留空则使用 driveBasePath
         batchFilePrefix: batchFilePrefix || DEFAULT_CONFIG.batchFilePrefix,
         batchStoragePath: batchStoragePath || DEFAULT_CONFIG.batchStoragePath,
+        batchConcurrency: batchConcurrency || DEFAULT_CONFIG.batchConcurrency,
         maxTokens: maxTokens || "64000",
         gdriveLocalBasePath: gdriveLocalBasePath || "",
         gdriveDownloadsPath: gdriveDownloadsPath || "",
@@ -206,6 +208,7 @@ export const appRouter = router({
         classStoragePath: z.string().optional(),
         batchFilePrefix: z.string().optional(),
         batchStoragePath: z.string().optional(),
+        batchConcurrency: z.string().optional(),
         maxTokens: z.string().optional(),
         gdriveLocalBasePath: z.string().optional(),
         gdriveDownloadsPath: z.string().optional(),
@@ -285,7 +288,15 @@ export const appRouter = router({
           await setConfig("batchFilePrefix", input.batchFilePrefix.trim() || DEFAULT_CONFIG.batchFilePrefix, "批量处理文件名前缀");
           updates.push("batchFilePrefix");
         }
-        
+
+        if (input.batchConcurrency !== undefined) {
+          const val = parseInt(input.batchConcurrency.trim(), 10);
+          if (!isNaN(val) && val >= 1 && val <= 200) {
+            await setConfig("batchConcurrency", val.toString(), "批量处理并发数");
+            updates.push("batchConcurrency");
+          }
+        }
+
         if (input.batchStoragePath !== undefined && input.batchStoragePath.trim()) {
           // 验证路径格式：不能以/开头或结尾
           let path = input.batchStoragePath.trim();

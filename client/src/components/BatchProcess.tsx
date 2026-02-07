@@ -218,7 +218,8 @@ export function BatchProcess() {
   const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material'>('markdown_styled');
   const [startNumber, setStartNumber] = useState("");
   const [endNumber, setEndNumber] = useState("");
-  const [concurrency, setConcurrency] = useState("5");
+  const [concurrency, setConcurrency] = useState("50");
+  const [isConcurrencySaving, setIsConcurrencySaving] = useState(false);
   const [storagePath, setStoragePath] = useState("Mac(online)/Documents/XDF/批量任务");
   const [isPathSaving, setIsPathSaving] = useState(false);
   const [filePrefix, setFilePrefix] = useState("任务");
@@ -249,7 +250,13 @@ export function BatchProcess() {
       setStoragePath(config.batchStoragePath);
     }
   }, [config?.batchStoragePath]);
-  
+
+  useEffect(() => {
+    if (config?.batchConcurrency) {
+      setConcurrency(config.batchConcurrency);
+    }
+  }, [config?.batchConcurrency]);
+
   // 路书内容
   const [roadmap, setRoadmap] = useState("");
 
@@ -1171,12 +1178,24 @@ export function BatchProcess() {
               <Input
                 id="concurrency"
                 type="number"
-                placeholder="默认：5"
+                placeholder="默认：50"
                 value={concurrency}
                 onChange={(e) => setConcurrency(e.target.value)}
+                onBlur={async () => {
+                  if (concurrency !== config?.batchConcurrency) {
+                    setIsConcurrencySaving(true);
+                    try {
+                      await updateConfig.mutateAsync({ batchConcurrency: concurrency });
+                    } catch (e) {
+                      console.error('保存并发数失败:', e);
+                    } finally {
+                      setIsConcurrencySaving(false);
+                    }
+                  }
+                }}
                 disabled={isGenerating}
               />
-              <p className="text-xs text-gray-500">同时处理的任务数量，建议3-5</p>
+              <p className="text-xs text-gray-500">{isConcurrencySaving ? '保存中...' : '同时处理的任务数量，修改后自动保存'}</p>
             </div>
             <div className="space-y-2">
               <Label>文件命名方式</Label>
