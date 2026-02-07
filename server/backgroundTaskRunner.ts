@@ -22,6 +22,7 @@ import {
   generateClassExtractionContent,
   generateClassBubbleChartSVG,
   svgToPng,
+  injectChineseFontIntoSVG,
   GenerationMeta,
 } from "./feedbackGenerator";
 import {
@@ -604,11 +605,21 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       return { fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
-    // 步骤5: 气泡图（每个学生一张）
+    // 步骤5: 气泡图（每个学生一张）+ 调试日志
     (async () => {
       const t = Date.now();
       const students = params.attendanceStudents.filter((s) => s.trim());
       let successCount = 0;
+      // 收集调试信息（只记录第一个学生的完整SVG，其余只记录摘要）
+      const debugLines: string[] = [
+        `=== 气泡图调试日志 ===`,
+        `时间: ${new Date().toISOString()}`,
+        `班号: ${params.classNumber}`,
+        `课次: ${params.lessonNumber || "未指定"}`,
+        `学生: ${students.join(", ")}`,
+        `sharp版本: ${require("sharp").versions?.sharp || "unknown"}`,
+        ``,
+      ];
       for (const studentName of students) {
         try {
           const svgContent = await generateClassBubbleChartSVG(
@@ -619,17 +630,62 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
             params.lessonNumber || "",
             { ...apiConfig, roadmapClass }
           );
+          // 调试：记录原始SVG信息
+          const isFirst = debugLines.length < 20; // 只对第一个学生记录完整SVG
+          debugLines.push(`--- ${studentName} ---`);
+          debugLines.push(`原始SVG长度: ${svgContent.length}字符`);
+          debugLines.push(`包含<text>: ${(svgContent.match(/<text[\s>]/g) || []).length}个`);
+          debugLines.push(`包含<tspan>: ${(svgContent.match(/<tspan[\s>]/g) || []).length}个`);
+          debugLines.push(`包含<foreignObject>: ${(svgContent.match(/<foreignObject[\s>]/g) || []).length}个`);
+          debugLines.push(`包含<style>: ${(svgContent.match(/<style[\s>]/g) || []).length}个`);
+          debugLines.push(`包含@font-face: ${(svgContent.match(/@font-face/gi) || []).length}个`);
+          debugLines.push(`包含@import: ${(svgContent.match(/@import/gi) || []).length}个`);
+          // 提取所有font-family声明
+          const fontFamilies = svgContent.match(/font-family[=:][^;}"'\n]+/g) || [];
+          debugLines.push(`font-family声明: ${fontFamilies.length}个`);
+          fontFamilies.slice(0, 5).forEach(f => debugLines.push(`  ${f}`));
+          if (fontFamilies.length > 5) debugLines.push(`  ...还有${fontFamilies.length - 5}个`);
+
+          // 调试：记录注入后的SVG信息
+          const injectedSvg = injectChineseFontIntoSVG(svgContent);
+          debugLines.push(`注入后SVG长度: ${injectedSvg.length}字符`);
+          debugLines.push(`注入后包含WenQuanYi: ${injectedSvg.includes("WenQuanYi Zen Hei") ? "是" : "否"}`);
+
+          if (isFirst) {
+            debugLines.push(``, `===== 第一个学生原始SVG完整内容 =====`);
+            debugLines.push(svgContent);
+            debugLines.push(`===== 原始SVG结束 =====`);
+            debugLines.push(``, `===== 注入后SVG完整内容 =====`);
+            debugLines.push(injectedSvg);
+            debugLines.push(`===== 注入后SVG结束 =====`, ``);
+          }
+
           // SVG → PNG（注入中文字体+sharp渲染）
           const pngBuffer = await svgToPng(svgContent);
+          debugLines.push(`PNG大小: ${pngBuffer.length}字节`);
+          debugLines.push(``);
+
           const fileName = `${studentName}${params.lessonNumber || ""}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
           const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
           assertUploadSuccess(uploadResult, `气泡图(${studentName})`);
           successCount++;
         } catch (err: any) {
+          debugLines.push(`错误: ${err?.message || err}`);
+          debugLines.push(``);
           console.error(`[后台任务] ${taskId} 气泡图 ${studentName} 失败:`, err?.message || err);
           if (err?.stack) console.error(`[后台任务] ${taskId} 气泡图堆栈:`, err.stack);
         }
+      }
+      // 上传调试日志到课后信息文件夹
+      try {
+        const debugContent = debugLines.join("\n");
+        const debugFileName = `${folderName}${params.lessonNumber || ""}气泡图调试日志.txt`;
+        const debugFolderPath = `${basePath}/课后信息`;
+        await uploadToGoogleDrive(debugContent, debugFileName, debugFolderPath);
+        console.log(`[后台任务] ${taskId} 调试日志已上传: ${debugFileName}`);
+      } catch (debugErr: any) {
+        console.error(`[后台任务] ${taskId} 调试日志上传失败:`, debugErr?.message);
       }
       if (successCount === 0 && students.length > 0) {
         throw new Error(`全部${students.length}个学生气泡图生成失败（最后错误见服务器日志）`);
