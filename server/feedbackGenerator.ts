@@ -338,22 +338,23 @@ const NO_INTERACTION_INSTRUCTION = `
 
 /**
  * 清理markdown和HTML标记
+ * 注意：保留下划线（___）用于填空题，不剥离 _text_ 和 __text__ 格式
  */
 export function cleanMarkdownAndHtml(text: string): string {
   return text
     // 移除markdown标题
     .replace(/^#{1,6}\s+/gm, '')
-    // 移除粗体/斜体
+    // 移除粗体/斜体（仅星号格式，保留下划线以免破坏填空题）
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/_([^_]+)_/g, '$1')
     // 移除代码块标记（保留内容）
     .replace(/```\w*\n?/g, '')
     .replace(/`([^`]+)`/g, '$1')
     // 移除HTML标签
     .replace(/<[^>]+>/g, '')
-    // 移除多余空行
+    // 将纯空白行（只含空格/tab）变为真正的空行
+    .replace(/^[ \t]+$/gm, '')
+    // 移除多余空行（3+连续空行 → 2行）
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -531,12 +532,13 @@ ${feedback}
 输出</svg>后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
 
   try {
-    console.log(`[气泡图] 开始流式生成SVG...`);
-    const content = await invokeWhatAIStream([
+    console.log(`[气泡图] 开始非流式生成SVG...`);
+    const response = await invokeWhatAI([
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
-    ], { max_tokens: 8000 }, config, (c) => process.stdout.write('.'));
-    console.log(`\n[气泡图] SVG生成完成`);
+    ], { max_tokens: 8000, timeout: 300000, retries: 1 }, config);
+    const content = response.choices?.[0]?.message?.content || '';
+    console.log(`[气泡图] SVG生成完成，长度: ${content.length}字符`);
     
     // 提取SVG代码
     const svgMatch = content.match(/<svg[\s\S]*?<\/svg>/);
@@ -578,7 +580,7 @@ export function injectChineseFontIntoSVG(svgString: string): string {
 /**
  * SVG转PNG（注入中文字体确保服务器端渲染不乱码）
  */
-async function svgToPng(svgString: string): Promise<Buffer> {
+export async function svgToPng(svgString: string): Promise<Buffer> {
   const injected = injectChineseFontIntoSVG(svgString);
   return await sharp(Buffer.from(injected))
     .png()
@@ -1210,6 +1212,15 @@ ${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\
 
   console.log(`[小班课反馈] 生成完成，长度: ${result.content.length} 字符`);
 
+  // 诊断日志：检查原始内容中的填空下划线和空行模式
+  const rawSnippet = result.content.substring(0, 500);
+  const underscoreCount = (result.content.match(/_{2,}/g) || []).length;
+  const blankLineCount = (result.content.match(/\n\s*\n\s*\n/g) || []).length;
+  console.log(`[小班课反馈] 诊断: 下划线组数=${underscoreCount}, 多空行数=${blankLineCount}`);
+  if (blankLineCount > 5) {
+    console.log(`[小班课反馈] 原始内容前500字符: ${JSON.stringify(rawSnippet)}`);
+  }
+
   return { content: stripAIMetaCommentary(cleanMarkdownAndHtml(result.content)), meta: result.meta };
 }
 
@@ -1484,12 +1495,13 @@ ${combinedFeedback}
     : `你是一个气泡图生成助手。请根据学情反馈生成气泡图SVG代码。`;
 
   try {
-    console.log(`[小班课气泡图] 开始为 ${studentName} 生成SVG...`);
-    const content = await invokeWhatAIStream([
+    console.log(`[小班课气泡图] 开始为 ${studentName} 非流式生成SVG...`);
+    const response = await invokeWhatAI([
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
-    ], { max_tokens: 8000 }, config, (c) => process.stdout.write('.'));
-    console.log(`\n[小班课气泡图] ${studentName} SVG生成完成`);
+    ], { max_tokens: 8000, timeout: 300000, retries: 1 }, config);
+    const content = response.choices?.[0]?.message?.content || '';
+    console.log(`[小班课气泡图] ${studentName} SVG生成完成，长度: ${content.length}字符`);
     
     // 提取SVG代码
     const svgMatch = content.match(/<svg[\s\S]*?<\/svg>/);

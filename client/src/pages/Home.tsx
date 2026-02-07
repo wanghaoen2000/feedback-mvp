@@ -2261,6 +2261,17 @@ export default function Home() {
           driveBasePath: driveBasePath.trim() || undefined,
         });
         setActiveTaskId(result.taskId);
+
+        // 保存学生/班级课次到历史（用于下次自动填充课次+1）
+        const lessonNum = parseInt((lessonNumber || '').replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(lessonNum)) {
+          if (courseType === 'oneToOne' && studentName.trim()) {
+            saveStudentLesson(studentName.trim(), lessonNum);
+          } else if (courseType === 'class' && classNumber.trim()) {
+            saveStudentLesson(`班级:${classNumber.trim()}`, lessonNum);
+          }
+        }
+
         alert(`任务已提交到后台！\n${result.displayName}\n\n即使关闭手机屏幕或断网，服务器也会继续生成。\n请在下方「任务记录」中查看进度。`);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '提交失败';
