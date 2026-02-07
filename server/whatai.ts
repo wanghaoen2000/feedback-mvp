@@ -232,8 +232,9 @@ export async function invokeWhatAIStream(
     
     try {
       const controller = new AbortController();
+      // 初始超时：等待 API 首次响应
       const timeoutId = setTimeout(() => controller.abort(), timeout);
-      
+
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
@@ -255,11 +256,11 @@ export async function invokeWhatAIStream(
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`[WhatAI流式] API错误: ${response.status} - ${errorText}`);
-        
+
         if (response.status === 403 || response.status === 401) {
           throw new Error(`WhatAI API错误: ${response.status} - ${errorText}`);
         }
-        
+
         lastError = new Error(`WhatAI API错误: ${response.status} - ${errorText}`);
         continue;
       }
@@ -270,51 +271,72 @@ export async function invokeWhatAIStream(
         throw new Error('无法获取响应流');
       }
 
+      // 滚动卡死保护：每收到数据就重置计时器，2分钟无数据则中止
+      const STALL_TIMEOUT = 120_000; // 2分钟
+      let stallTimer = setTimeout(() => {
+        console.error(`[WhatAI流式] 流式读取卡死（${STALL_TIMEOUT / 1000}秒无数据），中止`);
+        controller.abort();
+      }, STALL_TIMEOUT);
+      const resetStallTimer = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          console.error(`[WhatAI流式] 流式读取卡死（${STALL_TIMEOUT / 1000}秒无数据），中止`);
+          controller.abort();
+        }, STALL_TIMEOUT);
+      };
+
       const decoder = new TextDecoder();
       let fullContent = '';
       let buffer = '';
       let finishReason = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
+          resetStallTimer(); // 收到数据，重置卡死计时器
 
-        // 处理SSE格式的数据
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // 保留未完成的行
+          buffer += decoder.decode(value, { stream: true });
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim();
-            if (data === '[DONE]') continue;
+          // 处理SSE格式的数据
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // 保留未完成的行
 
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content || '';
-              if (content) {
-                fullContent += content;
-                if (onChunk) {
-                  onChunk(content);
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim();
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content || '';
+                if (content) {
+                  fullContent += content;
+                  if (onChunk) {
+                    onChunk(content);
+                  }
                 }
+                // 检测 finish_reason
+                const reason = parsed.choices?.[0]?.finish_reason;
+                if (reason) {
+                  finishReason = reason;
+                }
+              } catch (e) {
+                // 忽略解析错误
               }
-              // 检测 finish_reason
-              const reason = parsed.choices?.[0]?.finish_reason;
-              if (reason) {
-                finishReason = reason;
-              }
-            } catch (e) {
-              // 忽略解析错误
             }
           }
         }
+      } finally {
+        clearTimeout(stallTimer);
       }
 
       // 检测是否因 token 限制而截断
       if (finishReason === 'length') {
         console.warn(`[WhatAI流式] ⚠️ 警告: 输出被截断（达到 max_tokens 限制: ${max_tokens}）`);
         console.warn(`[WhatAI流式] 当前输出长度: ${fullContent.length} 字符`);
+        fullContent += `\n\n---\n⚠️ 注意：以上内容因长度限制被截断（已达到 ${max_tokens} token 上限），实际内容可能不完整。`;
       }
 
       console.log(`[WhatAI流式] 响应完成，内容长度: ${fullContent.length}字符, finish_reason: ${finishReason || 'unknown'}`);
