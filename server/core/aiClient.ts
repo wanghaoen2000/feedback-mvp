@@ -213,6 +213,7 @@ export async function invokeAIStream(
 
     try {
       const controller = new AbortController();
+      // 初始超时：等待 API 首次响应
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
       const response = await fetch(`${config.apiUrl}/chat/completions`, {
@@ -251,55 +252,76 @@ export async function invokeAIStream(
         throw new Error("无法获取响应流");
       }
 
+      // 滚动卡死保护：2分钟无数据则中止
+      const STALL_TIMEOUT = 120_000;
+      let stallTimer = setTimeout(() => {
+        console.error(`[AIClient] 流式读取卡死（${STALL_TIMEOUT / 1000}秒无数据），中止`);
+        controller.abort();
+      }, STALL_TIMEOUT);
+      const resetStallTimer = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          console.error(`[AIClient] 流式读取卡死（${STALL_TIMEOUT / 1000}秒无数据），中止`);
+          controller.abort();
+        }, STALL_TIMEOUT);
+      };
+
       const decoder = new TextDecoder();
       let fullContent = "";
       let buffer = "";
       let stopReason = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
+          resetStallTimer();
 
-        // 处理 SSE 格式的数据
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+          buffer += decoder.decode(value, { stream: true });
 
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") continue;
+          // 处理 SSE 格式的数据
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content || "";
-              if (content) {
-                fullContent += content;
-                if (onProgress) {
-                  onProgress(fullContent.length);
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6).trim();
+              if (data === "[DONE]") continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content || "";
+                if (content) {
+                  fullContent += content;
+                  if (onProgress) {
+                    onProgress(fullContent.length);
+                  }
                 }
+                // 检测停止原因（Claude格式: stop_reason, OpenAI格式: finish_reason）
+                const finishReason = parsed.choices?.[0]?.finish_reason || parsed.stop_reason;
+                if (finishReason) {
+                  stopReason = finishReason;
+                }
+              } catch (e) {
+                // 忽略解析错误
               }
-              // 检测停止原因（Claude格式: stop_reason, OpenAI格式: finish_reason）
-              const finishReason = parsed.choices?.[0]?.finish_reason || parsed.stop_reason;
-              if (finishReason) {
-                stopReason = finishReason;
-              }
-            } catch (e) {
-              // 忽略解析错误
             }
           }
         }
+      } finally {
+        clearTimeout(stallTimer);
+        reader.cancel().catch(() => {}); // 释放底层连接，防止资源泄漏
       }
 
       // 判断是否因token上限被截断
       const isTruncated = stopReason === 'max_tokens' || stopReason === 'length';
-      
+
       console.log(`[AIClient] 响应完成，内容长度: ${fullContent.length}字符, stop_reason: ${stopReason || '无'}`);
       if (isTruncated) {
-        console.log(`[AIClient] ⚠️ 警告: 内容因token上限被截断，stop_reason: ${stopReason}`);
+        console.warn(`[AIClient] ⚠️ 警告: 内容因token上限被截断，stop_reason: ${stopReason}`);
       }
-      
+
       return {
         content: fullContent,
         truncated: isTruncated,

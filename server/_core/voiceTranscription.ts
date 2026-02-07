@@ -94,18 +94,24 @@ export async function transcribeAudio(
     let audioBuffer: Buffer;
     let mimeType: string;
     try {
-      const response = await fetch(options.audioUrl);
-      if (!response.ok) {
-        return {
-          error: "Failed to download audio file",
-          code: "INVALID_FORMAT",
-          details: `HTTP ${response.status}: ${response.statusText}`
-        };
+      const audioController = new AbortController();
+      const audioTimer = setTimeout(() => audioController.abort(), 60_000); // 60秒超时
+      try {
+        const response = await fetch(options.audioUrl, { signal: audioController.signal });
+        if (!response.ok) {
+          return {
+            error: "Failed to download audio file",
+            code: "INVALID_FORMAT",
+            details: `HTTP ${response.status}: ${response.statusText}`
+          };
+        }
+
+        audioBuffer = Buffer.from(await response.arrayBuffer());
+        mimeType = response.headers.get('content-type') || 'audio/mpeg';
+      } finally {
+        clearTimeout(audioTimer);
       }
-      
-      audioBuffer = Buffer.from(await response.arrayBuffer());
-      mimeType = response.headers.get('content-type') || 'audio/mpeg';
-      
+
       // Check file size (16MB limit)
       const sizeMB = audioBuffer.length / (1024 * 1024);
       if (sizeMB > 16) {
@@ -152,26 +158,34 @@ export async function transcribeAudio(
       baseUrl
     ).toString();
 
-    const response = await fetch(fullUrl, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${ENV.forgeApiKey}`,
-        "Accept-Encoding": "identity",
-      },
-      body: formData,
-    });
+    const transcribeController = new AbortController();
+    const transcribeTimer = setTimeout(() => transcribeController.abort(), 300_000); // 5分钟超时
+    let whisperResponse: WhisperResponse;
+    try {
+      const response = await fetch(fullUrl, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${ENV.forgeApiKey}`,
+          "Accept-Encoding": "identity",
+        },
+        body: formData,
+        signal: transcribeController.signal,
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      return {
-        error: "Transcription service request failed",
-        code: "TRANSCRIPTION_FAILED",
-        details: `${response.status} ${response.statusText}${errorText ? `: ${errorText}` : ""}`
-      };
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        return {
+          error: "Transcription service request failed",
+          code: "TRANSCRIPTION_FAILED",
+          details: `${response.status} ${response.statusText}${errorText ? `: ${errorText}` : ""}`
+        };
+      }
+
+      // Step 5: Parse and return the transcription result
+      whisperResponse = await response.json() as WhisperResponse;
+    } finally {
+      clearTimeout(transcribeTimer);
     }
-
-    // Step 5: Parse and return the transcription result
-    const whisperResponse = await response.json() as WhisperResponse;
     
     // Validate response structure
     if (!whisperResponse.text || typeof whisperResponse.text !== 'string') {
