@@ -1,6 +1,6 @@
 import { invokeWhatAI, invokeWhatAIStream, WhatAIMessage, MODELS, APIConfig } from "./whatai";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
-import sharp from "sharp";
+import { Resvg } from "@resvg/resvg-js";
 
 
 // 录音转文字压缩配置
@@ -603,9 +603,14 @@ export function injectChineseFontIntoSVG(svgString: string): string {
  */
 export async function svgToPng(svgString: string): Promise<Buffer> {
   const injected = injectChineseFontIntoSVG(svgString);
-  return await sharp(Buffer.from(injected))
-    .png()
-    .toBuffer();
+  const resvg = new Resvg(injected, {
+    font: {
+      loadSystemFonts: true,
+      defaultFontFamily: 'WenQuanYi Zen Hei',
+    },
+  });
+  const pngData = resvg.render();
+  return Buffer.from(pngData.asPng());
 }
 
 // ========== 截断自动续写 ==========
