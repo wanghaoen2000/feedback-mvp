@@ -61,6 +61,13 @@ const { Document, Paragraph, TextRun, Packer, Table, TableRow, TableCell,
         PageBreak, Header, Footer, ImageRun } = docx;
 
 const doc = new Document({
+  styles: {
+    default: {
+      document: {
+        run: { font: { name: "微软雅黑", eastAsia: "微软雅黑" } },
+      },
+    },
+  },
   sections: [{
     children: [
       // 文档内容

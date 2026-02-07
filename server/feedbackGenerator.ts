@@ -491,12 +491,19 @@ export async function textToDocx(text: string, title: string): Promise<Buffer> {
   }
   
   const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: { name: "微软雅黑", eastAsia: "微软雅黑" } },
+        },
+      },
+    },
     sections: [{
       properties: {},
       children,
     }],
   });
-  
+
   return await Packer.toBuffer(doc);
 }
 
@@ -569,14 +576,25 @@ export function injectChineseFontIntoSVG(svgString: string): string {
   // CSS中可以用单引号
   const CJK_FONT_CSS = "'WenQuanYi Zen Hei', 'Noto Sans CJK SC', sans-serif";
   let result = svgString;
-  // 1. 注入全局 CSS 样式（覆盖继承的字体）
-  const fontStyle = `<style>text, tspan { font-family: ${CJK_FONT_CSS} !important; }</style>`;
-  result = result.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
-  // 2. 替换所有内联 font-family 属性（CSS !important 无法覆盖 SVG 属性）
+  // 0. 移除可能导致字体冲突的 @font-face 和 @import 规则（AI可能引用无法加载的web字体）
+  result = result.replace(/@font-face\s*\{[^}]*\}/gi, '');
+  result = result.replace(/@import\s+url\([^)]*\)[^;]*;?/gi, '');
+  // 1. 替换 <style> 块中的 font-family（CSS中值以 ; 或 } 结尾，可以包含引号）
+  result = result.replace(/(<style[^>]*>)([\s\S]*?)(<\/style>)/gi, (_match, open, content, close) => {
+    const fixed = content.replace(/font-family:\s*[^;}]+/g, `font-family: ${CJK_FONT_CSS}`);
+    return open + fixed + close;
+  });
+  // 2. 替换所有内联 font-family 属性
   result = result.replace(/font-family="[^"]*"/g, `font-family="${CJK_FONT_ATTR}"`);
   result = result.replace(/font-family='[^']*'/g, `font-family='${CJK_FONT_ATTR}'`);
-  // 3. 替换内联 style 中的 font-family
-  result = result.replace(/font-family:\s*[^;"']+/g, `font-family: ${CJK_FONT_CSS}`);
+  // 3. 替换内联 style="..." 中的 font-family（属性值以 ; 或 " 结尾）
+  result = result.replace(/style="([^"]*)"/g, (_match, styleContent) => {
+    const fixed = styleContent.replace(/font-family:\s*[^;"]+/g, `font-family: ${CJK_FONT_CSS}`);
+    return `style="${fixed}"`;
+  });
+  // 4. 注入全局 CSS 样式（最后注入，确保不会被上面的正则破坏）
+  const fontStyle = `<style>text, tspan { font-family: ${CJK_FONT_CSS} !important; }</style>`;
+  result = result.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
   return result;
 }
 
@@ -1280,6 +1298,13 @@ ${input.currentNotes}
 
   // 转换为 docx
   const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: { name: "微软雅黑", eastAsia: "微软雅黑" } },
+        },
+      },
+    },
     sections: [{
       properties: {},
       children: cleanedReviewContent.split('\n').map((line: string) => {
@@ -1296,7 +1321,7 @@ ${input.currentNotes}
       }),
     }],
   });
-  
+
   return await Packer.toBuffer(doc);
 }
 
@@ -1354,6 +1379,13 @@ ${input.currentNotes}
 
   // 转换为 docx
   const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: { name: "微软雅黑", eastAsia: "微软雅黑" } },
+        },
+      },
+    },
     sections: [{
       properties: {},
       children: cleanedTestContent.split('\n').map((line: string) => {
