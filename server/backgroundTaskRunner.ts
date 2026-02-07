@@ -318,7 +318,9 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
 
   // 处理并行结果
   let completedSteps = 1; // 步骤1已完成
-  for (const result of parallelResults) {
+  const stepNames: ("review" | "test" | "extraction" | "bubbleChart")[] = ["review", "test", "extraction", "bubbleChart"];
+  for (let i = 0; i < parallelResults.length; i++) {
+    const result = parallelResults[i];
     if (result.status === "fulfilled") {
       const { step, fileName, uploadResult, chars, duration } = result.value;
       stepResults[step] = {
@@ -333,25 +335,11 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       completedSteps++;
       console.log(`[后台任务] ${taskId} ${step} 完成: ${fileName} (${duration}秒)`);
     } else {
-      const errMsg = result.reason?.message || String(result.reason);
-      // 判断是哪个步骤失败
-      const stepName = errMsg.includes("复习") ? "review" :
-                       errMsg.includes("测试") ? "test" :
-                       errMsg.includes("信息") ? "extraction" : "bubbleChart";
-      // 因为 Promise.allSettled 不保证顺序映射到步骤名，用索引
-      failedSteps++;
-    }
-  }
-
-  // 用索引映射来更准确地设置失败步骤
-  const stepNames: ("review" | "test" | "extraction" | "bubbleChart")[] = ["review", "test", "extraction", "bubbleChart"];
-  for (let i = 0; i < parallelResults.length; i++) {
-    const result = parallelResults[i];
-    if (result.status === "rejected") {
       stepResults[stepNames[i]] = {
         status: "failed",
         error: result.reason?.message || String(result.reason),
       };
+      failedSteps++;
       console.error(`[后台任务] ${taskId} ${stepNames[i]} 失败:`, result.reason);
     }
   }

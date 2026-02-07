@@ -48,15 +48,23 @@ function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => vo
       setCopied(true);
     } catch {
       // fallback for older browsers / non-HTTPS
-      const textarea = document.createElement("textarea");
-      textarea.value = contentQuery.data.content;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-      setCopied(true);
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = contentQuery.data.content;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (ok) {
+          setCopied(true);
+        } else {
+          alert("复制失败，请手动选中文本复制");
+        }
+      } catch {
+        alert("复制失败，请手动选中文本复制");
+      }
     }
   }, [contentQuery.data?.content]);
 

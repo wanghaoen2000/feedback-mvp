@@ -1802,7 +1802,7 @@ export const appRouter = router({
           status: task.status,
           currentStep: task.currentStep,
           totalSteps: task.totalSteps,
-          stepResults: task.stepResults ? JSON.parse(task.stepResults) : null,
+          stepResults: (() => { try { return task.stepResults ? JSON.parse(task.stepResults) : null; } catch { return null; } })(),
           errorMessage: task.errorMessage,
           createdAt: task.createdAt.toISOString(),
           completedAt: task.completedAt?.toISOString() || null,
