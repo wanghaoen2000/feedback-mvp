@@ -35,6 +35,10 @@ function assertUploadSuccess(result: UploadStatus, context: string): void {
   }
 }
 
+/** 并发任务控制：防止同时运行过多任务打爆 AI API 限速 */
+const MAX_CONCURRENT_TASKS = 3;
+let _runningTaskCount = 0;
+
 /**
  * 给日期字符串添加星期信息（与 classStreamRoutes.ts 保持一致）
  */
@@ -144,16 +148,35 @@ async function updateStepResults(taskId: string, stepResults: StepResults, curre
 
 /**
  * 启动后台任务（fire-and-forget）
+ * 超过并发上限时立即标记失败，防止打爆 AI API
  */
 export function startBackgroundTask(taskId: string) {
-  // 不 await，让它在后台运行
-  runTask(taskId).catch((err) => {
-    console.error(`[后台任务] ${taskId} 顶层异常:`, err);
+  if (_runningTaskCount >= MAX_CONCURRENT_TASKS) {
+    console.warn(`[后台任务] ${taskId} 被拒绝：已有 ${_runningTaskCount} 个任务在运行（上限 ${MAX_CONCURRENT_TASKS}）`);
     updateTask(taskId, {
       status: "failed",
-      errorMessage: `顶层异常: ${err?.message || String(err)}`,
+      errorMessage: `服务器繁忙，当前已有 ${_runningTaskCount} 个任务在运行（上限 ${MAX_CONCURRENT_TASKS}），请稍后重试`,
+      completedAt: new Date(),
     }).catch(() => {});
-  });
+    return;
+  }
+
+  _runningTaskCount++;
+  console.log(`[后台任务] ${taskId} 开始（当前并发: ${_runningTaskCount}/${MAX_CONCURRENT_TASKS}）`);
+
+  // 不 await，让它在后台运行
+  runTask(taskId)
+    .catch((err) => {
+      console.error(`[后台任务] ${taskId} 顶层异常:`, err);
+      updateTask(taskId, {
+        status: "failed",
+        errorMessage: `顶层异常: ${err?.message || String(err)}`,
+      }).catch(() => {});
+    })
+    .finally(() => {
+      _runningTaskCount--;
+      console.log(`[后台任务] ${taskId} 结束（当前并发: ${_runningTaskCount}/${MAX_CONCURRENT_TASKS}）`);
+    });
 }
 
 /**

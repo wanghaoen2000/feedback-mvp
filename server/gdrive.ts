@@ -14,6 +14,11 @@ const REMOTE_NAME = "manus_google_drive";
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
 
+/** 转义 Drive 查询字符串中的特殊字符（反斜杠和单引号） */
+function escapeQuery(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 /** Google Drive API fetch with timeout protection (default 60s, uploads 120s) */
 async function gdriveFetch(url: string, options?: RequestInit, timeoutMs = 60_000): Promise<Response> {
   const controller = new AbortController();
@@ -58,7 +63,7 @@ export async function verifyFileExists(filePath: string): Promise<{ exists: bool
     const folderId = folderPath ? await navigateToFolder(folderPath, token) : 'root';
     if (!folderId) return { exists: false };
 
-    const q = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+    const q = `name='${escapeQuery(fileName)}' and '${folderId}' in parents and trashed=false`;
     const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,size)&pageSize=1`;
     const res = await gdriveFetch(searchUrl, {
       headers: { Authorization: `Bearer ${token}` },
@@ -617,7 +622,7 @@ async function navigateToFolder(folderPath: string, token: string): Promise<stri
   let parentId = 'root';
 
   for (const folderName of parts) {
-    const q = `name='${folderName.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const q = `name='${escapeQuery(folderName)}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=1`;
     const res = await gdriveFetch(searchUrl, {
       headers: { Authorization: `Bearer ${token}` },
@@ -683,7 +688,7 @@ export async function readFileFromGoogleDrive(filePath: string): Promise<Buffer>
   }
 
   // 在目标文件夹中查找文件
-  const q = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+  const q = `name='${escapeQuery(fileName)}' and '${folderId}' in parents and trashed=false`;
   const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)&pageSize=1`;
   const res = await gdriveFetch(searchUrl, {
     headers: { Authorization: `Bearer ${token}` },
@@ -720,7 +725,7 @@ export async function searchFileInGoogleDrive(
     if (folderId) {
       for (const fileName of fileNames) {
         try {
-          const q = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+          const q = `name='${escapeQuery(fileName)}' and '${folderId}' in parents and trashed=false`;
           const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=1`;
           const res = await gdriveFetch(searchUrl, {
             headers: { Authorization: `Bearer ${token}` },
@@ -744,7 +749,7 @@ export async function searchFileInGoogleDrive(
   // 阶段2：全局按文件名搜索（不限定文件夹）
   for (const fileName of fileNames) {
     try {
-      const q = `name='${fileName.replace(/'/g, "\\'")}' and trashed=false`;
+      const q = `name='${escapeQuery(fileName)}' and trashed=false`;
       const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,parents)&pageSize=5`;
       const res = await gdriveFetch(searchUrl, {
         headers: { Authorization: `Bearer ${token}` },

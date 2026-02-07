@@ -196,6 +196,7 @@ export async function invokeWhatAIStream(
     temperature?: number;
     timeout?: number;
     retries?: number;
+    signal?: AbortSignal; // 外部取消信号（如客户端断连）
   },
   config?: APIConfig,
   onChunk?: (chunk: string) => void
@@ -231,7 +232,21 @@ export async function invokeWhatAIStream(
     }
     
     try {
+      // 外部取消检查（如客户端已断连）
+      if (options?.signal?.aborted) {
+        throw new Error('生成已取消（客户端断开）');
+      }
+
       const controller = new AbortController();
+      // 链接外部 signal：客户端断连时立即中止 AI 流
+      const onExternalAbort = () => {
+        console.log('[WhatAI流式] 收到外部取消信号，中止AI流');
+        controller.abort();
+      };
+      if (options?.signal) {
+        options.signal.addEventListener('abort', onExternalAbort, { once: true });
+      }
+
       // 初始超时：等待 API 首次响应
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -345,19 +360,24 @@ export async function invokeWhatAIStream(
       
     } catch (error: any) {
       console.error(`[WhatAI流式] 请求失败 (尝试 ${attempt + 1}/${maxRetries + 1}):`, error.message);
-      
+
+      // 外部取消（客户端断连）不重试，直接抛出
+      if (options?.signal?.aborted) {
+        throw new Error('生成已取消（客户端断开）');
+      }
+
       if (error.name === 'AbortError') {
         lastError = new Error(`请求超时（${timeout / 1000}秒）`);
       } else {
         lastError = error;
       }
-      
+
       if (error.message?.includes('403') || error.message?.includes('401')) {
         throw error;
       }
     }
   }
-  
+
   throw lastError || new Error('API调用失败');
 }
 
