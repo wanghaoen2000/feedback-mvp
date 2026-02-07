@@ -362,7 +362,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
 
   await updateTask(taskId, {
     status: finalStatus,
-    currentStep: 5,
+    currentStep: completedSteps,
     stepResults: JSON.stringify(stepResults),
     errorMessage: allCompleted ? null : `${failedSteps} 个步骤失败`,
     completedAt: new Date(),
@@ -560,7 +560,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
 
   await updateTask(taskId, {
     status: finalStatus,
-    currentStep: 5,
+    currentStep: completedSteps,
     stepResults: JSON.stringify(stepResults),
     errorMessage: allCompleted ? null : `${failedSteps} 个步骤失败`,
     completedAt: new Date(),

@@ -60,6 +60,13 @@ function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => vo
     }
   }, [contentQuery.data?.content]);
 
+  // 复制成功后2秒自动恢复按钮
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
   return (
     <div className="mt-1 border rounded bg-white">
       {/* 顶部操作栏 */}
@@ -97,7 +104,18 @@ function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => vo
             加载中...
           </div>
         ) : contentQuery.error ? (
-          <p className="text-xs text-red-500 py-2">{contentQuery.error.message}</p>
+          <div className="flex flex-col items-center gap-2 py-3">
+            <p className="text-xs text-red-500">{contentQuery.error.message}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={() => contentQuery.refetch()}
+            >
+              <RefreshCw className="h-3 w-3 mr-1" />
+              重试
+            </Button>
+          </div>
         ) : (
           <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words font-sans leading-relaxed">
             {contentQuery.data?.content}
@@ -128,6 +146,16 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
       setIsOpen(true);
     }
   }, [activeTaskId]);
+
+  // 清理指向已消失任务的引用
+  useEffect(() => {
+    if (viewingFeedbackTaskId && !tasks.find((t) => t.id === viewingFeedbackTaskId)) {
+      setViewingFeedbackTaskId(null);
+    }
+    if (expandedTaskId && !tasks.find((t) => t.id === expandedTaskId)) {
+      setExpandedTaskId(null);
+    }
+  }, [tasks, viewingFeedbackTaskId, expandedTaskId]);
 
   // 心跳计时器：运行中任务每秒更新
   const hasRunning = tasks.some((t) => t.status === "running" || t.status === "pending");
