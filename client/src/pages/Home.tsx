@@ -2138,134 +2138,134 @@ export default function Home() {
     setIsSubmitting(true);
 
     try {
-    // 如果启用了自动加载上次反馈，从 Google Drive 本地文件夹读取（首次课跳过）
-    const effectiveFirstLesson = courseType === 'oneToOne' ? isFirstLesson : isClassFirstLesson;
-    if (autoLoadLastFeedback && !effectiveFirstLesson) {
-      const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
-      if (!name) {
-        alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
-        return;
+      // 如果启用了自动加载上次反馈，从 Google Drive 本地文件夹读取（首次课跳过）
+      const effectiveFirstLesson = courseType === 'oneToOne' ? isFirstLesson : isClassFirstLesson;
+      if (autoLoadLastFeedback && !effectiveFirstLesson) {
+        const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+        if (!name) {
+          alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
+          return;
+        }
+        if (!lessonNumber.trim()) {
+          alert('请填写课次号（用于定位上次反馈文件）');
+          return;
+        }
+        try {
+          const result = await readLastFeedbackMutation.mutateAsync({
+            studentName: studentName.trim(),
+            lessonNumber: lessonNumber.trim(),
+            courseType,
+            classNumber: classNumber.trim() || undefined,
+          });
+          autoLoadedLastFeedbackRef.current = result.content;
+          setLastFeedback(result.content);
+          setLastFeedbackFile({ name: result.fileName, content: result.content });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : '读取文件失败';
+          alert(`自动加载上次反馈失败: ${message}`);
+          return;
+        }
       }
-      if (!lessonNumber.trim()) {
-        alert('请填写课次号（用于定位上次反馈文件）');
-        return;
+
+      // 如果启用了自动加载课堂笔记，从 Downloads 文件夹读取（姓名+课次号.docx）
+      if (autoLoadCurrentNotes) {
+        const rawName = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+        const lesson = lessonNumber.trim();
+        if (!rawName) {
+          alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
+          return;
+        }
+        if (!lesson) {
+          alert('请填写课次号（用于构建笔记文件名）');
+          return;
+        }
+        const displayName = courseType === 'class' ? `${rawName}班` : rawName;
+        const expectedFileName = `${displayName}${lesson}.docx`;
+        try {
+          const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName });
+          autoLoadedCurrentNotesRef.current = result.content;
+          setCurrentNotes(result.content);
+          setCurrentNotesFile({ name: result.fileName, content: result.content });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : '读取文件失败';
+          alert(`自动加载课堂笔记失败: ${message}`);
+          return;
+        }
       }
+
+      // 如果启用了自动加载录音转文字，先从 Downloads 文件夹读取（姓名+日期.docx）
+      if (autoLoadTranscript) {
+        const rawName = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+        const mmdd = getMMDD(lessonDate);
+        if (!rawName) {
+          alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
+          return;
+        }
+        if (!mmdd) {
+          alert('请填写本次课日期（用于构建文件名）');
+          return;
+        }
+        const displayName = courseType === 'class' ? `${rawName}班` : rawName;
+        const expectedFileName = `${displayName}${mmdd}.docx`;
+        try {
+          const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName, allowSplit: true });
+          autoLoadedTranscriptRef.current = result.content;
+          setTranscript(result.content);
+          setTranscriptFile({ name: result.fileName, content: result.content });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : '读取文件失败';
+          alert(`自动加载录音转文字失败: ${message}`);
+          return;
+        }
+      }
+
+      // 获取最终的文本内容（可能来自自动加载）
+      const finalLastFeedback = autoLoadedLastFeedbackRef.current || lastFeedback;
+      const finalTranscript = autoLoadedTranscriptRef.current || transcript;
+      const finalCurrentNotes = autoLoadedCurrentNotesRef.current || currentNotes;
+
+      if (courseType === 'oneToOne') {
+        // 一对一模式验证
+        if (!studentName.trim()) { alert('请输入学生姓名'); return; }
+        if (!autoLoadCurrentNotes && !finalCurrentNotes.trim()) { alert('请输入课堂笔记'); return; }
+        if (!autoLoadTranscript && !finalTranscript.trim()) { alert('请输入录音转文字'); return; }
+      } else {
+        // 小班课模式验证
+        if (!classNumber.trim()) { alert('请输入班号'); return; }
+        const validStudents = attendanceStudents.filter((s: string) => s.trim());
+        if (validStudents.length === 0) { alert('请至少添加一名出勤学生'); return; }
+        if (!autoLoadCurrentNotes && !finalCurrentNotes.trim()) { alert('请输入课堂笔记'); return; }
+        if (!autoLoadTranscript && !finalTranscript.trim()) { alert('请输入录音转文字'); return; }
+      }
+
+      // 提交后台任务（服务器端执行，断网不影响）
       try {
-        const result = await readLastFeedbackMutation.mutateAsync({
-          studentName: studentName.trim(),
-          lessonNumber: lessonNumber.trim(),
-          courseType,
+        const result = await bgTaskSubmitMutation.mutateAsync({
+          courseType: courseType === 'oneToOne' ? 'one-to-one' : 'class',
+          studentName: studentName.trim() || undefined,
+          lessonNumber: lessonNumber.trim() || undefined,
+          lessonDate: lessonDate.trim() || undefined,
+          currentYear: currentYear.trim() || undefined,
+          lastFeedback: finalLastFeedback || undefined,
+          currentNotes: finalCurrentNotes.trim(),
+          transcript: finalTranscript.trim(),
+          isFirstLesson: (courseType === 'oneToOne' ? isFirstLesson : isClassFirstLesson) || undefined,
+          specialRequirements: undefined,
           classNumber: classNumber.trim() || undefined,
+          attendanceStudents: courseType === 'class' ? attendanceStudents.filter((s: string) => s.trim()) : undefined,
+          apiModel: apiModel.trim() || undefined,
+          apiKey: apiKey.trim() || undefined,
+          apiUrl: apiUrl.trim() || undefined,
+          roadmap: roadmap || undefined,
+          roadmapClass: roadmapClass || undefined,
+          driveBasePath: driveBasePath.trim() || undefined,
         });
-        autoLoadedLastFeedbackRef.current = result.content;
-        setLastFeedback(result.content);
-        setLastFeedbackFile({ name: result.fileName, content: result.content });
+        setActiveTaskId(result.taskId);
+        alert(`任务已提交到后台！\n${result.displayName}\n\n即使关闭手机屏幕或断网，服务器也会继续生成。\n请在下方「任务记录」中查看进度。`);
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : '读取文件失败';
-        alert(`自动加载上次反馈失败: ${message}`);
-        return;
+        const message = err instanceof Error ? err.message : '提交失败';
+        alert(`任务提交失败: ${message}`);
       }
-    }
-
-    // 如果启用了自动加载课堂笔记，从 Downloads 文件夹读取（姓名+课次号.docx）
-    if (autoLoadCurrentNotes) {
-      const rawName = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
-      const lesson = lessonNumber.trim();
-      if (!rawName) {
-        alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
-        return;
-      }
-      if (!lesson) {
-        alert('请填写课次号（用于构建笔记文件名）');
-        return;
-      }
-      const displayName = courseType === 'class' ? `${rawName}班` : rawName;
-      const expectedFileName = `${displayName}${lesson}.docx`;
-      try {
-        const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName });
-        autoLoadedCurrentNotesRef.current = result.content;
-        setCurrentNotes(result.content);
-        setCurrentNotesFile({ name: result.fileName, content: result.content });
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : '读取文件失败';
-        alert(`自动加载课堂笔记失败: ${message}`);
-        return;
-      }
-    }
-
-    // 如果启用了自动加载录音转文字，先从 Downloads 文件夹读取（姓名+日期.docx）
-    if (autoLoadTranscript) {
-      const rawName = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
-      const mmdd = getMMDD(lessonDate);
-      if (!rawName) {
-        alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
-        return;
-      }
-      if (!mmdd) {
-        alert('请填写本次课日期（用于构建文件名）');
-        return;
-      }
-      const displayName = courseType === 'class' ? `${rawName}班` : rawName;
-      const expectedFileName = `${displayName}${mmdd}.docx`;
-      try {
-        const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName, allowSplit: true });
-        autoLoadedTranscriptRef.current = result.content;
-        setTranscript(result.content);
-        setTranscriptFile({ name: result.fileName, content: result.content });
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : '读取文件失败';
-        alert(`自动加载录音转文字失败: ${message}`);
-        return;
-      }
-    }
-
-    // 获取最终的文本内容（可能来自自动加载）
-    const finalLastFeedback = autoLoadedLastFeedbackRef.current || lastFeedback;
-    const finalTranscript = autoLoadedTranscriptRef.current || transcript;
-    const finalCurrentNotes = autoLoadedCurrentNotesRef.current || currentNotes;
-
-    if (courseType === 'oneToOne') {
-      // 一对一模式验证
-      if (!studentName.trim()) { alert('请输入学生姓名'); return; }
-      if (!autoLoadCurrentNotes && !finalCurrentNotes.trim()) { alert('请输入课堂笔记'); return; }
-      if (!autoLoadTranscript && !finalTranscript.trim()) { alert('请输入录音转文字'); return; }
-    } else {
-      // 小班课模式验证
-      if (!classNumber.trim()) { alert('请输入班号'); return; }
-      const validStudents = attendanceStudents.filter((s: string) => s.trim());
-      if (validStudents.length === 0) { alert('请至少添加一名出勤学生'); return; }
-      if (!autoLoadCurrentNotes && !finalCurrentNotes.trim()) { alert('请输入课堂笔记'); return; }
-      if (!autoLoadTranscript && !finalTranscript.trim()) { alert('请输入录音转文字'); return; }
-    }
-
-    // 提交后台任务（服务器端执行，断网不影响）
-    try {
-      const result = await bgTaskSubmitMutation.mutateAsync({
-        courseType: courseType === 'oneToOne' ? 'one-to-one' : 'class',
-        studentName: studentName.trim() || undefined,
-        lessonNumber: lessonNumber.trim() || undefined,
-        lessonDate: lessonDate.trim() || undefined,
-        currentYear: currentYear.trim() || undefined,
-        lastFeedback: finalLastFeedback || undefined,
-        currentNotes: finalCurrentNotes.trim(),
-        transcript: finalTranscript.trim(),
-        isFirstLesson: (courseType === 'oneToOne' ? isFirstLesson : isClassFirstLesson) || undefined,
-        specialRequirements: undefined,
-        classNumber: classNumber.trim() || undefined,
-        attendanceStudents: courseType === 'class' ? attendanceStudents.filter((s: string) => s.trim()) : undefined,
-        apiModel: apiModel.trim() || undefined,
-        apiKey: apiKey.trim() || undefined,
-        apiUrl: apiUrl.trim() || undefined,
-        roadmap: roadmap || undefined,
-        roadmapClass: roadmapClass || undefined,
-        driveBasePath: driveBasePath.trim() || undefined,
-      });
-      setActiveTaskId(result.taskId);
-      alert(`任务已提交到后台！\n${result.displayName}\n\n即使关闭手机屏幕或断网，服务器也会继续生成。\n请在下方「任务记录」中查看进度。`);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '提交失败';
-      alert(`任务提交失败: ${message}`);
-    }
     } finally {
       setIsSubmitting(false);
     }
@@ -3427,7 +3427,7 @@ export default function Home() {
                 <Button
                   type="submit"
                   className="flex-1 h-11 text-base"
-                  disabled={isSubmitting || isGenerating || bgTaskSubmitMutation.isPending || !isFormValid}
+                  disabled={isSubmitting || isGenerating || !isFormValid}
                 >
                   {isSubmitting ? (
                     <>
