@@ -23,13 +23,33 @@ const STATUS_CONFIG = {
 
 const STEP_NAMES = ["反馈", "复习", "测试", "提取", "气泡图"];
 
+// 格式化秒数为可读时间
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}秒`;
+  const min = Math.floor(seconds / 60);
+  const sec = seconds % 60;
+  return sec > 0 ? `${min}分${sec}秒` : `${min}分`;
+}
+
+// 格式化字符数
+function formatChars(chars: number, stepKey: string): string {
+  // 二进制文件（docx/png）显示为KB
+  if (stepKey === "review" || stepKey === "test" || stepKey === "bubbleChart") {
+    if (chars > 1024) return `${(chars / 1024).toFixed(0)}KB`;
+    return `${chars}B`;
+  }
+  // 文本文件显示字数
+  return `${chars}字`;
+}
+
 export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now()); // 用于心跳计时
 
   // 查询任务历史
   const historyQuery = trpc.bgTask.history.useQuery(undefined, {
-    refetchInterval: isOpen ? 5000 : 30000, // 展开时5秒刷新，收起时30秒
+    refetchInterval: isOpen ? 5000 : 30000,
     staleTime: 3000,
   });
 
@@ -42,14 +62,22 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
     }
   }, [activeTaskId]);
 
+  // 心跳计时器：运行中任务每秒更新
+  const hasRunning = tasks.some((t) => t.status === "running" || t.status === "pending");
+  useEffect(() => {
+    if (!hasRunning) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasRunning]);
+
   // 计算摘要信息
   const runningCount = tasks.filter((t) => t.status === "running" || t.status === "pending").length;
   const failedCount = tasks.filter((t) => t.status === "failed" || t.status === "partial").length;
 
   const formatTime = (isoStr: string) => {
     const d = new Date(isoStr);
-    const now = new Date();
-    const isToday = d.toDateString() === now.toDateString();
+    const today = new Date();
+    const isToday = d.toDateString() === today.toDateString();
     if (isToday) {
       return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
     }
@@ -57,8 +85,32 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
       d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   };
 
+  // 计算任务总耗时（秒）
+  const getTaskDuration = (task: any): number => {
+    const start = new Date(task.createdAt).getTime();
+    if (task.completedAt) {
+      return Math.round((new Date(task.completedAt).getTime() - start) / 1000);
+    }
+    if (task.status === "running" || task.status === "pending") {
+      return Math.round((now - start) / 1000);
+    }
+    return 0;
+  };
+
+  // 计算任务总字数
+  const getTotalChars = (stepResults: any): number => {
+    if (!stepResults) return 0;
+    return Object.entries(stepResults).reduce((sum, [key, step]: [string, any]) => {
+      if (step.status === "completed" && step.chars) {
+        // 只统计文本文件的字数（排除二进制）
+        if (key === "feedback" || key === "extraction") return sum + step.chars;
+      }
+      return sum;
+    }, 0);
+  };
+
   if (tasks.length === 0 && !historyQuery.isLoading) {
-    return null; // 没有任务时不显示
+    return null;
   }
 
   return (
@@ -100,12 +152,15 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
               暂无任务记录
             </div>
           ) : (
-            <div className="divide-y max-h-[300px] overflow-y-auto">
+            <div className="divide-y max-h-[400px] overflow-y-auto">
               {tasks.map((task) => {
                 const config = STATUS_CONFIG[task.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.pending;
                 const StatusIcon = config.icon;
                 const isExpanded = expandedTaskId === task.id;
                 const isActive = task.id === activeTaskId;
+                const duration = getTaskDuration(task);
+                const isRunning = task.status === "running" || task.status === "pending";
+                const totalChars = getTotalChars(task.stepResults);
 
                 return (
                   <div
@@ -125,15 +180,25 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-sm truncate">{task.displayName}</span>
-                          {task.status === "running" && (
+                          {isRunning && (
                             <span className="text-xs text-blue-500">
                               ({task.currentStep}/{task.totalSteps})
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-gray-400 mt-0.5">
-                          {formatTime(task.createdAt)}
-                          {task.courseType === "class" && " · 班课"}
+                        <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
+                          <span>{formatTime(task.createdAt)}</span>
+                          {task.courseType === "class" && <span>· 班课</span>}
+                          {/* 耗时显示：运行中实时更新，完成后固定 */}
+                          {duration > 0 && (
+                            <span className={isRunning ? "text-blue-500 tabular-nums" : "text-gray-400"}>
+                              · {formatDuration(duration)}
+                            </span>
+                          )}
+                          {/* 完成后显示总字数 */}
+                          {!isRunning && totalChars > 0 && (
+                            <span>· {totalChars}字</span>
+                          )}
                         </div>
                       </div>
                       <span className={`text-xs px-1.5 py-0.5 rounded ${config.bg} ${config.text} border ${config.border}`}>
@@ -162,10 +227,18 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                   )}
                                   <span className="text-gray-600">{stepName}</span>
                                   {stepResult.fileName && (
-                                    <span className="text-gray-400 truncate">{stepResult.fileName}</span>
+                                    <span className="text-gray-400 truncate max-w-[120px]">{stepResult.fileName}</span>
+                                  )}
+                                  {/* 完成步骤显示耗时和大小 */}
+                                  {stepResult.status === "completed" && (
+                                    <span className="text-gray-400 ml-auto shrink-0">
+                                      {stepResult.duration != null && <>{stepResult.duration}秒</>}
+                                      {stepResult.chars != null && stepResult.duration != null && " · "}
+                                      {stepResult.chars != null && formatChars(stepResult.chars, stepKey)}
+                                    </span>
                                   )}
                                   {stepResult.error && (
-                                    <span className="text-red-400 truncate">{stepResult.error}</span>
+                                    <span className="text-red-400 truncate ml-auto">{stepResult.error}</span>
                                   )}
                                 </div>
                               );
@@ -178,6 +251,8 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                         {task.completedAt && (
                           <p className="text-xs text-gray-400 mt-1">
                             完成于 {formatTime(task.completedAt)}
+                            {duration > 0 && ` · 总计${formatDuration(duration)}`}
+                            {totalChars > 0 && ` · ${totalChars}字`}
                           </p>
                         )}
                       </div>

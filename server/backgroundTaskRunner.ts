@@ -59,6 +59,7 @@ interface StepResult {
   path?: string;
   folderUrl?: string;
   chars?: number;
+  duration?: number; // 步骤耗时（秒）
   error?: string;
 }
 
@@ -187,8 +188,10 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   const driveBasePath = params.driveBasePath || (await getConfig("driveBasePath")) || DEFAULT_CONFIG.driveBasePath;
   const currentYear = params.currentYear || (await getConfig("currentYear")) || DEFAULT_CONFIG.currentYear;
   const config = { apiModel, apiKey, apiUrl, roadmap };
+  const taskStartTime = Date.now();
 
   // ===== 步骤 1: 学情反馈 =====
+  const step1Start = Date.now();
   stepResults.feedback = { status: "running" };
   await updateStepResults(taskId, stepResults, 1);
 
@@ -224,6 +227,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     const folderPath = `${basePath}/学情反馈`;
     const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
 
+    const step1Duration = Math.round((Date.now() - step1Start) / 1000);
     stepResults.feedback = {
       status: "completed",
       fileName,
@@ -231,8 +235,9 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       path: uploadResult.path || "",
       folderUrl: uploadResult.folderUrl || "",
       chars: feedbackContent.length,
+      duration: step1Duration,
     };
-    console.log(`[后台任务] ${taskId} 步骤1完成: ${fileName}`);
+    console.log(`[后台任务] ${taskId} 步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字)`);
   } catch (err: any) {
     stepResults.feedback = { status: "failed", error: err?.message || String(err) };
     failedSteps++;
@@ -258,49 +263,54 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   stepResults.bubbleChart = { status: "running" };
   await updateStepResults(taskId, stepResults, 2);
 
+  const parallelStart = Date.now();
   const parallelResults = await Promise.allSettled([
     // 步骤2: 复习文档
     (async () => {
+      const t = Date.now();
       const reviewDocx = await generateReviewContent(feedbackContent, params.studentName, dateStr, config);
       if (!reviewDocx || reviewDocx.length === 0) throw new Error("复习文档生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
-      return { step: "review" as const, fileName, uploadResult, chars: reviewDocx.length };
+      return { step: "review" as const, fileName, uploadResult, chars: reviewDocx.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
     // 步骤3: 测试本
     (async () => {
+      const t = Date.now();
       const testDocx = await generateTestContent(feedbackContent, params.studentName, dateStr, config);
       if (!testDocx || testDocx.length === 0) throw new Error("测试本生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
-      return { step: "test" as const, fileName, uploadResult, chars: testDocx.length };
+      return { step: "test" as const, fileName, uploadResult, chars: testDocx.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
     // 步骤4: 课后信息提取
     (async () => {
+      const t = Date.now();
       const extractionContent = await generateExtractionContent(params.studentName, "", feedbackContent, config);
       if (!extractionContent || !extractionContent.trim()) throw new Error("课后信息提取生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
       const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
-      return { step: "extraction" as const, fileName, uploadResult, chars: extractionContent.length };
+      return { step: "extraction" as const, fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
     // 步骤5: 气泡图
     (async () => {
+      const t = Date.now();
       const pngBuffer = await generateBubbleChart(feedbackContent, params.studentName, dateStr, params.lessonNumber || "", config);
       if (!pngBuffer || pngBuffer.length === 0) throw new Error("气泡图生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}气泡图.png`;
       const folderPath = `${basePath}/气泡图`;
       const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
-      return { step: "bubbleChart" as const, fileName, uploadResult, chars: pngBuffer.length };
+      return { step: "bubbleChart" as const, fileName, uploadResult, chars: pngBuffer.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
   ]);
 
@@ -308,7 +318,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   let completedSteps = 1; // 步骤1已完成
   for (const result of parallelResults) {
     if (result.status === "fulfilled") {
-      const { step, fileName, uploadResult, chars } = result.value;
+      const { step, fileName, uploadResult, chars, duration } = result.value;
       stepResults[step] = {
         status: "completed",
         fileName,
@@ -316,9 +326,10 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
         path: uploadResult.path || "",
         folderUrl: uploadResult.folderUrl || "",
         chars,
+        duration,
       };
       completedSteps++;
-      console.log(`[后台任务] ${taskId} ${step} 完成: ${fileName}`);
+      console.log(`[后台任务] ${taskId} ${step} 完成: ${fileName} (${duration}秒)`);
     } else {
       const errMsg = result.reason?.message || String(result.reason);
       // 判断是哪个步骤失败
@@ -381,6 +392,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   const folderName = `${params.classNumber}班`;
   const basePath = `${driveBasePath}/${folderName}`;
 
+  const taskStartTime = Date.now();
   const classInput: ClassFeedbackInput = {
     classNumber: params.classNumber,
     lessonNumber: params.lessonNumber || "",
@@ -394,6 +406,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   };
 
   // ===== 步骤 1: 学情反馈 =====
+  const step1Start = Date.now();
   stepResults.feedback = { status: "running" };
   await updateStepResults(taskId, stepResults, 1);
 
@@ -411,14 +424,16 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     const folderPath = `${basePath}/学情反馈`;
     const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
 
+    const step1Duration = Math.round((Date.now() - step1Start) / 1000);
     stepResults.feedback = {
       status: "completed",
       fileName,
       url: uploadResult.url || "",
       path: uploadResult.path || "",
       chars: feedbackContent.length,
+      duration: step1Duration,
     };
-    console.log(`[后台任务] ${taskId} 班课步骤1完成: ${fileName}`);
+    console.log(`[后台任务] ${taskId} 班课步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字)`);
   } catch (err: any) {
     stepResults.feedback = { status: "failed", error: err?.message || String(err) };
     failedSteps++;
@@ -446,36 +461,40 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   const parallelResults = await Promise.allSettled([
     // 步骤2: 复习文档
     (async () => {
+      const t = Date.now();
       const reviewDocx = await generateClassReviewContent(classInput, feedbackContent, roadmapClass, apiConfig);
       if (!reviewDocx || reviewDocx.length === 0) throw new Error("复习文档生成为空");
       const fileName = `${folderName}${params.lessonNumber || ""}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
-      return { fileName, uploadResult, chars: reviewDocx.length };
+      return { fileName, uploadResult, chars: reviewDocx.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
     // 步骤3: 测试本
     (async () => {
+      const t = Date.now();
       const testDocx = await generateClassTestContent(classInput, feedbackContent, roadmapClass, apiConfig);
       if (!testDocx || testDocx.length === 0) throw new Error("测试本生成为空");
       const fileName = `${folderName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
-      return { fileName, uploadResult, chars: testDocx.length };
+      return { fileName, uploadResult, chars: testDocx.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
     // 步骤4: 课后信息提取
     (async () => {
+      const t = Date.now();
       const extractionContent = await generateClassExtractionContent(classInput, feedbackContent, roadmapClass, apiConfig);
       if (!extractionContent || !extractionContent.trim()) throw new Error("课后信息提取为空");
       const fileName = `${folderName}${params.lessonNumber || ""}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
       const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
-      return { fileName, uploadResult, chars: extractionContent.length };
+      return { fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
     // 步骤5: 气泡图（每个学生一张）
     (async () => {
+      const t = Date.now();
       const students = params.attendanceStudents.filter((s) => s.trim());
       let successCount = 0;
       for (const studentName of students) {
@@ -488,9 +507,11 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
             params.lessonNumber || "",
             { ...apiConfig, roadmapClass }
           );
-          // SVG → PNG
+          // SVG → PNG（注入中文字体防止乱码）
           const sharp = (await import("sharp")).default;
-          const pngBuffer = await sharp(Buffer.from(svgContent)).png().toBuffer();
+          const fontStyle = `<style>text, tspan { font-family: "WenQuanYi Zen Hei", "Noto Sans CJK SC", "SimHei", sans-serif !important; }</style>`;
+          const injectedSvg = svgContent.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
+          const pngBuffer = await sharp(Buffer.from(injectedSvg)).png().toBuffer();
           const fileName = `${studentName}${params.lessonNumber || ""}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
           await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
@@ -502,7 +523,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       if (successCount === 0 && students.length > 0) {
         throw new Error(`全部${students.length}个学生气泡图生成失败`);
       }
-      return { fileName: `气泡图(${successCount}/${students.length}成功)`, uploadResult: { url: "", path: "" }, chars: successCount };
+      return { fileName: `气泡图(${successCount}/${students.length}成功)`, uploadResult: { url: "", path: "" }, chars: successCount, duration: Math.round((Date.now() - t) / 1000) };
     })(),
   ]);
 
@@ -512,13 +533,14 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   for (let i = 0; i < parallelResults.length; i++) {
     const result = parallelResults[i];
     if (result.status === "fulfilled") {
-      const { fileName, uploadResult, chars } = result.value;
+      const { fileName, uploadResult, chars, duration } = result.value;
       stepResults[stepNames[i]] = {
         status: "completed",
         fileName,
         url: uploadResult.url || "",
         path: uploadResult.path || "",
         chars,
+        duration,
       };
       completedSteps++;
     } else {
