@@ -21,6 +21,7 @@ import {
   generateClassTestContent,
   generateClassExtractionContent,
   generateClassBubbleChartSVG,
+  svgToPng,
   GenerationMeta,
 } from "./feedbackGenerator";
 import {
@@ -618,11 +619,8 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
             params.lessonNumber || "",
             { ...apiConfig, roadmapClass }
           );
-          // SVG → PNG（替换内联字体+注入CSS，解决中文乱码）
-          const { injectChineseFontIntoSVG } = await import("./feedbackGenerator");
-          const sharp = (await import("sharp")).default;
-          const injectedSvg = injectChineseFontIntoSVG(svgContent);
-          const pngBuffer = await sharp(Buffer.from(injectedSvg)).png().toBuffer();
+          // SVG → PNG（注入中文字体+sharp渲染）
+          const pngBuffer = await svgToPng(svgContent);
           const fileName = `${studentName}${params.lessonNumber || ""}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
           const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
