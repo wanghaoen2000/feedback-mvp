@@ -1,4 +1,4 @@
-import { invokeWhatAI, invokeWhatAIStream, MODELS, APIConfig } from "./whatai";
+import { invokeWhatAI, invokeWhatAIStream, WhatAIMessage, MODELS, APIConfig } from "./whatai";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
 import sharp from "sharp";
 
@@ -585,6 +585,79 @@ async function svgToPng(svgString: string): Promise<Buffer> {
     .toBuffer();
 }
 
+// ========== 截断自动续写 ==========
+
+const TRUNCATION_MARKER = '【⚠️ 内容截断警告】';
+const MAX_CONTINUATIONS = 3; // 最多续写3次（共4轮），约可产出 24000+ 字符
+
+/**
+ * 带自动续写的流式AI调用
+ * 当API输出被截断时（DMXapi可能限制单次输出token数），
+ * 自动将已有内容作为assistant消息发回，请求AI继续输出，
+ * 循环拼接直到完整或达到最大续写次数。
+ * @param signal 外部取消信号（SSE客户端断连时中止）
+ */
+export async function invokeWithContinuation(
+  systemPrompt: string,
+  userPrompt: string,
+  config?: APIConfig,
+  onChunk?: (chunk: string) => void,
+  label: string = '反馈',
+  signal?: AbortSignal
+): Promise<string> {
+  let fullContent = '';
+  let messages: WhatAIMessage[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  for (let round = 0; round <= MAX_CONTINUATIONS; round++) {
+    // 检查外部取消
+    if (signal?.aborted) {
+      throw new Error('生成已取消（客户端断开）');
+    }
+
+    console.log(`[${label}] ${round === 0 ? '开始流式生成...' : `第${round}次续写（已累计${fullContent.length}字符）...`}`);
+
+    const chunk = await invokeWhatAIStream(
+      messages,
+      { max_tokens: 64000, signal },
+      config,
+      onChunk
+    );
+
+    // 检查是否包含截断标记
+    const markerIdx = chunk.indexOf(TRUNCATION_MARKER);
+    if (markerIdx >= 0) {
+      // 去掉截断标记，保留有效内容
+      const cleanChunk = chunk.substring(0, markerIdx).trimEnd();
+      fullContent += cleanChunk;
+
+      if (round < MAX_CONTINUATIONS) {
+        console.log(`[${label}] 第${round + 1}次截断检测到，已累计${fullContent.length}字符，自动续写...`);
+        // 将完整已生成内容作为assistant回复，追加续写指令
+        messages = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+          { role: "assistant", content: fullContent },
+          { role: "user", content: "你的回答被截断了，请从截断处继续输出。直接继续输出剩余内容，不要重复已有内容，不要添加过渡语句。" },
+        ];
+      } else {
+        console.error(`[${label}] 已达到最大续写次数(${MAX_CONTINUATIONS})，内容可能不完整，当前${fullContent.length}字符`);
+      }
+    } else {
+      // 无截断，正常完成
+      fullContent += chunk;
+      if (round > 0) {
+        console.log(`[${label}] 续写完成，共${round + 1}轮，总长度: ${fullContent.length}字符`);
+      }
+      break;
+    }
+  }
+
+  return fullContent;
+}
+
 // ========== 导出的生成函数 ==========
 
 /**
@@ -624,26 +697,15 @@ ${input.transcript}
     ? config.roadmap
     : FEEDBACK_SYSTEM_PROMPT;
 
-  // 使用流式输出防止超时
-  // 一对一反馈也使用较大的 max_tokens，防止长录音/复杂路书导致截断
-  console.log(`[学情反馈] 开始流式生成...`);
-  const content = await invokeWhatAIStream(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: prompt },
-    ],
-    { max_tokens: 64000 },
+  // 使用带自动续写的流式调用，防止截断导致内容不完整
+  const content = await invokeWithContinuation(
+    systemPrompt,
+    prompt,
     config,
-    (chunk) => {
-      // 每收到一块内容就打印进度（防止超时）
-      process.stdout.write('.');
-    }
+    () => process.stdout.write('.'),
+    '学情反馈'
   );
-  console.log(`\n[学情反馈] 流式生成完成，内容长度: ${content.length}字符`);
-
-  if (content.includes('【⚠️ 内容截断警告】')) {
-    console.error(`[学情反馈] ⚠️ 内容被截断！原始长度: ${content.length} 字符`);
-  }
+  console.log(`\n[学情反馈] 生成完成，内容长度: ${content.length}字符`);
 
   return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
 }
@@ -1044,22 +1106,16 @@ ${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\
     apiUrl: apiConfig.apiUrl,
   };
   
-  // 小班课反馈内容较长（6人以上可能超过15000字），使用更大的 max_tokens
-  const content = await invokeWhatAIStream(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    { max_tokens: 64000 },  // 小班课需要更大的输出限制
+  // 使用带自动续写的流式调用，小班课内容较长，防止截断
+  const content = await invokeWithContinuation(
+    systemPrompt,
+    userPrompt,
     config,
-    () => process.stdout.write('.')
+    () => process.stdout.write('.'),
+    '小班课反馈'
   );
 
-  console.log(`\n[小班课反馈] 学情反馈生成完成，长度: ${content.length} 字符`);
-
-  if (content.includes('【⚠️ 内容截断警告】')) {
-    console.error(`[小班课反馈] ⚠️ 内容被截断！原始长度: ${content.length} 字符`);
-  }
+  console.log(`\n[小班课反馈] 生成完成，长度: ${content.length} 字符`);
 
   return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
 }
