@@ -12,7 +12,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle } from "lucide-react";
+import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 
 interface GlobalSettingsProps {
@@ -28,6 +30,9 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
   const [apiKey, setApiKey] = useState("");
   const [apiUrl, setApiUrl] = useState("");
   const [maxTokens, setMaxTokens] = useState("64000");
+  const [modelPresets, setModelPresets] = useState("");
+  const [showPresetEditor, setShowPresetEditor] = useState(false);
+  const [forceCustomInput, setForceCustomInput] = useState(false);
 
   // 存储路径状态
   const [driveBasePath, setDriveBasePath] = useState("");
@@ -80,6 +85,8 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
       setBatchStoragePath(configQuery.data.batchStoragePath || "");
       setGdriveLocalBasePath(configQuery.data.gdriveLocalBasePath || "");
       setGdriveDownloadsPath(configQuery.data.gdriveDownloadsPath || "");
+      setModelPresets(configQuery.data.modelPresets || "");
+      setForceCustomInput(false);
       // 不加载 apiKey，保持为空（安全考虑）
     }
   }, [open, configQuery.data]);
@@ -114,6 +121,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         batchStoragePath: batchStoragePath.trim() || undefined,
         gdriveLocalBasePath: gdriveLocalBasePath.trim() || undefined,
         gdriveDownloadsPath: gdriveDownloadsPath.trim() || undefined,
+        modelPresets,
       });
       await configQuery.refetch();
       alert("全局设置已保存！");
@@ -223,18 +231,100 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
           </TabsList>
 
           <TabsContent value="api" className="space-y-4 mt-4">
-            <div className="space-y-2">
-              <Label htmlFor="global-apiModel">模型名称</Label>
-              <Input
-                id="global-apiModel"
-                value={apiModel}
-                onChange={(e) => setApiModel(e.target.value)}
-                placeholder="例如：claude-sonnet-4-5-20250929"
-              />
-              <p className="text-xs text-muted-foreground">
-                留空则使用系统默认模型
-              </p>
-            </div>
+            {(() => {
+              const presetList = modelPresets.split('\n').map(s => s.trim()).filter(Boolean);
+              const isCurrentModelInPresets = apiModel !== '' && presetList.includes(apiModel);
+              const selectValue = forceCustomInput
+                ? '__custom__'
+                : apiModel === ''
+                  ? '__default__'
+                  : isCurrentModelInPresets
+                    ? apiModel
+                    : '__custom__';
+              const showCustomInput = presetList.length > 0 && (forceCustomInput || (!isCurrentModelInPresets && apiModel !== ''));
+
+              return (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="global-apiModel">模型名称</Label>
+                    {presetList.length > 0 ? (
+                      <>
+                        <Select
+                          value={selectValue}
+                          onValueChange={(val) => {
+                            if (val === '__default__') {
+                              setApiModel('');
+                              setForceCustomInput(false);
+                            } else if (val === '__custom__') {
+                              setForceCustomInput(true);
+                            } else {
+                              setApiModel(val);
+                              setForceCustomInput(false);
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__default__">留空（使用默认模型）</SelectItem>
+                            <SelectSeparator />
+                            {presetList.map((model) => (
+                              <SelectItem key={model} value={model}>{model}</SelectItem>
+                            ))}
+                            <SelectSeparator />
+                            <SelectItem value="__custom__">自定义输入...</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {showCustomInput && (
+                          <Input
+                            id="global-apiModel"
+                            value={apiModel}
+                            onChange={(e) => setApiModel(e.target.value)}
+                            placeholder="输入自定义模型名称"
+                          />
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          从预设列表快速选择，或选"自定义输入"手动填写
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <Input
+                          id="global-apiModel"
+                          value={apiModel}
+                          onChange={(e) => setApiModel(e.target.value)}
+                          placeholder="例如：claude-sonnet-4-5-20250929"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          留空则使用系统默认模型
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setShowPresetEditor(!showPresetEditor)}
+                    >
+                      <List className="h-3 w-3" />
+                      编辑常用模型列表{presetList.length > 0 ? `（${presetList.length} 个）` : ''}
+                    </button>
+                    {showPresetEditor && (
+                      <Textarea
+                        value={modelPresets}
+                        onChange={(e) => setModelPresets(e.target.value)}
+                        placeholder={"每行一个模型名称，例如：\nclaude-sonnet-4-5-20250929\nclaude-haiku-4-5-20251001\ngpt-4o"}
+                        rows={5}
+                        className="text-sm font-mono"
+                      />
+                    )}
+                  </div>
+                </>
+              );
+            })()}
 
             <div className="space-y-2">
               <Label htmlFor="global-apiKey">API 密钥</Label>

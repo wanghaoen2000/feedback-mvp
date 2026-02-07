@@ -137,6 +137,7 @@ export const appRouter = router({
       const maxTokens = await getConfig("maxTokens");
       const gdriveLocalBasePath = await getConfig("gdriveLocalBasePath");
       const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath");
+      const modelPresets = await getConfig("modelPresets");
 
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
@@ -156,6 +157,7 @@ export const appRouter = router({
         maxTokens: maxTokens || "64000",
         gdriveLocalBasePath: gdriveLocalBasePath || "",
         gdriveDownloadsPath: gdriveDownloadsPath || "",
+        modelPresets: modelPresets || "",
         // 返回是否使用默认值（apiKey 特殊处理：表示是否已配置）
         hasApiKey: !!apiKey,
         isDefault: {
@@ -189,6 +191,7 @@ export const appRouter = router({
         maxTokens: z.string().optional(),
         gdriveLocalBasePath: z.string().optional(),
         gdriveDownloadsPath: z.string().optional(),
+        modelPresets: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -312,6 +315,11 @@ export const appRouter = router({
           if (dlPath.endsWith('/')) dlPath = dlPath.slice(0, -1);
           await setConfig("gdriveDownloadsPath", dlPath, "Google Drive上Downloads文件夹路径");
           updates.push("gdriveDownloadsPath");
+        }
+
+        if (input.modelPresets !== undefined) {
+          await setConfig("modelPresets", input.modelPresets, "常用模型预设列表");
+          updates.push("modelPresets");
         }
 
         return {
