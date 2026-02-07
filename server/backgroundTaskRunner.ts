@@ -526,6 +526,10 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       if (successCount === 0 && students.length > 0) {
         throw new Error(`全部${students.length}个学生气泡图生成失败`);
       }
+      const failedCount = students.length - successCount;
+      if (failedCount > 0) {
+        throw new Error(`气泡图部分失败(${successCount}/${students.length}成功)`);
+      }
       return { fileName: `气泡图(${successCount}/${students.length}成功)`, uploadResult: { url: "", path: "" }, chars: successCount, duration: Math.round((Date.now() - t) / 1000) };
     })(),
   ]);
