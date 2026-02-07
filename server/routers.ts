@@ -28,15 +28,16 @@ import {
 } from './logger';
 import { runSystemCheck } from "./systemCheck";
 import * as googleAuth from "./googleAuth";
-import { 
-  generateFeedbackContent, 
-  generateReviewContent, 
-  generateTestContent, 
-  generateExtractionContent, 
+import {
+  generateFeedbackContent,
+  generateReviewContent,
+  generateTestContent,
+  generateExtractionContent,
   generateBubbleChart,
   generateBubbleChartSVG,
   FeedbackInput,
   ClassFeedbackInput,
+  CourseType,
   generateClassFeedbackContent,
   generateClassReviewContent,
   generateClassTestContent,
@@ -45,6 +46,7 @@ import {
 } from "./feedbackGenerator";
 import { storeContent } from "./contentStore";
 import { DEFAULT_CONFIG, getConfigValue as getConfig } from "./core/aiClient";
+import { addWeekdayToDate } from "./utils";
 
 // 设置配置值
 async function setConfig(key: string, value: string, description?: string): Promise<void> {
@@ -63,30 +65,6 @@ async function setConfig(key: string, value: string, description?: string): Prom
   }
 }
 
-// 给日期添加星期信息（与 backgroundTaskRunner/classStreamRoutes 保持一致）
-function addWeekdayToDate(dateStr: string): string {
-  if (!dateStr) return dateStr;
-  if (dateStr.includes('周') || dateStr.includes('星期')) return dateStr;
-  try {
-    const match = dateStr.match(/(\d{4})年?(\d{1,2})月(\d{1,2})日?/);
-    if (!match) {
-      const shortMatch = dateStr.match(/(\d{1,2})月(\d{1,2})日?/);
-      if (!shortMatch) return dateStr;
-      const year = new Date().getFullYear();
-      const month = parseInt(shortMatch[1], 10) - 1;
-      const day = parseInt(shortMatch[2], 10);
-      const date = new Date(year, month, day);
-      const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
-      return `${dateStr}（周${weekdays[date.getDay()]}）`;
-    }
-    const year = parseInt(match[1], 10);
-    const month = parseInt(match[2], 10) - 1;
-    const day = parseInt(match[3], 10);
-    const date = new Date(year, month, day);
-    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
-    return `${dateStr}（周${weekdays[date.getDay()]}）`;
-  } catch { return dateStr; }
-}
 
 // 共享的输入schema（一对一）
 const feedbackInputSchema = z.object({
@@ -429,7 +407,7 @@ export const appRouter = router({
           // 组合年份和日期，并添加星期信息
           const lessonDate = input.lessonDate ? addWeekdayToDate(input.lessonDate.includes('年') ? input.lessonDate : `${currentYear}年${input.lessonDate}`) : "";
           
-          const feedbackResult = await generateFeedbackContent({
+          const feedbackResult = await generateFeedbackContent('oneToOne', {
             studentName: input.studentName,
             lessonNumber: input.lessonNumber || "",
             lessonDate: lessonDate,
@@ -537,9 +515,22 @@ export const appRouter = router({
         startStep(log, "复习文档");
         
         try {
+          const feedbackInput: FeedbackInput = {
+            studentName: input.studentName,
+            lessonNumber: input.lessonNumber || "",
+            lessonDate: input.dateStr,
+            nextLessonDate: "",
+            lastFeedback: "",
+            currentNotes: "",
+            transcript: "",
+            isFirstLesson: false,
+            specialRequirements: "",
+          };
+
           const reviewDocx = await generateReviewContent(
+            'oneToOne',
+            feedbackInput,
             input.feedbackContent,
-            input.studentName,
             input.dateStr,
             { apiModel, apiKey, apiUrl, roadmap }
           );
@@ -629,9 +620,22 @@ export const appRouter = router({
         startStep(log, "测试本");
         
         try {
+          const feedbackInput: FeedbackInput = {
+            studentName: input.studentName,
+            lessonNumber: input.lessonNumber || "",
+            lessonDate: input.dateStr,
+            nextLessonDate: "",
+            lastFeedback: "",
+            currentNotes: "",
+            transcript: "",
+            isFirstLesson: false,
+            specialRequirements: "",
+          };
+
           const testDocx = await generateTestContent(
+            'oneToOne',
+            feedbackInput,
             input.feedbackContent,
-            input.studentName,
             input.dateStr,
             { apiModel, apiKey, apiUrl, roadmap }
           );
@@ -720,9 +724,21 @@ export const appRouter = router({
         startStep(log, "课后信息提取");
         
         try {
+          const feedbackInput: FeedbackInput = {
+            studentName: input.studentName,
+            lessonNumber: input.lessonNumber || "",
+            lessonDate: input.dateStr,
+            nextLessonDate: "",
+            lastFeedback: "",
+            currentNotes: "",
+            transcript: "",
+            isFirstLesson: false,
+            specialRequirements: "",
+          };
+
           const extractionContent = await generateExtractionContent(
-            input.studentName,
-            "",
+            'oneToOne',
+            feedbackInput,
             input.feedbackContent,
             { apiModel, apiKey, apiUrl, roadmap }
           );
@@ -812,6 +828,7 @@ export const appRouter = router({
         try {
           // 生成SVG字符串，返回给前端
           const svgContent = await generateBubbleChartSVG(
+            'oneToOne',
             input.feedbackContent,
             input.studentName,
             input.dateStr,

@@ -287,6 +287,89 @@ const EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。从学�
 - 新授内容：xxx
 - 测试安排：xxx`;
 
+// ========== 小班课提示词 ==========
+// 注意：小班课学情反馈不使用固定的 system prompt，而是透明转发用户配置的路书
+const CLASS_FEEDBACK_SYSTEM_PROMPT = `你是一个学情反馈生成助手。请根据用户提供的路书和课堂信息生成学情反馈。
+
+【重要格式要求】
+这份反馈是给家长看的，要能直接复制到微信群，所以：
+1. 不要使用任何markdown标记（不要用#、**、*、\`\`\`等）
+2. 不要用表格格式
+3. 不要用自动编号（手打1. 2. 3.）
+4. 不要用首行缩进
+5. 可以用中括号【】来标记章节
+6. 可以用空行分隔段落
+7. 直接输出纯文本
+8. 最后以【OK】结尾`;
+
+const CLASS_REVIEW_SYSTEM_PROMPT = `你是一个复习文档生成助手。为小班课生成复习文档。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+
+【复习文档结构】
+班级：xxx班
+日期：xxx
+出勤学生：xxx
+
+【本次课内容回顾】
+1. 文章/题目：xxx
+2. 核心知识点：xxx
+
+【生词讲解】
+（按照学情反馈中的生词逐一讲解）
+
+【长难句分析】
+（按照学情反馈中的长难句逐一分析）
+
+【错题解析】
+（按照学情反馈中的错题逐一解析）`;
+
+const CLASS_TEST_SYSTEM_PROMPT = `你是一个测试本生成助手。为小班课生成测试本。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 不要使用HTML代码
+3. 输出纯文本格式
+
+【测试本结构】
+班级：xxx班
+日期：xxx
+
+===== 测试部分 =====
+
+一、生词测试
+A. 英译中（10题）
+B. 中译英（10题）
+
+二、长难句翻译
+
+三、错题重做
+
+===== 答案部分 =====`;
+
+const CLASS_EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。为小班课提取课后信息。
+
+【重要格式要求】
+1. 不要使用任何markdown标记
+2. 输出纯文本格式
+
+【课后信息提取结构】
+班级：xxx班
+本次课日期：xxx
+下次课日期：xxx
+出勤学生：xxx
+
+【作业布置】
+1. 生词复习：复习本次课xxx个生词
+2. 长难句练习：翻译xxx个长难句
+3. 错题重做：重做本次课xxx道错题
+
+【各学生情况】
+（简要记录每个学生的课堂表现和需要关注的点）`;
+
 // ========== 辅助函数 ==========
 
 /**
@@ -938,29 +1021,61 @@ export async function invokeWithContinuation(
   return fullContent;
 }
 
-// ========== 导出的生成函数 ==========
+// ========== 统一生成函数（一对一 + 小班课共用） ==========
+
+export type CourseType = 'oneToOne' | 'class';
+
+/** 根据步骤和课程类型选择默认系统提示词 */
+function getDefaultPrompt(step: 'feedback' | 'review' | 'test' | 'extraction', courseType: CourseType): string {
+  const map = {
+    feedback: { oneToOne: FEEDBACK_SYSTEM_PROMPT, class: CLASS_FEEDBACK_SYSTEM_PROMPT },
+    review:   { oneToOne: REVIEW_SYSTEM_PROMPT,   class: CLASS_REVIEW_SYSTEM_PROMPT },
+    test:     { oneToOne: TEST_SYSTEM_PROMPT,      class: CLASS_TEST_SYSTEM_PROMPT },
+    extraction: { oneToOne: EXTRACTION_SYSTEM_PROMPT, class: CLASS_EXTRACTION_SYSTEM_PROMPT },
+  };
+  return map[step][courseType];
+}
+
+/** 优先用自定义路书，否则用默认提示词 */
+function selectSystemPrompt(step: 'feedback' | 'review' | 'test' | 'extraction', courseType: CourseType, roadmap?: string): string {
+  return roadmap?.trim() ? roadmap : getDefaultPrompt(step, courseType);
+}
+
+// ========== 导出的生成函数（一对一 + 小班课统一） ==========
 
 /**
- * 步骤1: 生成学情反馈文档
+ * 步骤1: 生成学情反馈（一对一 + 小班课统一）
+ * 
+ * 两种模式都使用非流式+自动续写，避免流式输出被 API 代理截断。
+ * 提示词按 courseType 分支构建，AI 调用和后处理完全共享。
  */
-export async function generateFeedbackContent(input: FeedbackInput, config?: APIConfig): Promise<{ content: string; meta: GenerationMeta }> {
-  // 直接使用录音原文，不再压缩
-  const prompt = `## 学生信息
-- 学生姓名：${input.studentName}
-- 课次：${input.lessonNumber || "未指定"}
-${input.lessonDate ? `- 本次课日期：${input.lessonDate}` : "- 本次课日期：请从课堂笔记中提取"}
-${input.nextLessonDate ? `- 下次课日期：${input.nextLessonDate}` : "- 下次课日期：请从课堂笔记中提取，如无则写待定"}
-${input.isFirstLesson ? "- 这是新生首次课" : ""}
-${input.specialRequirements ? `- 特殊要求：${input.specialRequirements}` : ""}
+export async function generateFeedbackContent(
+  courseType: CourseType,
+  input: FeedbackInput | ClassFeedbackInput,
+  config?: APIConfig
+): Promise<{ content: string; meta: GenerationMeta }> {
+  let prompt: string;
+  let label: string;
+
+  if (courseType === 'oneToOne') {
+    const d = input as FeedbackInput;
+    label = '学情反馈';
+    prompt = `## 学生信息
+- 学生姓名：${d.studentName}
+- 课次：${d.lessonNumber || "未指定"}
+${d.lessonDate ? `- 本次课日期：${d.lessonDate}` : "- 本次课日期：请从课堂笔记中提取"}
+${d.nextLessonDate ? `- 下次课日期：${d.nextLessonDate}` : "- 下次课日期：请从课堂笔记中提取，如无则写待定"}
+${d.isFirstLesson ? "- 这是新生首次课" : ""}
+${d.specialRequirements ? `- 特殊要求：${d.specialRequirements}` : ""}
 
 ## 上次反馈
-${input.isFirstLesson ? "（新生首次课，无上次反馈）" : (input.lastFeedback || "（未提供）")}
+${d.isFirstLesson ? "（新生首次课，无上次反馈）" : (d.lastFeedback || "（未提供）")}
 
 ## 本次课笔记
-${input.currentNotes}
+${d.currentNotes}
 
 ## 录音转文字
-${input.transcript}
+${d.transcript}
 
 请严格按照V9路书规范生成完整的学情反馈文档。
 特别注意：
@@ -971,29 +1086,65 @@ ${input.transcript}
 【重要边界限制】
 本次只需要生成学情反馈文档，不要生成复习文档、测试本、课后信息提取或其他任何内容。
 学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+  } else {
+    const d = input as ClassFeedbackInput;
+    const studentList = d.attendanceStudents.filter(s => s.trim()).join('、');
+    label = '小班课反馈';
+    console.log(`[${label}] 出勤学生: ${studentList}`);
+    prompt = `请为以下小班课生成完整的学情反馈：
 
-  // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 FEEDBACK_SYSTEM_PROMPT
-  const systemPrompt = config?.roadmap && config.roadmap.trim() 
-    ? config.roadmap
-    : FEEDBACK_SYSTEM_PROMPT;
+班号：${d.classNumber}
+课次：${d.lessonNumber || '未指定'}
+本次课日期：${d.lessonDate || '未指定'}
+出勤学生：${studentList}
 
-  // 后台任务用非流式调用（可能绕过代理的流式输出token限制）+ 自动续写兜底
-  const result = await invokeNonStreamWithContinuation(
-    systemPrompt,
-    prompt,
-    config,
-    '学情反馈'
-  );
-  console.log(`[学情反馈] 生成完成，内容长度: ${result.content.length}字符`);
+${d.lastFeedback ? `【上次课反馈】\n${d.lastFeedback}\n` : ''}
+【本次课笔记】
+${d.currentNotes}
+
+【录音转文字】
+${d.transcript}
+
+${d.specialRequirements ? `【特殊要求】\n${d.specialRequirements}\n` : ''}
+
+【重要边界限制】
+本次只需要生成学情反馈文档，不要生成复习文档、测试本、课后信息提取或其他任何内容。
+学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+  }
+
+  const systemPrompt = selectSystemPrompt('feedback', courseType, config?.roadmap);
+  if (courseType === 'class') {
+    console.log(`[${label}] 路书长度: ${config?.roadmap?.length || 0} 字符`);
+  }
+
+  const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label);
+  console.log(`[${label}] 生成完成，内容长度: ${result.content.length}字符`);
 
   return { content: stripAIMetaCommentary(cleanMarkdownAndHtml(result.content)), meta: result.meta };
 }
 
 /**
- * 步骤2: 生成复习文档（返回Buffer）
+ * 步骤2: 生成复习文档（一对一 + 小班课统一，返回 docx Buffer）
+ * 
+ * 改进：小班课现在也使用共享的 textToDocx()，获得页眉分页、装饰标记处理等能力。
+ * 1对1从流式改为非流式+自动续写，避免 API 代理截断。
  */
-export async function generateReviewContent(feedback: string, studentName: string, dateStr: string, config?: APIConfig): Promise<Buffer> {
-  const prompt = `学生姓名：${studentName}
+export async function generateReviewContent(
+  courseType: CourseType,
+  input: FeedbackInput | ClassFeedbackInput,
+  feedback: string,
+  dateStr: string,
+  config?: APIConfig
+): Promise<Buffer> {
+  let prompt: string;
+  let label: string;
+  let docxTitle: string;
+
+  if (courseType === 'oneToOne') {
+    const d = input as FeedbackInput;
+    label = '复习文档';
+    docxTitle = `${d.studentName}${dateStr}复习文档`;
+    prompt = `学生姓名：${d.studentName}
 
 学情反馈内容：
 ${feedback}
@@ -1006,42 +1157,58 @@ ${feedback}
 【重要边界限制】
 本次只需要生成复习文档，不要生成学情反馈、测试本、课后信息提取或其他任何内容。
 复习文档完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+  } else {
+    const d = input as ClassFeedbackInput;
+    label = '小班课复习文档';
+    docxTitle = `${d.classNumber}班${dateStr}复习文档`;
+    prompt = `请根据以下小班课信息生成复习文档：
 
-  // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 REVIEW_SYSTEM_PROMPT
-  const systemPrompt = config?.roadmap && config.roadmap.trim() 
-    ? config.roadmap
-    : REVIEW_SYSTEM_PROMPT;
+班号：${d.classNumber}
+课次：${d.lessonNumber || '未指定'}
+本次课日期：${d.lessonDate || '未指定'}
+出勤学生：${d.attendanceStudents.filter(s => s.trim()).join('、')}
 
-  // 使用流式输出防止超时
-  // 复习文档也可能很长，使用与学情反馈相同的 max_tokens
-  console.log(`[复习文档] 开始流式生成...`);
-  const reviewContent = await invokeWhatAIStream(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: prompt },
-    ],
-    { max_tokens: 64000 },
-    config,
-    (chunk) => {
-      process.stdout.write('.');
-    }
-  );
-  console.log(`\n[复习文档] 流式生成完成，内容长度: ${reviewContent.length}字符`);
-  
-  return await textToDocx(reviewContent, `${studentName}${dateStr}复习文档`);
+【学情反馈汇总】
+${feedback}
+
+【本次课笔记】
+${d.currentNotes}
+
+【重要边界限制】
+本次只需要生成复习文档，不要生成学情反馈、测试本、课后信息提取或其他任何内容。
+复习文档完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+  }
+
+  const systemPrompt = selectSystemPrompt('review', courseType, config?.roadmap);
+
+  console.log(`[${label}] 开始非流式生成...`);
+  const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label);
+  console.log(`[${label}] 生成完成，内容长度: ${result.content.length}字符`);
+
+  return await textToDocx(result.content, docxTitle);
 }
 
 /**
- * 步骤3: 生成测试本（返回Buffer）
+ * 步骤3: 生成测试本（一对一 + 小班课统一，返回 docx Buffer）
+ * 
+ * 改进：小班课现在也使用共享的 textToDocx()，获得分页符、装饰标记处理等能力。
  */
 export async function generateTestContent(
+  courseType: CourseType,
+  input: FeedbackInput | ClassFeedbackInput,
   feedback: string,
-  studentName: string,
   dateStr: string,
-  config?: APIConfig,
-  onProgress?: (chars: number) => void
+  config?: APIConfig
 ): Promise<Buffer> {
-  const prompt = `学情反馈内容：
+  let prompt: string;
+  let label: string;
+  let docxTitle: string;
+
+  if (courseType === 'oneToOne') {
+    const d = input as FeedbackInput;
+    label = '测试本';
+    docxTitle = `${d.studentName}${dateStr}测试本`;
+    prompt = `学情反馈内容：
 ${feedback}
 
 请严格按照测试本格式规范生成测试版本。
@@ -1053,50 +1220,53 @@ ${feedback}
 【重要边界限制】
 本次只需要生成测试本，不要生成学情反馈、复习文档、课后信息提取或其他任何内容。
 测试本完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+  } else {
+    const d = input as ClassFeedbackInput;
+    label = '小班课测试本';
+    docxTitle = `${d.classNumber}班${dateStr}测试本`;
+    prompt = `请根据以下小班课信息生成测试本：
 
-  // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 TEST_SYSTEM_PROMPT
-  const systemPrompt = config?.roadmap && config.roadmap.trim()
-    ? config.roadmap
-    : TEST_SYSTEM_PROMPT;
+班号：${d.classNumber}
+课次：${d.lessonNumber || '未指定'}
+本次课日期：${d.lessonDate || '未指定'}
 
-  // 使用流式输出防止超时
-  console.log(`[测试本] 开始流式生成...`);
-  let charCount = 0;
-  let lastProgressTime = Date.now();
-  const testContent = await invokeWhatAIStream(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: prompt },
-    ],
-    { max_tokens: 32000 },
-    config,
-    (chunk: string) => {
-      process.stdout.write('.');
-      charCount += chunk.length;
-      const now = Date.now();
-      if (onProgress && now - lastProgressTime >= 1000) {
-        onProgress(charCount);
-        lastProgressTime = now;
-      }
-    }
-  );
-  console.log(`\n[测试本] 流式生成完成，内容长度: ${testContent.length}字符`);
+【学情反馈汇总】
+${feedback}
 
-  return await textToDocx(testContent, `${studentName}${dateStr}测试本`);
+【本次课笔记】
+${d.currentNotes}
+
+【重要边界限制】
+本次只需要生成测试本，不要生成学情反馈、复习文档、测试本或其他任何内容。
+测试本完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+  }
+
+  const systemPrompt = selectSystemPrompt('test', courseType, config?.roadmap);
+
+  console.log(`[${label}] 开始非流式生成...`);
+  const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label);
+  console.log(`[${label}] 生成完成，内容长度: ${result.content.length}字符`);
+
+  return await textToDocx(result.content, docxTitle);
 }
 
 /**
- * 步骤4: 生成课后信息提取
+ * 步骤4: 课后信息提取（一对一 + 小班课统一，返回 markdown string）
  */
 export async function generateExtractionContent(
-  studentName: string,
-  nextLessonDate: string,
+  courseType: CourseType,
+  input: FeedbackInput | ClassFeedbackInput,
   feedback: string,
-  config?: APIConfig,
-  onProgress?: (chars: number) => void
+  config?: APIConfig
 ): Promise<string> {
-  const prompt = `学生姓名：${studentName}
-下次课日期：${nextLessonDate || "请从学情反馈中提取，如无则写待定"}
+  let prompt: string;
+  let label: string;
+
+  if (courseType === 'oneToOne') {
+    const d = input as FeedbackInput;
+    label = '课后信息提取';
+    prompt = `学生姓名：${d.studentName}
+下次课日期：${d.nextLessonDate || "请从学情反馈中提取，如无则写待定"}
 
 学情反馈内容：
 ${feedback}
@@ -1106,41 +1276,118 @@ ${feedback}
 【重要边界限制】
 本次只需要生成课后信息提取，不要生成学情反馈、复习文档、测试本或其他任何内容。
 课后信息提取完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+  } else {
+    const d = input as ClassFeedbackInput;
+    label = '小班课课后信息';
+    prompt = `请根据以下小班课信息提取课后信息：
 
-  // 如果配置中有自定义路书，直接使用路书原文；否则使用默认的 EXTRACTION_SYSTEM_PROMPT
-  const systemPrompt = config?.roadmap && config.roadmap.trim()
-    ? config.roadmap
-    : EXTRACTION_SYSTEM_PROMPT;
+班号：${d.classNumber}
+课次：${d.lessonNumber || '未指定'}
+本次课日期：${d.lessonDate || '未指定'}
+下次课日期：${d.nextLessonDate || '未指定'}
+出勤学生：${d.attendanceStudents.filter(s => s.trim()).join('、')}
 
-  // 使用流式输出防止超时
-  console.log(`[课后信息提取] 开始流式生成...`);
-  let charCount = 0;
-  let lastProgressTime = Date.now();
-  const content = await invokeWhatAIStream(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: prompt },
-    ],
-    { max_tokens: 32000 },
-    config,
-    (chunk: string) => {
-      process.stdout.write('.');
-      charCount += chunk.length;
-      const now = Date.now();
-      if (onProgress && now - lastProgressTime >= 1000) {
-        onProgress(charCount);
-        lastProgressTime = now;
-      }
-    }
-  );
-  console.log(`\n[课后信息提取] 流式生成完成，内容长度: ${content.length}字符`);
+【学情反馈汇总】
+${feedback}
 
-  return stripAIMetaCommentary(cleanMarkdownAndHtml(content));
+【重要边界限制】
+本次只需要生成课后信息提取，不要生成学情反馈、复习文档、测试本或其他任何内容。
+课后信息提取完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+  }
+
+  const systemPrompt = selectSystemPrompt('extraction', courseType, config?.roadmap);
+
+  console.log(`[${label}] 开始非流式生成...`);
+  const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label);
+  console.log(`[${label}] 生成完成，内容长度: ${result.content.length}字符`);
+
+  return stripAIMetaCommentary(cleanMarkdownAndHtml(result.content));
 }
 
 /**
- * 步骤5: 生成气泡图（返回PNG Buffer）- 已废弃，改用 generateBubbleChartSVG
- * @deprecated 使用 generateBubbleChartSVG 代替，前端生成PNG解决中文乱码问题
+ * 步骤5: 生成气泡图 SVG（一对一 + 小班课统一）
+ * 
+ * 小班课模式需要额外传 classNumber。
+ * 两种模式都用非流式调用，8k token 限制。
+ */
+export async function generateBubbleChartSVG(
+  courseType: CourseType,
+  feedback: string,
+  studentName: string,
+  dateStr: string,
+  lessonNumber: string,
+  config?: APIConfig,
+  classNumber?: string
+): Promise<string> {
+  let userPrompt: string;
+  let label: string;
+
+  if (courseType === 'oneToOne') {
+    label = '气泡图';
+    userPrompt = `请根据以下学情反馈生成气泡图SVG代码。
+
+学生信息：
+- 姓名：${studentName}
+- 日期：${dateStr}
+- 课次：${lessonNumber || '未指定'}
+
+学情反馈内容：
+${feedback}
+
+请直接输出SVG代码，不要包含任何解释或markdown标记。SVG代码以<svg开头，以</svg>结尾。
+
+【重要边界限制】
+本次只需要生成气泡图SVG代码，不要生成学情反馈、复习文档、测试本或其他任何内容。
+输出</svg>后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+  } else {
+    label = `小班课气泡图-${studentName}`;
+    userPrompt = `请为小班课学生生成气泡图SVG代码。
+
+学生信息：
+- 姓名：${studentName}
+- 班号：${classNumber}
+- 日期：${dateStr}
+- 课次：${lessonNumber || '未指定'}
+
+学情反馈内容（请从中提取该学生的【随堂测试】【作业批改】【表现及建议】部分）：
+${feedback}
+
+请直接输出SVG代码，不要包含任何解释或markdown标记。SVG代码以<svg开头，以</svg>结尾。
+
+【重要边界限制】
+本次只需要生成气泡图SVG代码，不要生成学情反馈、复习文档、测试本或其他任何内容。
+输出</svg>后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
+  }
+
+  const systemPrompt = config?.roadmap?.trim()
+    ? config.roadmap
+    : `你是一个气泡图生成助手。请根据学情反馈生成气泡图SVG代码。`;
+
+  try {
+    console.log(`[${label}] 开始非流式生成SVG...`);
+    const response = await invokeWhatAI([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ], { max_tokens: 8000, timeout: 300000, retries: 1 }, config);
+    const content = response.choices?.[0]?.message?.content || '';
+    console.log(`[${label}] SVG生成完成，长度: ${content.length}字符`);
+
+    const svgMatch = content.match(/<svg[\s\S]*?<\/svg>/);
+    if (svgMatch) return svgMatch[0];
+    if (content.trim().startsWith('<svg')) return content.trim();
+    throw new Error('未找到有效的SVG代码');
+  } catch (error) {
+    console.error(`[${label}] 生成失败:`, error);
+    return `<svg viewBox="0 0 900 700" xmlns="http://www.w3.org/2000/svg">
+      <rect width="900" height="700" fill="#F8F9FA"/>
+      <text x="450" y="350" text-anchor="middle" font-size="24" fill="#666">${studentName} 气泡图生成失败，请重试</text>
+    </svg>`;
+  }
+}
+
+/**
+ * 步骤5 (deprecated): 生成气泡图 PNG Buffer
+ * @deprecated 使用 generateBubbleChartSVG 代替
  */
 export async function generateBubbleChart(
   feedback: string,
@@ -1149,40 +1396,72 @@ export async function generateBubbleChart(
   lessonNumber: string,
   config?: APIConfig
 ): Promise<Buffer> {
-  // 让AI直接按V9路书生成SVG
-  const bubbleChartSVG = await generateBubbleChartSVGByAI(
-    feedback,
-    studentName,
-    dateStr,
-    lessonNumber,
-    config
-  );
-  return await svgToPng(bubbleChartSVG);
+  const svg = await generateBubbleChartSVG('oneToOne', feedback, studentName, dateStr, lessonNumber, config);
+  return await svgToPng(svg);
 }
 
-/**
- * 步骤5: 生成气泡图SVG（返回SVG字符串，前端转换为PNG）
- * 解决服务器缺少中文字体导致乱码的问题
- */
-export async function generateBubbleChartSVG(
-  feedback: string,
+// ========== 向后兼容包装器（旧接口 → 统一函数） ==========
+// 这些包装器保持旧的函数签名不变，内部委托给统一函数。
+// 已有的调用方可以逐步迁移到新接口，迁移完成后可删除。
+
+/** @deprecated 使用 generateFeedbackContent('class', ...) */
+export async function generateClassFeedbackContent(
+  input: ClassFeedbackInput,
+  roadmap: string,
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+): Promise<{ content: string; meta: GenerationMeta }> {
+  return generateFeedbackContent('class', input, { ...apiConfig, roadmap });
+}
+
+/** @deprecated 使用 generateReviewContent('class', ...) */
+export async function generateClassReviewContent(
+  input: ClassFeedbackInput,
+  combinedFeedback: string,
+  roadmap: string,
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+): Promise<Buffer> {
+  const dateStr = input.lessonDate || '';
+  return generateReviewContent('class', input, combinedFeedback, dateStr, { ...apiConfig, roadmap });
+}
+
+/** @deprecated 使用 generateTestContent('class', ...) */
+export async function generateClassTestContent(
+  input: ClassFeedbackInput,
+  combinedFeedback: string,
+  roadmap: string,
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string },
+  _onProgress?: (chars: number) => void
+): Promise<Buffer> {
+  const dateStr = input.lessonDate || '';
+  return generateTestContent('class', input, combinedFeedback, dateStr, { ...apiConfig, roadmap });
+}
+
+/** @deprecated 使用 generateExtractionContent('class', ...) */
+export async function generateClassExtractionContent(
+  input: ClassFeedbackInput,
+  combinedFeedback: string,
+  roadmap: string,
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string },
+  _onProgress?: (chars: number) => void
+): Promise<string> {
+  return generateExtractionContent('class', input, combinedFeedback, { ...apiConfig, roadmap });
+}
+
+/** @deprecated 使用 generateBubbleChartSVG('class', ...) */
+export async function generateClassBubbleChartSVG(
+  combinedFeedback: string,
   studentName: string,
+  classNumber: string,
   dateStr: string,
   lessonNumber: string,
-  config?: APIConfig
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string; roadmapClass?: string }
 ): Promise<string> {
-  return await generateBubbleChartSVGByAI(
-    feedback,
-    studentName,
-    dateStr,
-    lessonNumber,
-    config
-  );
+  return generateBubbleChartSVG('class', combinedFeedback, studentName, dateStr, lessonNumber,
+    { ...apiConfig, roadmap: apiConfig.roadmapClass }, classNumber);
 }
 
-/**
- * 旧版主函数（保留兼容性）：生成所有5个文档，带状态回调
- */
+// ========== 旧版主函数（保留兼容性） ==========
+
 export async function generateFeedbackDocuments(
   input: FeedbackInput,
   onProgress?: (step: StepStatus) => void
@@ -1209,29 +1488,25 @@ export async function generateFeedbackDocuments(
   let bubbleChart: Buffer = Buffer.from('');
 
   try {
-    // 步骤1: 生成学情反馈
     updateStep(0, 'running', '正在生成学情反馈...');
-    const feedbackResult = await generateFeedbackContent(input);
+    const feedbackResult = await generateFeedbackContent('oneToOne', input);
     feedback = feedbackResult.content;
     updateStep(0, 'success', '学情反馈生成完成');
 
-    // 步骤2: 生成复习文档
-    updateStep(1, 'running', '正在生成复习文档...');
     const dateStr = input.lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
-    review = await generateReviewContent(feedback, input.studentName, dateStr);
+
+    updateStep(1, 'running', '正在生成复习文档...');
+    review = await generateReviewContent('oneToOne', input, feedback, dateStr);
     updateStep(1, 'success', '复习文档生成完成');
 
-    // 步骤3: 生成测试本
     updateStep(2, 'running', '正在生成测试本...');
-    test = await generateTestContent(feedback, input.studentName, dateStr);
+    test = await generateTestContent('oneToOne', input, feedback, dateStr);
     updateStep(2, 'success', '测试本生成完成');
 
-    // 步骤4: 生成课后信息提取
     updateStep(3, 'running', '正在生成课后信息提取...');
-    extraction = await generateExtractionContent(input.studentName, input.nextLessonDate, feedback);
+    extraction = await generateExtractionContent('oneToOne', input, feedback);
     updateStep(3, 'success', '课后信息提取生成完成');
 
-    // 步骤5: 生成气泡图
     updateStep(4, 'running', '正在生成气泡图...');
     bubbleChart = await generateBubbleChart(feedback, input.studentName, dateStr, input.lessonNumber);
     updateStep(4, 'success', '气泡图生成完成');
@@ -1253,448 +1528,4 @@ export async function generateFeedbackDocuments(
     bubbleChart,
     steps,
   };
-}
-
-
-// ========== 小班课提示词 ==========
-// 注意：小班课学情反馈不使用固定的 system prompt，而是透明转发用户配置的路书
-const CLASS_FEEDBACK_SYSTEM_PROMPT = `你是一个学情反馈生成助手。请根据用户提供的路书和课堂信息生成学情反馈。
-
-【重要格式要求】
-这份反馈是给家长看的，要能直接复制到微信群，所以：
-1. 不要使用任何markdown标记（不要用#、**、*、\`\`\`等）
-2. 不要用表格格式
-3. 不要用自动编号（手打1. 2. 3.）
-4. 不要用首行缩进
-5. 可以用中括号【】来标记章节
-6. 可以用空行分隔段落
-7. 直接输出纯文本
-8. 最后以【OK】结尾`;
-
-const CLASS_REVIEW_SYSTEM_PROMPT = `你是一个复习文档生成助手。为小班课生成复习文档。
-
-【重要格式要求】
-1. 不要使用任何markdown标记
-2. 不要使用HTML代码
-3. 输出纯文本格式
-
-【复习文档结构】
-班级：xxx班
-日期：xxx
-出勤学生：xxx
-
-【本次课内容回顾】
-1. 文章/题目：xxx
-2. 核心知识点：xxx
-
-【生词讲解】
-（按照学情反馈中的生词逐一讲解）
-
-【长难句分析】
-（按照学情反馈中的长难句逐一分析）
-
-【错题解析】
-（按照学情反馈中的错题逐一解析）`;
-
-const CLASS_TEST_SYSTEM_PROMPT = `你是一个测试本生成助手。为小班课生成测试本。
-
-【重要格式要求】
-1. 不要使用任何markdown标记
-2. 不要使用HTML代码
-3. 输出纯文本格式
-
-【测试本结构】
-班级：xxx班
-日期：xxx
-
-===== 测试部分 =====
-
-一、生词测试
-A. 英译中（10题）
-B. 中译英（10题）
-
-二、长难句翻译
-
-三、错题重做
-
-===== 答案部分 =====`;
-
-const CLASS_EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。为小班课提取课后信息。
-
-【重要格式要求】
-1. 不要使用任何markdown标记
-2. 输出纯文本格式
-
-【课后信息提取结构】
-班级：xxx班
-本次课日期：xxx
-下次课日期：xxx
-出勤学生：xxx
-
-【作业布置】
-1. 生词复习：复习本次课xxx个生词
-2. 长难句练习：翻译xxx个长难句
-3. 错题重做：重做本次课xxx道错题
-
-【各学生情况】
-（简要记录每个学生的课堂表现和需要关注的点）`;
-
-// ========== 小班课生成函数 ==========
-
-/**
- * 生成小班课学情反馈（生成1份完整文件，包含全班共用部分+每个学生的单独部分）
- * 路书作为 system prompt，透明转发给AI
- */
-export async function generateClassFeedbackContent(
-  input: ClassFeedbackInput,
-  roadmap: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
-): Promise<{ content: string; meta: GenerationMeta }> {
-  // 构建 user prompt，包含所有学生名单和课堂信息
-  const studentList = input.attendanceStudents.filter(s => s.trim()).join('、');
-  
-  const userPrompt = `请为以下小班课生成完整的学情反馈：
-
-班号：${input.classNumber}
-课次：${input.lessonNumber || '未指定'}
-本次课日期：${input.lessonDate || '未指定'}
-出勤学生：${studentList}
-
-${input.lastFeedback ? `【上次课反馈】\n${input.lastFeedback}\n` : ''}
-【本次课笔记】
-${input.currentNotes}
-
-【录音转文字】
-${input.transcript}
-
-${input.specialRequirements ? `【特殊要求】\n${input.specialRequirements}\n` : ''}
-
-【重要边界限制】
-本次只需要生成学情反馈文档，不要生成复习文档、测试本、课后信息提取或其他任何内容。
-学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
-
-  console.log(`[小班课反馈] 开始为 ${input.classNumber} 班生成完整学情反馈...`);
-  console.log(`[小班课反馈] 出勤学生: ${studentList}`);
-  console.log(`[小班课反馈] 路书长度: ${roadmap?.length || 0} 字符`);
-  
-  // 路书作为 system prompt（和一对一一致）
-  const systemPrompt = roadmap && roadmap.trim() ? roadmap : CLASS_FEEDBACK_SYSTEM_PROMPT;
-  
-  const config: APIConfig = {
-    apiModel: apiConfig.apiModel,
-    apiKey: apiConfig.apiKey,
-    apiUrl: apiConfig.apiUrl,
-  };
-  
-  // 后台任务用非流式调用（可能绕过代理的流式输出token限制）+ 自动续写兜底
-  const result = await invokeNonStreamWithContinuation(
-    systemPrompt,
-    userPrompt,
-    config,
-    '小班课反馈'
-  );
-
-  console.log(`[小班课反馈] 生成完成，长度: ${result.content.length} 字符`);
-
-  // 诊断日志：检查原始内容中的填空下划线和空行模式
-  const rawSnippet = result.content.substring(0, 500);
-  const underscoreCount = (result.content.match(/_{2,}/g) || []).length;
-  const blankLineCount = (result.content.match(/\n\s*\n\s*\n/g) || []).length;
-  console.log(`[小班课反馈] 诊断: 下划线组数=${underscoreCount}, 多空行数=${blankLineCount}`);
-  if (blankLineCount > 5) {
-    console.log(`[小班课反馈] 原始内容前500字符: ${JSON.stringify(rawSnippet)}`);
-  }
-
-  return { content: stripAIMetaCommentary(cleanMarkdownAndHtml(result.content)), meta: result.meta };
-}
-
-/**
- * 生成小班课复习文档（全班共用一份）
- * 路书作为 system prompt，透明转发给AI
- */
-export async function generateClassReviewContent(
-  input: ClassFeedbackInput,
-  combinedFeedback: string,
-  roadmap: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
-): Promise<Buffer> {
-  const userPrompt = `请根据以下小班课信息生成复习文档：
-
-班号：${input.classNumber}
-课次：${input.lessonNumber || '未指定'}
-本次课日期：${input.lessonDate || '未指定'}
-出勤学生：${input.attendanceStudents.filter(s => s.trim()).join('、')}
-
-【学情反馈汇总】
-${combinedFeedback}
-
-【本次课笔记】
-${input.currentNotes}
-
-【重要边界限制】
-本次只需要生成复习文档，不要生成学情反馈、测试本、课后信息提取或其他任何内容。
-复习文档完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
-
-  console.log(`[小班课复习文档] 开始生成...`);
-  
-  // 路书作为 system prompt（和一对一一致）
-  const systemPrompt = roadmap && roadmap.trim() ? roadmap : CLASS_REVIEW_SYSTEM_PROMPT;
-  
-  const config: APIConfig = {
-    apiModel: apiConfig.apiModel,
-    apiKey: apiConfig.apiKey,
-    apiUrl: apiConfig.apiUrl,
-  };
-  const reviewContent = await invokeWhatAI(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    { max_tokens: 64000, timeout: 600000, retries: 1 },
-    config,
-  );
-  const rawReview = reviewContent.choices?.[0]?.message?.content || '';
-  console.log(`\n[小班课复习文档] 生成完成，长度: ${rawReview.length}字符, finish_reason: ${reviewContent.choices?.[0]?.finish_reason}`);
-
-  // 清理 AI 元评论和 markdown 标记
-  const cleanedReviewContent = stripAIMetaCommentary(cleanMarkdownAndHtml(rawReview));
-
-  // 转换为 docx
-  const doc = new Document({
-    styles: {
-      default: {
-        document: {
-          run: { font: { name: "微软雅黑", eastAsia: "微软雅黑" } },
-        },
-      },
-    },
-    sections: [{
-      properties: {},
-      children: cleanedReviewContent.split('\n').map((line: string) => {
-        if (line.startsWith('【') && line.endsWith('】')) {
-          return new Paragraph({
-            children: [new TextRun({ text: line, bold: true, size: 28 })],
-            spacing: { before: 400, after: 200 },
-          });
-        }
-        return new Paragraph({
-          children: [new TextRun({ text: line, size: 24 })],
-          spacing: { after: 100 },
-        });
-      }),
-    }],
-  });
-
-  return await Packer.toBuffer(doc);
-}
-
-/**
- * 生成小班课测试本（全班共用一份）
- * 路书作为 system prompt，透明转发给AI
- */
-export async function generateClassTestContent(
-  input: ClassFeedbackInput,
-  combinedFeedback: string,
-  roadmap: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string },
-  onProgress?: (chars: number) => void
-): Promise<Buffer> {
-  const userPrompt = `请根据以下小班课信息生成测试本：
-
-班号：${input.classNumber}
-课次：${input.lessonNumber || '未指定'}
-本次课日期：${input.lessonDate || '未指定'}
-
-【学情反馈汇总】
-${combinedFeedback}
-
-【本次课笔记】
-${input.currentNotes}
-
-【重要边界限制】
-本次只需要生成测试本，不要生成学情反馈、复习文档、课后信息提取或其他任何内容。
-测试本完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
-
-  console.log(`[小班课测试本] 开始生成...`);
-  
-  // 路书作为 system prompt（和一对一一致）
-  const systemPrompt = roadmap && roadmap.trim() ? roadmap : CLASS_TEST_SYSTEM_PROMPT;
-  
-  const config: APIConfig = {
-    apiModel: apiConfig.apiModel,
-    apiKey: apiConfig.apiKey,
-    apiUrl: apiConfig.apiUrl,
-  };
-
-  const testResponse = await invokeWhatAI(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    { max_tokens: 64000, timeout: 600000, retries: 1 },
-    config,
-  );
-  const testContent = testResponse.choices?.[0]?.message?.content || '';
-  console.log(`\n[小班课测试本] 生成完成，长度: ${testContent.length}字符, finish_reason: ${testResponse.choices?.[0]?.finish_reason}`);
-
-  // 清理 AI 元评论和 markdown 标记
-  const cleanedTestContent = stripAIMetaCommentary(cleanMarkdownAndHtml(testContent));
-
-  // 转换为 docx
-  const doc = new Document({
-    styles: {
-      default: {
-        document: {
-          run: { font: { name: "微软雅黑", eastAsia: "微软雅黑" } },
-        },
-      },
-    },
-    sections: [{
-      properties: {},
-      children: cleanedTestContent.split('\n').map((line: string) => {
-        if (line.includes('=====')) {
-          return new Paragraph({
-            children: [new TextRun({ text: line, bold: true, size: 28 })],
-            spacing: { before: 400, after: 200 },
-            alignment: AlignmentType.CENTER,
-          });
-        }
-        if (line.match(/^[一二三四五六七八九十]、/)) {
-          return new Paragraph({
-            children: [new TextRun({ text: line, bold: true, size: 26 })],
-            spacing: { before: 300, after: 150 },
-          });
-        }
-        return new Paragraph({
-          children: [new TextRun({ text: line, size: 24 })],
-          spacing: { after: 100 },
-        });
-      }),
-    }],
-  });
-  
-  return await Packer.toBuffer(doc);
-}
-
-/**
- * 生成小班课课后信息提取（全班共用一份）
- * 路书作为 system prompt，透明转发给AI
- */
-export async function generateClassExtractionContent(
-  input: ClassFeedbackInput,
-  combinedFeedback: string,
-  roadmap: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string },
-  onProgress?: (chars: number) => void
-): Promise<string> {
-  const userPrompt = `请根据以下小班课信息提取课后信息：
-
-班号：${input.classNumber}
-课次：${input.lessonNumber || '未指定'}
-本次课日期：${input.lessonDate || '未指定'}
-下次课日期：${input.nextLessonDate || '未指定'}
-出勤学生：${input.attendanceStudents.filter(s => s.trim()).join('、')}
-
-【学情反馈汇总】
-${combinedFeedback}
-
-【重要边界限制】
-本次只需要生成课后信息提取，不要生成学情反馈、复习文档、测试本或其他任何内容。
-课后信息提取完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
-
-  console.log(`[小班课课后信息] 开始生成...`);
-  
-  // 路书作为 system prompt（和一对一一致）
-  const systemPrompt = roadmap && roadmap.trim() ? roadmap : CLASS_EXTRACTION_SYSTEM_PROMPT;
-  
-  const config: APIConfig = {
-    apiModel: apiConfig.apiModel,
-    apiKey: apiConfig.apiKey,
-    apiUrl: apiConfig.apiUrl,
-  };
-
-  const extractionResponse = await invokeWhatAI(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    { max_tokens: 16000, timeout: 600000, retries: 1 },
-    config,
-  );
-  const extractionContent = extractionResponse.choices?.[0]?.message?.content || '';
-  console.log(`\n[小班课课后信息] 生成完成，长度: ${extractionContent.length}字符, finish_reason: ${extractionResponse.choices?.[0]?.finish_reason}`);
-
-  return stripAIMetaCommentary(cleanMarkdownAndHtml(extractionContent));
-}
-
-/**
- * 为小班课学生生成气泡图SVG
- * 使用路书透明转发，和一对一保持一致
- */
-export async function generateClassBubbleChartSVG(
-  combinedFeedback: string,
-  studentName: string,
-  classNumber: string,
-  dateStr: string,
-  lessonNumber: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string; roadmapClass?: string }
-): Promise<string> {
-  const config: APIConfig = {
-    apiModel: apiConfig.apiModel,
-    apiKey: apiConfig.apiKey,
-    apiUrl: apiConfig.apiUrl,
-    roadmap: apiConfig.roadmapClass, // 使用小班课路书
-  };
-  
-  // 和一对一一样，直接调用 generateBubbleChartSVGByAI
-  // 路书透明转发给AI，让AI按路书要求生成“问题-方案”格式的气泡图
-  const userPrompt = `请为小班课学生生成气泡图SVG代码。
-
-学生信息：
-- 姓名：${studentName}
-- 班号：${classNumber}
-- 日期：${dateStr}
-- 课次：${lessonNumber || '未指定'}
-
-学情反馈内容（请从中提取该学生的【随堂测试】【作业批改】【表现及建议】部分）：
-${combinedFeedback}
-
-请直接输出SVG代码，不要包含任何解释或markdown标记。SVG代码以<svg开头，以</svg>结尾。
-
-【重要边界限制】
-本次只需要生成气泡图SVG代码，不要生成学情反馈、复习文档、测试本或其他任何内容。
-输出</svg>后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
-
-  // 如果有自定义路书，直接使用路书原文；否则使用默认提示词
-  const systemPrompt = config.roadmap && config.roadmap.trim()
-    ? config.roadmap
-    : `你是一个气泡图生成助手。请根据学情反馈生成气泡图SVG代码。`;
-
-  try {
-    console.log(`[小班课气泡图] 开始为 ${studentName} 非流式生成SVG...`);
-    const response = await invokeWhatAI([
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ], { max_tokens: 8000, timeout: 300000, retries: 1 }, config);
-    const content = response.choices?.[0]?.message?.content || '';
-    console.log(`[小班课气泡图] ${studentName} SVG生成完成，长度: ${content.length}字符`);
-    
-    // 提取SVG代码
-    const svgMatch = content.match(/<svg[\s\S]*?<\/svg>/);
-    if (svgMatch) {
-      return svgMatch[0];
-    }
-    
-    if (content.trim().startsWith('<svg')) {
-      return content.trim();
-    }
-    
-    throw new Error('未找到有效的SVG代码');
-  } catch (error) {
-    console.error(`[小班课气泡图] ${studentName} 生成失败:`, error);
-    return `<svg viewBox="0 0 900 700" xmlns="http://www.w3.org/2000/svg">
-      <rect width="900" height="700" fill="#F8F9FA"/>
-      <text x="450" y="350" text-anchor="middle" font-size="24" fill="#666">${studentName} 气泡图生成失败，请重试</text>
-    </svg>`;
-  }
 }

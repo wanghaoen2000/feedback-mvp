@@ -26,6 +26,7 @@ import {
   injectChineseFontIntoSVG,
   GenerationMeta,
 } from "./feedbackGenerator";
+import { addWeekdayToDate } from "./utils";
 import {
   uploadToGoogleDrive,
   uploadBinaryToGoogleDrive,
@@ -76,29 +77,6 @@ async function checkCancellation(taskId: string, stepResults: StepResults, curre
   }
 }
 
-/**
- * 给日期字符串添加星期信息（与 classStreamRoutes.ts 保持一致）
- */
-function addWeekdayToDate(dateStr: string): string {
-  if (!dateStr) return dateStr;
-  if (dateStr.includes('周') || dateStr.includes('星期')) return dateStr;
-  try {
-    const match = dateStr.match(/(\d{4})年?(\d{1,2})月(\d{1,2})日?/);
-    if (!match) {
-      const shortMatch = dateStr.match(/(\d{1,2})月(\d{1,2})日?/);
-      if (!shortMatch) return dateStr;
-      const year = new Date().getFullYear();
-      const date = new Date(year, parseInt(shortMatch[1], 10) - 1, parseInt(shortMatch[2], 10));
-      const weekday = ['日', '一', '二', '三', '四', '五', '六'][date.getDay()];
-      return `${dateStr}（周${weekday}）`;
-    }
-    const date = new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10));
-    const weekday = ['日', '一', '二', '三', '四', '五', '六'][date.getDay()];
-    return `${dateStr}（周${weekday}）`;
-  } catch {
-    return dateStr;
-  }
-}
 
 // 步骤结果类型
 interface StepResult {
@@ -266,6 +244,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   let feedbackContent = "";
   let dateStr = "";
   let failedSteps = 0;
+  let feedbackInput: FeedbackInput | null = null;
 
   // 获取配置
   const apiModel = params.apiModel || (await getConfig("apiModel")) || DEFAULT_CONFIG.apiModel;
@@ -284,7 +263,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
 
   try {
     const lessonDate = params.lessonDate ? addWeekdayToDate(params.lessonDate.includes('年') ? params.lessonDate : `${currentYear}年${params.lessonDate}`) : "";
-    const feedbackInput: FeedbackInput = {
+    feedbackInput = {
       studentName: params.studentName,
       lessonNumber: params.lessonNumber || "",
       lessonDate,
@@ -296,7 +275,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       specialRequirements: params.specialRequirements || "",
     };
 
-    const feedbackResult = await generateFeedbackContent(feedbackInput, config);
+    const feedbackResult = await generateFeedbackContent('oneToOne', feedbackInput, config);
     feedbackContent = feedbackResult.content;
     const feedbackMeta = feedbackResult.meta;
     if (!feedbackContent || !feedbackContent.trim()) {
@@ -371,7 +350,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     // 步骤2: 复习文档
     (async () => {
       const t = Date.now();
-      const reviewDocx = await generateReviewContent(feedbackContent, params.studentName, dateStr, config);
+      const reviewDocx = await generateReviewContent('oneToOne', feedbackInput!, feedbackContent, dateStr, config);
       if (!reviewDocx || reviewDocx.length === 0) throw new Error("复习文档生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}复习文档.docx`;
@@ -384,7 +363,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     // 步骤3: 测试本
     (async () => {
       const t = Date.now();
-      const testDocx = await generateTestContent(feedbackContent, params.studentName, dateStr, config);
+      const testDocx = await generateTestContent('oneToOne', feedbackInput!, feedbackContent, dateStr, config);
       if (!testDocx || testDocx.length === 0) throw new Error("测试本生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}测试文档.docx`;
@@ -397,7 +376,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     // 步骤4: 课后信息提取
     (async () => {
       const t = Date.now();
-      const extractionContent = await generateExtractionContent(params.studentName, "", feedbackContent, config);
+      const extractionContent = await generateExtractionContent('oneToOne', feedbackInput!, feedbackContent, config);
       if (!extractionContent || !extractionContent.trim()) throw new Error("课后信息提取生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}课后信息提取.md`;
