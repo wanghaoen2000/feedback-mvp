@@ -1579,12 +1579,11 @@ export const appRouter = router({
                 fileName: `${baseName}-1+2${ext}`,
               };
             } else {
-              // 只有 -1，没有 -2，直接用 -1 的内容
-              console.log(`[readFromDownloads] 分段模式：只找到第1段，使用单段内容`);
-              if (!part1Content.trim()) {
-                throw new TRPCError({ code: 'BAD_REQUEST', message: '文件内容为空' });
-              }
-              return { content: part1Content.trim(), fileName: part1Result.resolvedName };
+              // 有 -1 就一定有 -2，找不到说明第2段还没下载
+              throw new TRPCError({
+                code: 'NOT_FOUND',
+                message: `找到了第1段 ${part1Name}，但未找到第2段 ${part2Name}\n请检查是否已下载完整的录音转文字文件`,
+              });
             }
           }
         }
