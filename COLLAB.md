@@ -34,6 +34,17 @@
   ```
   **背景：** V129 换用 resvg 渲染 SVG，但 resvg 的 `loadSystemFonts` 在服务器上找不到字体，导致气泡图完全空白。V130 已加上 9 个常见路径 + `/usr/share/fonts` 目录扫描，但需要确认服务器上字体的实际路径是否在覆盖范围内。
 
+- [ ] **复制 Noto Sans CJK 字体到项目目录**（V134 气泡图字体优化）：
+  ```bash
+  cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc ./fonts/
+  ```
+  然后提交推送：
+  ```bash
+  git add fonts/NotoSansCJK-Regular.ttc
+  git commit -m "添加 Noto Sans CJK 字体文件（气泡图字体优化）"
+  ```
+  **背景：** V134 代码将气泡图字体优先级改为 Noto Sans CJK SC（思源黑体），比 WenQuanYi Zen Hei 更美观。代码已做兜底处理——如果 Noto 字体不存在，仍然使用 WenQuanYi Zen Hei。字体文件约 20MB。
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）
@@ -159,3 +170,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V131 | 2026-02-07 | 项目本地 fonts/ 目录加载 + COLLAB.md 协作看板 | 部署成功，气泡图中文正常 |
 | V132 | 2026-02-07 | 测试本答案分页符修复 + 装饰性标记处理 + 班号输入自动填充学生名单 | 待部署 |
 | V133 | 2026-02-07 | 1对1与小班课生成函数模块化合并 + addWeekdayToDate 抽取共享 + 1对1改非流式 | 待部署 |
+| V134 | 2026-02-07 | 原始AI输出日志（排查换行问题） + 气泡图字体升级 Noto Sans CJK SC | 待部署 |

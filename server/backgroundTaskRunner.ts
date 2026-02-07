@@ -278,8 +278,13 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     const feedbackResult = await generateFeedbackContent('oneToOne', feedbackInput, config);
     feedbackContent = feedbackResult.content;
     const feedbackMeta = feedbackResult.meta;
+    const feedbackRawContent = feedbackResult.rawContent;
     if (!feedbackContent || !feedbackContent.trim()) {
       throw new Error("AI 返回内容为空");
+    }
+    // 记录原始AI输出长度差异，辅助排查换行等问题
+    if (feedbackRawContent && feedbackRawContent.length !== feedbackContent.length) {
+      console.log(`[后台任务] ${taskId} 原始AI输出${feedbackRawContent.length}字符 → 清洗后${feedbackContent.length}字符（差${feedbackRawContent.length - feedbackContent.length}字符）`);
     }
 
     // 提取日期
@@ -307,6 +312,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       chars: feedbackContent.length,
       duration: step1Duration,
       content: feedbackContent,
+      rawContent: feedbackRawContent,  // 原始AI输出（清洗前），用于诊断换行等问题
       // 生成诊断信息：模式、轮次、token用量
       genInfo: `${feedbackMeta.mode} · ${feedbackMeta.rounds}轮 · 输入${feedbackMeta.totalPromptTokens}t/输出${feedbackMeta.totalCompletionTokens}t · ${feedbackMeta.finishReason}`,
       ...(isTruncated ? { error: `续写${feedbackMeta.rounds}轮后仍被截断（输出${feedbackMeta.totalCompletionTokens}token）` } : {}),
@@ -488,7 +494,11 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     const classResult = await generateClassFeedbackContent(classInput, roadmapClass, apiConfig);
     feedbackContent = classResult.content;
     const classMeta = classResult.meta;
+    const classRawContent = classResult.rawContent;
     if (!feedbackContent || !feedbackContent.trim()) throw new Error("AI 返回内容为空");
+    if (classRawContent && classRawContent.length !== feedbackContent.length) {
+      console.log(`[后台任务] ${taskId} 班课原始AI输出${classRawContent.length}字符 → 清洗后${feedbackContent.length}字符（差${classRawContent.length - feedbackContent.length}字符）`);
+    }
 
     dateStr = params.lessonDate || "";
     if (!dateStr) {
@@ -511,6 +521,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       chars: feedbackContent.length,
       duration: step1Duration,
       content: feedbackContent,
+      rawContent: classRawContent,  // 原始AI输出（清洗前），用于诊断换行等问题
       // 生成诊断信息：模式、轮次、token用量
       genInfo: `${classMeta.mode} · ${classMeta.rounds}轮 · 输入${classMeta.totalPromptTokens}t/输出${classMeta.totalCompletionTokens}t · ${classMeta.finishReason}`,
       ...(isTruncated ? { error: `续写${classMeta.rounds}轮后仍被截断（输出${classMeta.totalCompletionTokens}token）` } : {}),

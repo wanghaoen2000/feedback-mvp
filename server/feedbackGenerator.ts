@@ -680,10 +680,9 @@ ${feedback}
 
 /** 替换 SVG 中所有字体声明为中文字体，确保服务器端 Cairo/Pango 渲染正确 */
 export function injectChineseFontIntoSVG(svgString: string): string {
-  // SVG属性中不能用嵌套双引号，用逗号分隔的无引号字体列表
-  const CJK_FONT_ATTR = 'WenQuanYi Zen Hei, Noto Sans CJK SC, sans-serif';
-  // CSS中可以用单引号
-  const CJK_FONT_CSS = "'WenQuanYi Zen Hei', 'Noto Sans CJK SC', sans-serif";
+  // 优先使用 Noto Sans CJK SC（思源黑体），更美观专业；WenQuanYi 作为兜底
+  const CJK_FONT_ATTR = 'Noto Sans CJK SC, WenQuanYi Zen Hei, sans-serif';
+  const CJK_FONT_CSS = "'Noto Sans CJK SC', 'WenQuanYi Zen Hei', sans-serif";
   let result = svgString;
   // 0. 移除可能导致字体冲突的 @font-face 和 @import 规则（AI可能引用无法加载的web字体）
   result = result.replace(/@font-face\s*\{[^}]*\}/gi, '');
@@ -722,16 +721,20 @@ try { __bundleDir = dirname(fileURLToPath(import.meta.url)); } catch {}
 function getAllFontCandidates(): string[] {
   const cwd = process.cwd();
   const paths = [
-    // 项目根目录 fonts/
+    // 项目根目录 fonts/（优先：Noto Sans CJK 更美观）
+    resolve(cwd, 'fonts', 'NotoSansCJK-Regular.ttc'),
+    resolve(cwd, 'fonts', 'NotoSansCJK-Medium.ttc'),
     resolve(cwd, 'fonts', 'wqy-zenhei.ttc'),
     resolve(cwd, 'fonts', 'wqy-microhei.ttc'),
     // dist 同级 fonts/（esbuild 输出在 dist/index.js）
+    resolve(__bundleDir, '..', 'fonts', 'NotoSansCJK-Regular.ttc'),
     resolve(__bundleDir, '..', 'fonts', 'wqy-zenhei.ttc'),
     resolve(__bundleDir, 'fonts', 'wqy-zenhei.ttc'),
     // 系统路径
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Medium.ttc',
     '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
     '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
   ];
   // 去重
   return [...new Set(paths)];
@@ -744,6 +747,7 @@ function getAllFontDirs(): string[] {
     resolve(__bundleDir, '..', 'fonts'),
     resolve(__bundleDir, 'fonts'),
     '/usr/share/fonts',
+    '/usr/share/fonts/opentype/noto',  // Noto CJK 在 opentype 目录
     '/usr/local/share/fonts',
   ];
   return [...new Set(dirs)];
@@ -847,7 +851,7 @@ export async function svgToPng(svgString: string): Promise<Buffer> {
       loadSystemFonts: true,
       fontFiles,
       fontDirs,
-      defaultFontFamily: 'WenQuanYi Zen Hei',
+      defaultFontFamily: 'Noto Sans CJK SC',
     },
   });
   const pngData = resvg.render();
@@ -1053,7 +1057,7 @@ export async function generateFeedbackContent(
   courseType: CourseType,
   input: FeedbackInput | ClassFeedbackInput,
   config?: APIConfig
-): Promise<{ content: string; meta: GenerationMeta }> {
+): Promise<{ content: string; rawContent?: string; meta: GenerationMeta }> {
   let prompt: string;
   let label: string;
 
@@ -1120,7 +1124,9 @@ ${d.specialRequirements ? `【特殊要求】\n${d.specialRequirements}\n` : ''}
   const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label);
   console.log(`[${label}] 生成完成，内容长度: ${result.content.length}字符`);
 
-  return { content: stripAIMetaCommentary(cleanMarkdownAndHtml(result.content)), meta: result.meta };
+  const rawContent = result.content;
+  const cleaned = stripAIMetaCommentary(cleanMarkdownAndHtml(rawContent));
+  return { content: cleaned, rawContent, meta: result.meta };
 }
 
 /**
@@ -1409,7 +1415,7 @@ export async function generateClassFeedbackContent(
   input: ClassFeedbackInput,
   roadmap: string,
   apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
-): Promise<{ content: string; meta: GenerationMeta }> {
+): Promise<{ content: string; rawContent?: string; meta: GenerationMeta }> {
   return generateFeedbackContent('class', input, { ...apiConfig, roadmap });
 }
 

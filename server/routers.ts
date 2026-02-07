@@ -420,6 +420,11 @@ export const appRouter = router({
           }, { apiModel, apiKey, apiUrl, roadmap });
           const feedbackContent = feedbackResult.content;
 
+          // 记录原始AI输出（清洗前），用于排查奇怪换行等问题
+          if (feedbackResult.rawContent) {
+            logInfo(log, "学情反馈", `原始AI输出（${feedbackResult.rawContent.length}字符，清洗后${feedbackContent.length}字符）`, feedbackResult.rawContent);
+          }
+
           if (!feedbackContent || !feedbackContent.trim()) {
             throw new Error('学情反馈生成失败：AI 返回内容为空，请重试');
           }
