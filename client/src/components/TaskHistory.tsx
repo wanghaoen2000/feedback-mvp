@@ -31,15 +31,9 @@ function formatDuration(seconds: number): string {
   return sec > 0 ? `${min}分${sec}秒` : `${min}分`;
 }
 
-// 格式化字符数
-function formatChars(chars: number, stepKey: string): string {
-  // 二进制文件（docx/png）显示为KB
-  if (stepKey === "review" || stepKey === "test" || stepKey === "bubbleChart") {
-    if (chars > 1024) return `${(chars / 1024).toFixed(0)}KB`;
-    return `${chars}B`;
-  }
-  // 文本文件显示字数
-  return `${chars}字`;
+// 判断是否为文本步骤（只有文本步骤的字数对用户有意义）
+function isTextStep(stepKey: string): boolean {
+  return stepKey === "feedback" || stepKey === "extraction";
 }
 
 export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
@@ -97,16 +91,10 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
     return 0;
   };
 
-  // 计算任务总字数
-  const getTotalChars = (stepResults: any): number => {
-    if (!stepResults) return 0;
-    return Object.entries(stepResults).reduce((sum, [key, step]: [string, any]) => {
-      if (step.status === "completed" && step.chars) {
-        // 只统计文本文件的字数（排除二进制）
-        if (key === "feedback" || key === "extraction") return sum + step.chars;
-      }
-      return sum;
-    }, 0);
+  // 计算反馈文档字数（最有意义的指标）
+  const getFeedbackChars = (stepResults: any): number => {
+    if (!stepResults?.feedback?.chars) return 0;
+    return stepResults.feedback.status === "completed" ? stepResults.feedback.chars : 0;
   };
 
   if (tasks.length === 0 && !historyQuery.isLoading) {
@@ -160,7 +148,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                 const isActive = task.id === activeTaskId;
                 const duration = getTaskDuration(task);
                 const isRunning = task.status === "running" || task.status === "pending";
-                const totalChars = getTotalChars(task.stepResults);
+                const feedbackChars = getFeedbackChars(task.stepResults);
 
                 return (
                   <div
@@ -195,9 +183,9 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                               · {formatDuration(duration)}
                             </span>
                           )}
-                          {/* 完成后显示总字数 */}
-                          {!isRunning && totalChars > 0 && (
-                            <span>· {totalChars}字</span>
+                          {/* 完成后显示反馈字数 */}
+                          {!isRunning && feedbackChars > 0 && (
+                            <span>· 反馈{feedbackChars}字</span>
                           )}
                         </div>
                       </div>
@@ -229,12 +217,13 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                   {stepResult.fileName && (
                                     <span className="text-gray-400 truncate max-w-[120px]">{stepResult.fileName}</span>
                                   )}
-                                  {/* 完成步骤显示耗时和大小 */}
+                                  {/* 完成步骤显示耗时和字数 */}
                                   {stepResult.status === "completed" && (
                                     <span className="text-gray-400 ml-auto shrink-0">
-                                      {stepResult.duration != null && <>{stepResult.duration}秒</>}
-                                      {stepResult.chars != null && stepResult.duration != null && " · "}
-                                      {stepResult.chars != null && formatChars(stepResult.chars, stepKey)}
+                                      {stepResult.duration != null && formatDuration(stepResult.duration)}
+                                      {isTextStep(stepKey) && stepResult.chars != null && (
+                                        <>{stepResult.duration != null && " · "}{stepResult.chars}字</>
+                                      )}
                                     </span>
                                   )}
                                   {stepResult.error && (
@@ -252,7 +241,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                           <p className="text-xs text-gray-400 mt-1">
                             完成于 {formatTime(task.completedAt)}
                             {duration > 0 && ` · 总计${formatDuration(duration)}`}
-                            {totalChars > 0 && ` · ${totalChars}字`}
+                            {feedbackChars > 0 && ` · 反馈${feedbackChars}字`}
                           </p>
                         )}
                       </div>
