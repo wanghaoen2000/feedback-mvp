@@ -331,6 +331,8 @@ async function svgToPngBase64(svgString: string): Promise<string> {
   });
 }
 
+const MAX_CLASS_STUDENTS = 10; // 班级最多记录10个学生
+
 export default function Home() {
   // 课程类型：'oneToOne' 或 'class'
   const [courseType, setCourseType] = useState<'oneToOne' | 'class'>('oneToOne');
@@ -356,7 +358,7 @@ export default function Home() {
   // 小班课特有字段
   const [classNumber, setClassNumber] = useState(""); // 班号
   // 固定8个输入框，填了名字的算出勤，空的自动忽略
-  const [attendanceStudents, setAttendanceStudents] = useState<string[]>(['', '', '', '', '', '', '', '']); // 出勤学生名单
+  const [attendanceStudents, setAttendanceStudents] = useState<string[]>(Array(MAX_CLASS_STUDENTS).fill('')); // 出勤学生名单（10个位置）
   const [isClassFirstLesson, setIsClassFirstLesson] = useState(false); // 小班课首次课
   
   // 三段文本
@@ -468,6 +470,7 @@ export default function Home() {
   interface StudentRecord {
     lesson: number;
     lastUsed: number; // 时间戳，用于排序
+    students?: string[]; // 班级记录：积累的学生名单（去重合并）
   }
 
   // 从服务器获取学生历史记录（首次加载）
@@ -523,7 +526,7 @@ export default function Home() {
   };
 
   // 获取最近使用的班级列表（按时间从近到远排序）
-  const getRecentClasses = (): Array<{ classNumber: string; lesson: number }> => {
+  const getRecentClasses = (): Array<{ classNumber: string; lesson: number; studentCount: number }> => {
     const history = getStudentLessonHistory();
     return Object.entries(history)
       .filter(([name]) => name.startsWith('班级:'))
@@ -531,15 +534,36 @@ export default function Home() {
       .slice(0, MAX_RECENT_STUDENTS)
       .map(([name, record]) => ({
         classNumber: name.replace('班级:', ''),
-        lesson: record.lesson
+        lesson: record.lesson,
+        studentCount: record.students?.length || 0,
       }));
   };
 
   // 保存学生课次到服务器和 localStorage
-  const saveStudentLesson = (name: string, lesson: number) => {
+  // classStudents: 班级记录时传入本次出勤学生名单，会与历史合并去重
+  const saveStudentLesson = (name: string, lesson: number, classStudents?: string[]) => {
     try {
       const history = getStudentLessonHistory();
-      history[name] = { lesson, lastUsed: Date.now() };
+      const existing = history[name];
+
+      // 合并班级学生名单（跨次积累、去重、最多10个）
+      let mergedStudents: string[] | undefined;
+      if (classStudents && classStudents.length > 0) {
+        const prev = existing?.students || [];
+        const combined = [...prev];
+        for (const s of classStudents) {
+          if (s.trim() && !combined.includes(s.trim())) {
+            combined.push(s.trim());
+          }
+        }
+        mergedStudents = combined.slice(0, MAX_CLASS_STUDENTS);
+      }
+
+      history[name] = {
+        lesson,
+        lastUsed: Date.now(),
+        ...(mergedStudents ? { students: mergedStudents } : existing?.students ? { students: existing.students } : {}),
+      };
 
       // 清理超过30个的旧记录（分别清理学生和班级）
       const students = Object.entries(history).filter(([n]) => !n.startsWith('班级:'));
@@ -581,7 +605,7 @@ export default function Home() {
 
   // 班号下拉列表状态
   const [showClassDropdown, setShowClassDropdown] = useState(false);
-  const [recentClasses, setRecentClasses] = useState<Array<{ classNumber: string; lesson: number }>>([]);
+  const [recentClasses, setRecentClasses] = useState<Array<{ classNumber: string; lesson: number; studentCount: number }>>([]);
   const classInputRef = useRef<HTMLInputElement>(null);
 
   // 点击输入框时加载最近学生列表
@@ -612,11 +636,19 @@ export default function Home() {
   const handleSelectClass = (classNum: string) => {
     setClassNumber(classNum);
     setShowClassDropdown(false);
-    // 直接填充课次（不依赖 useEffect，避免选同班号时值不变不触发的问题）
     const history = getStudentLessonHistory();
     const record = history[`班级:${classNum.trim()}`];
+    // 自动填充课次
     if (record?.lesson !== undefined) {
       setLessonNumber(String(record.lesson + 1));
+    }
+    // 自动填充历史积累的学生名单
+    if (record?.students && record.students.length > 0) {
+      const slots = Array(MAX_CLASS_STUDENTS).fill('');
+      record.students.forEach((s, i) => {
+        if (i < MAX_CLASS_STUDENTS) slots[i] = s;
+      });
+      setAttendanceStudents(slots);
     }
   };
 
@@ -2102,8 +2134,8 @@ export default function Home() {
         const lessonNum = parseInt(classSnapshot.lessonNumber.replace(/[^0-9]/g, ''), 10);
         if (!isNaN(lessonNum)) {
           // 使用班号作为 key，格式如 "班级:26098"
-          saveStudentLesson(`班级:${classSnapshot.classNumber}`, lessonNum);
-          console.log(`[课次记忆] 已保存: ${classSnapshot.classNumber}班 第${lessonNum}次课`);
+          saveStudentLesson(`班级:${classSnapshot.classNumber}`, lessonNum, classSnapshot.attendanceStudents);
+          console.log(`[课次记忆] 已保存: ${classSnapshot.classNumber}班 第${lessonNum}次课, 学生: ${classSnapshot.attendanceStudents.join(',')}`);
         }
       }
 
@@ -2280,7 +2312,8 @@ export default function Home() {
           if (courseType === 'oneToOne' && studentName.trim()) {
             saveStudentLesson(studentName.trim(), lessonNum);
           } else if (courseType === 'class' && classNumber.trim()) {
-            saveStudentLesson(`班级:${classNumber.trim()}`, lessonNum);
+            const validStudents = attendanceStudents.filter((s: string) => s.trim());
+            saveStudentLesson(`班级:${classNumber.trim()}`, lessonNum, validStudents);
           }
         }
 
@@ -3032,7 +3065,9 @@ export default function Home() {
                                   onClick={() => handleSelectClass(c.classNumber)}
                                 >
                                   <span className="font-medium">{c.classNumber}班</span>
-                                  <span className="text-xs text-gray-400">上次第{c.lesson}次 → {c.lesson + 1}</span>
+                                  <span className="text-xs text-gray-400">
+                                    第{c.lesson}次→{c.lesson + 1}{c.studentCount > 0 ? ` · ${c.studentCount}人` : ''}
+                                  </span>
                                 </div>
                               ))}
                             </div>
