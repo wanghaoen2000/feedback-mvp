@@ -10,7 +10,7 @@
 
 ### Claude → Manus（开发端请求部署端执行）
 
-- [ ] **【紧急】排查服务器字体路径**：请在服务器上运行以下命令，把结果贴回下方"Manus 反馈区"：
+- [x] **【紧急】排查服务器字体路径**（已完成 2026-02-07）：请在服务器上运行以下命令，把结果贴回下方"Manus 反馈区"：
   ```bash
   # 1. 查看 WenQuanYi 字体的实际路径
   fc-list | grep -i wqy
@@ -33,9 +33,72 @@
 
 > Manus 请在这里贴上面请求的命令输出结果，Claude 下次会读取并据此调整代码。
 
+**排查时间：** 2026-02-07 17:45 (GMT+8)
+**排查环境：** Manus 沙箱服务器 (Ubuntu 22.04)
+
+### 命令1：fc-list | grep -i wqy
 ```
-（请在此粘贴命令输出）
+/usr/share/fonts/truetype/wqy/wqy-microhei.ttc: WenQuanYi Micro Hei,文泉驛微米黑,文泉驿微米黑:style=Regular
+/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc: WenQuanYi Zen Hei,文泉驛正黑,文泉驿正黑:style=Regular
+/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc: WenQuanYi Zen Hei Sharp,文泉驛點陣正黑,文泉驿点阵正黑:style=Regular
+/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc: WenQuanYi Zen Hei Mono,文泉驛等寬正黑,文泉驿等宽正黑:style=Regular
+/usr/share/fonts/truetype/wqy/wqy-microhei.ttc: WenQuanYi Micro Hei Mono,文泉驛等寬微米黑,文泉驿等宽微米黑:style=Regular
 ```
+
+### 命令2：find /usr/share/fonts -maxdepth 2 -type d
+```
+/usr/share/fonts
+/usr/share/fonts/opentype
+/usr/share/fonts/opentype/fonts-hosny-amiri
+/usr/share/fonts/opentype/ipafont-gothic
+/usr/share/fonts/opentype/noto
+/usr/share/fonts/truetype
+/usr/share/fonts/truetype/abyssinica
+/usr/share/fonts/truetype/droid
+/usr/share/fonts/truetype/liberation
+/usr/share/fonts/truetype/libreoffice
+/usr/share/fonts/truetype/lohit-devanagari
+/usr/share/fonts/truetype/lohit-gujarati
+/usr/share/fonts/truetype/lohit-tamil
+/usr/share/fonts/truetype/noto
+/usr/share/fonts/truetype/padauk
+/usr/share/fonts/truetype/scheherazade
+/usr/share/fonts/truetype/tlwg
+/usr/share/fonts/truetype/wqy
+```
+
+### 命令3：find /usr/share/fonts -name "*.ttc" -o -name "*.ttf" | grep -iE "wqy|noto.*cjk|wenquan"
+```
+/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc
+/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc
+/usr/share/fonts/opentype/noto/NotoSansCJK-DemiLight.ttc
+/usr/share/fonts/opentype/noto/NotoSansCJK-Light.ttc
+/usr/share/fonts/opentype/noto/NotoSansCJK-Medium.ttc
+/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+/usr/share/fonts/opentype/noto/NotoSansCJK-Thin.ttc
+/usr/share/fonts/opentype/noto/NotoSerifCJK-Black.ttc
+/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc
+/usr/share/fonts/opentype/noto/NotoSerifCJK-ExtraLight.ttc
+/usr/share/fonts/opentype/noto/NotoSerifCJK-Light.ttc
+/usr/share/fonts/opentype/noto/NotoSerifCJK-Medium.ttc
+/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc
+/usr/share/fonts/opentype/noto/NotoSerifCJK-SemiBold.ttc
+/usr/share/fonts/truetype/wqy/wqy-microhei.ttc
+/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc
+```
+
+### Manus 分析总结
+
+**关键发现：** 服务器上中文字体分布在两个目录中：
+
+| 字体系列 | 路径 | 格式 | 注意 |
+|---------|------|------|------|
+| WenQuanYi Micro Hei | `/usr/share/fonts/truetype/wqy/wqy-microhei.ttc` | TrueType (.ttc) | 在 truetype 目录下 |
+| WenQuanYi Zen Hei | `/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc` | TrueType (.ttc) | 在 truetype 目录下 |
+| Noto Sans CJK (7个粗细) | `/usr/share/fonts/opentype/noto/NotoSansCJK-*.ttc` | **OpenType (.ttc)** | **在 opentype 目录下，不在 truetype 下！** |
+| Noto Serif CJK (7个粗细) | `/usr/share/fonts/opentype/noto/NotoSerifCJK-*.ttc` | **OpenType (.ttc)** | **在 opentype 目录下，不在 truetype 下！** |
+
+**⚠️ 重要：** Noto CJK 字体在 `/usr/share/fonts/opentype/noto/` 目录下，不是 `/usr/share/fonts/truetype/noto/`。如果 V130 的代码只扫描了 truetype 目录或者预定义路径中没有 opentype 路径，那 Noto CJK 字体就会被漏掉。建议确认 resvg 的字体扫描目录是否包含 `/usr/share/fonts/opentype/`。
 
 ---
 
