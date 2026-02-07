@@ -232,14 +232,25 @@ function getMMDD(dateStr: string): string | null {
   let month: number | null = null;
   let day: number | null = null;
 
+  // 优先匹配中文格式: "1月15日"
   const chineseMatch = dateStr.match(/(\d{1,2})月(\d{1,2})日?/);
   if (chineseMatch) {
     month = parseInt(chineseMatch[1]);
     day = parseInt(chineseMatch[2]);
   }
 
+  // ISO格式: "2026-01-15" → 提取月和日
   if (!month || !day) {
-    const dotMatch = dateStr.match(/(\d{1,2})[.\-](\d{1,2})/);
+    const isoMatch = dateStr.match(/\d{4}[-/](\d{1,2})[-/](\d{1,2})/);
+    if (isoMatch) {
+      month = parseInt(isoMatch[1]);
+      day = parseInt(isoMatch[2]);
+    }
+  }
+
+  // 短格式: "1.15" 或 "1-15"
+  if (!month || !day) {
+    const dotMatch = dateStr.match(/^(\d{1,2})[.\-](\d{1,2})$/);
     if (dotMatch) {
       month = parseInt(dotMatch[1]);
       day = parseInt(dotMatch[2]);
@@ -2111,8 +2122,8 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // 如果启用了自动加载上次反馈，从 Google Drive 本地文件夹读取
-    if (autoLoadLastFeedback) {
+    // 如果启用了自动加载上次反馈，从 Google Drive 本地文件夹读取（首次课跳过）
+    if (autoLoadLastFeedback && !isFirstLesson) {
       const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
       if (!name) {
         alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
@@ -2241,7 +2252,7 @@ export default function Home() {
   // 单步重试函数
   // V63.12: 根据 courseType 区分一对一和小班课接口
   const retryStep = useCallback(async (stepIndex: number) => {
-    if (isGenerating) return;
+    if (isGenerating || activeTaskId) return; // 后台任务运行中禁止SSE重试
     
     setIsGenerating(true);
     updateStep(stepIndex, { status: 'running', message: '正在重试...' });

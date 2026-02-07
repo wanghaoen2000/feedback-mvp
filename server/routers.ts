@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 import { COOKIE_NAME } from "@shared/const";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, gte, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -1755,13 +1755,10 @@ export const appRouter = router({
         completedAt: bgTasksTable.completedAt,
       })
         .from(bgTasksTable)
-        .orderBy(bgTasksTable.createdAt);
+        .where(gte(bgTasksTable.createdAt, threeDaysAgo))
+        .orderBy(desc(bgTasksTable.createdAt));
 
-      // Filter to last 3 days and format
-      return tasks
-        .filter((t) => t.createdAt >= threeDaysAgo)
-        .reverse() // newest first
-        .map((t) => ({
+      return tasks.map((t) => ({
           id: t.id,
           courseType: t.courseType,
           displayName: t.displayName,
