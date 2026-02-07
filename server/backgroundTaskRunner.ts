@@ -659,7 +659,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
             debugLines.push(`===== 注入后SVG结束 =====`, ``);
           }
 
-          // SVG → PNG（注入中文字体+sharp渲染）
+          // SVG → PNG（注入中文字体+resvg渲染）
           const pngBuffer = await svgToPng(svgContent);
           debugLines.push(`PNG大小: ${pngBuffer.length}字节`);
           debugLines.push(``);
