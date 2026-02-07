@@ -61,6 +61,7 @@ interface StepResult {
   chars?: number;
   duration?: number; // 步骤耗时（秒）
   error?: string;
+  content?: string; // 反馈全文（仅 feedback 步骤）
 }
 
 interface StepResults {
@@ -236,6 +237,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       folderUrl: uploadResult.folderUrl || "",
       chars: feedbackContent.length,
       duration: step1Duration,
+      content: feedbackContent,
     };
     console.log(`[后台任务] ${taskId} 步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字)`);
   } catch (err: any) {
@@ -432,6 +434,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       path: uploadResult.path || "",
       chars: feedbackContent.length,
       duration: step1Duration,
+      content: feedbackContent,
     };
     console.log(`[后台任务] ${taskId} 班课步骤1完成: ${fileName} (${step1Duration}秒, ${feedbackContent.length}字)`);
   } catch (err: any) {

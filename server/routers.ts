@@ -1794,19 +1794,46 @@ export const appRouter = router({
         .where(gte(bgTasksTable.createdAt, threeDaysAgo))
         .orderBy(desc(bgTasksTable.createdAt));
 
-      return tasks.map((t) => ({
-          id: t.id,
-          courseType: t.courseType,
-          displayName: t.displayName,
-          status: t.status,
-          currentStep: t.currentStep,
-          totalSteps: t.totalSteps,
-          stepResults: t.stepResults ? JSON.parse(t.stepResults) : null,
-          errorMessage: t.errorMessage,
-          createdAt: t.createdAt.toISOString(),
-          completedAt: t.completedAt?.toISOString() || null,
-        }));
+      return tasks.map((t) => {
+          // 从历史列表中剥离 feedback.content（太大，按需加载）
+          const stepResults = t.stepResults ? JSON.parse(t.stepResults) : null;
+          if (stepResults?.feedback?.content) {
+            delete stepResults.feedback.content;
+          }
+          return {
+            id: t.id,
+            courseType: t.courseType,
+            displayName: t.displayName,
+            status: t.status,
+            currentStep: t.currentStep,
+            totalSteps: t.totalSteps,
+            stepResults,
+            errorMessage: t.errorMessage,
+            createdAt: t.createdAt.toISOString(),
+            completedAt: t.completedAt?.toISOString() || null,
+          };
+        });
     }),
+
+    // 获取反馈全文（按需加载）
+    feedbackContent: protectedProcedure
+      .input(z.object({ taskId: z.string() }))
+      .query(async ({ input }) => {
+        const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
+          .from(bgTasksTable)
+          .where(eq(bgTasksTable.id, input.taskId))
+          .limit(1);
+        if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
+
+        const stepResults = tasks[0].stepResults ? JSON.parse(tasks[0].stepResults) : null;
+        const content = stepResults?.feedback?.content || null;
+        if (!content) throw new TRPCError({ code: "NOT_FOUND", message: "反馈内容不可用（可能是旧任务）" });
+        return { content };
+      }),
   }),
 
   // 简单计算功能（保留MVP验证）
