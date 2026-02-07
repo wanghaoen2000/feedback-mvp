@@ -3329,7 +3329,7 @@ export default function Home() {
                     </div>
                   </div>
                   {autoLoadCurrentNotes ? (
-                    <div className="flex items-center gap-2 h-[72px] bg-blue-50 border border-blue-200 rounded-md px-3 text-sm text-blue-700">
+                    <div className="h-[72px] flex items-center justify-center gap-2 bg-gray-50 border border-dashed border-gray-300 rounded-md text-xs text-gray-500">
                       <FolderDown className="h-5 w-5 text-gray-400 shrink-0" />
                       {(() => {
                         const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
