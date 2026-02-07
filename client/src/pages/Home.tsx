@@ -600,12 +600,24 @@ export default function Home() {
   const handleSelectStudent = (name: string) => {
     setStudentName(name);
     setShowStudentDropdown(false);
+    // 直接填充课次（不依赖 useEffect，避免选同名时值不变不触发的问题）
+    const history = getStudentLessonHistory();
+    const record = history[name.trim()];
+    if (record?.lesson !== undefined) {
+      setLessonNumber(String(record.lesson + 1));
+    }
   };
 
   // 选择班级
   const handleSelectClass = (classNum: string) => {
     setClassNumber(classNum);
     setShowClassDropdown(false);
+    // 直接填充课次（不依赖 useEffect，避免选同班号时值不变不触发的问题）
+    const history = getStudentLessonHistory();
+    const record = history[`班级:${classNum.trim()}`];
+    if (record?.lesson !== undefined) {
+      setLessonNumber(String(record.lesson + 1));
+    }
   };
 
   // 点击外部关闭下拉列表
@@ -2914,10 +2926,11 @@ export default function Home() {
                               {recentStudents.map((s, i) => (
                                 <div
                                   key={i}
-                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer"
+                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
                                   onClick={() => handleSelectStudent(s.name)}
                                 >
                                   <span className="font-medium">{s.name}</span>
+                                  <span className="text-xs text-gray-400">上次第{s.lesson}次 → {s.lesson + 1}</span>
                                 </div>
                               ))}
                             </div>
@@ -3015,10 +3028,11 @@ export default function Home() {
                               {recentClasses.map((c, i) => (
                                 <div
                                   key={i}
-                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer"
+                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
                                   onClick={() => handleSelectClass(c.classNumber)}
                                 >
                                   <span className="font-medium">{c.classNumber}班</span>
+                                  <span className="text-xs text-gray-400">上次第{c.lesson}次 → {c.lesson + 1}</span>
                                 </div>
                               ))}
                             </div>
