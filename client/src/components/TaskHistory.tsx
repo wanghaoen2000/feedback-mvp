@@ -19,6 +19,7 @@ const STATUS_CONFIG = {
   completed: { label: "已完成", icon: CheckCircle2, bg: "bg-green-50", border: "border-green-200", text: "text-green-600" },
   failed: { label: "失败", icon: XCircle, bg: "bg-red-50", border: "border-red-200", text: "text-red-600" },
   partial: { label: "部分完成", icon: AlertTriangle, bg: "bg-yellow-50", border: "border-yellow-200", text: "text-yellow-600" },
+  cancelled: { label: "已取消", icon: XCircle, bg: "bg-gray-50", border: "border-gray-300", text: "text-gray-500" },
 } as const;
 
 const STEP_NAMES = ["反馈", "复习", "测试", "提取", "气泡图"];
@@ -148,6 +149,13 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
 
   const tasks = historyQuery.data || [];
 
+  // 取消任务
+  const cancelMutation = trpc.bgTask.cancel.useMutation({
+    onSuccess: () => {
+      historyQuery.refetch();
+    },
+  });
+
   // 有新的运行中任务时自动展开
   useEffect(() => {
     if (activeTaskId) {
@@ -203,7 +211,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
   // 计算反馈文档字数（最有意义的指标）
   const getFeedbackChars = (stepResults: any): number => {
     if (!stepResults?.feedback?.chars) return 0;
-    return stepResults.feedback.status === "completed" ? stepResults.feedback.chars : 0;
+    return (stepResults.feedback.status === "completed" || stepResults.feedback.status === "truncated") ? stepResults.feedback.chars : 0;
   };
 
   if (tasks.length === 0 && !historyQuery.isLoading) {
@@ -298,9 +306,24 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                           )}
                         </div>
                       </div>
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${config.bg} ${config.text} border ${config.border}`}>
-                        {config.label}
-                      </span>
+                      {isRunning ? (
+                        <button
+                          className="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-500 border border-red-200 hover:bg-red-100 shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm("确定要停止此任务吗？")) {
+                              cancelMutation.mutate({ taskId: task.id });
+                            }
+                          }}
+                          disabled={cancelMutation.isPending}
+                        >
+                          {cancelMutation.isPending ? "取消中..." : "停止"}
+                        </button>
+                      ) : (
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${config.bg} ${config.text} border ${config.border} shrink-0`}>
+                          {config.label}
+                        </span>
+                      )}
                     </button>
 
                     {/* 展开详情 */}
@@ -341,13 +364,17 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                       <span className="text-gray-400 truncate max-w-[120px]">{stepResult.fileName}</span>
                                     )}
                                     {/* 完成步骤显示耗时和字数 */}
-                                    {stepResult.status === "completed" && (
+                                    {(stepResult.status === "completed" || stepResult.status === "truncated") && (
                                       <span className="text-gray-400 ml-auto shrink-0">
                                         {stepResult.duration != null && formatDuration(stepResult.duration)}
                                         {isTextStep(stepKey) && stepResult.chars != null && (
                                           <>{stepResult.duration != null && " · "}{stepResult.chars}字</>
                                         )}
                                       </span>
+                                    )}
+                                    {/* 生成诊断信息（非流式/流式、轮次、token用量） */}
+                                    {stepResult.genInfo && isExpanded && (
+                                      <span className="text-[10px] text-gray-300 block w-full pl-5 mt-0.5">{stepResult.genInfo}</span>
                                     )}
                                     {stepResult.error && (
                                       <span className="text-red-400 truncate ml-auto">{stepResult.error}</span>

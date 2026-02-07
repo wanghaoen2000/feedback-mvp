@@ -429,7 +429,7 @@ export const appRouter = router({
           // 组合年份和日期，并添加星期信息
           const lessonDate = input.lessonDate ? addWeekdayToDate(input.lessonDate.includes('年') ? input.lessonDate : `${currentYear}年${input.lessonDate}`) : "";
           
-          const feedbackContent = await generateFeedbackContent({
+          const feedbackResult = await generateFeedbackContent({
             studentName: input.studentName,
             lessonNumber: input.lessonNumber || "",
             lessonDate: lessonDate,
@@ -440,6 +440,7 @@ export const appRouter = router({
             isFirstLesson: input.isFirstLesson,
             specialRequirements: input.specialRequirements || "",
           }, { apiModel, apiKey, apiUrl, roadmap });
+          const feedbackContent = feedbackResult.content;
 
           if (!feedbackContent || !feedbackContent.trim()) {
             throw new Error('学情反馈生成失败：AI 返回内容为空，请重试');
@@ -1106,15 +1107,16 @@ export const appRouter = router({
         
         try {
           // 生成1份完整的学情反馈（包含全班共用部分+每个学生的单独部分）
-          const feedback = await generateClassFeedbackContent(
+          const classResult = await generateClassFeedbackContent(
             classInput,
             roadmapClass,
             { apiModel, apiKey, apiUrl }
           );
-          
+          const feedback = classResult.content;
+
           stepSuccess(log, "小班课学情反馈", feedback.length);
           endLogSession(log);
-          
+
           return {
             success: true,
             feedback, // 字符串，1份完整的学情反馈
@@ -1881,6 +1883,37 @@ export const appRouter = router({
         const content = stepResults?.feedback?.content || null;
         if (!content) throw new TRPCError({ code: "NOT_FOUND", message: "反馈内容不可用（可能是旧任务）" });
         return { content };
+      }),
+
+    // 取消运行中的任务
+    cancel: protectedProcedure
+      .input(z.object({ taskId: z.string() }))
+      .mutation(async ({ input }) => {
+        const { cancelBackgroundTask } = await import("./backgroundTaskRunner");
+        const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        // 检查任务是否存在且在运行中
+        const tasks = await db.select({ status: bgTasksTable.status })
+          .from(bgTasksTable)
+          .where(eq(bgTasksTable.id, input.taskId))
+          .limit(1);
+        if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
+        if (tasks[0].status !== "running" && tasks[0].status !== "pending") {
+          return { success: false, message: "任务不在运行状态" };
+        }
+
+        const cancelled = cancelBackgroundTask(input.taskId);
+        if (!cancelled) {
+          // 任务可能是pending（还没开始），直接在DB中标记取消
+          await db.update(bgTasksTable).set({
+            status: "cancelled",
+            errorMessage: "用户手动取消",
+            completedAt: new Date(),
+          }).where(eq(bgTasksTable.id, input.taskId));
+        }
+        return { success: true, message: "取消请求已发送" };
       }),
   }),
 
