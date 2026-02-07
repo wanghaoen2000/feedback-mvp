@@ -25,7 +25,15 @@ import {
 import {
   uploadToGoogleDrive,
   uploadBinaryToGoogleDrive,
+  UploadStatus,
 } from "./gdrive";
+
+/** 上传后检查结果，失败则抛出错误（uploadToGoogleDrive 失败时返回 status:'error' 而不是 throw） */
+function assertUploadSuccess(result: UploadStatus, context: string): void {
+  if (result.status === 'error') {
+    throw new Error(`${context}上传失败: ${result.error || '未知错误'}`);
+  }
+}
 
 /**
  * 给日期字符串添加星期信息（与 classStreamRoutes.ts 保持一致）
@@ -227,6 +235,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     const fileName = `${params.studentName}${params.lessonNumber || ""}.md`;
     const folderPath = `${basePath}/学情反馈`;
     const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
+    assertUploadSuccess(uploadResult, "学情反馈");
 
     const step1Duration = Math.round((Date.now() - step1Start) / 1000);
     stepResults.feedback = {
@@ -276,6 +285,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const fileName = `${params.studentName}${params.lessonNumber || ""}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
+      assertUploadSuccess(uploadResult, "复习文档");
       return { step: "review" as const, fileName, uploadResult, chars: reviewDocx.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
@@ -288,6 +298,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const fileName = `${params.studentName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
+      assertUploadSuccess(uploadResult, "测试文档");
       return { step: "test" as const, fileName, uploadResult, chars: testDocx.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
@@ -300,6 +311,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const fileName = `${params.studentName}${params.lessonNumber || ""}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
       const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+      assertUploadSuccess(uploadResult, "课后信息提取");
       return { step: "extraction" as const, fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
@@ -312,6 +324,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const fileName = `${params.studentName}${params.lessonNumber || ""}气泡图.png`;
       const folderPath = `${basePath}/气泡图`;
       const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
+      assertUploadSuccess(uploadResult, "气泡图");
       return { step: "bubbleChart" as const, fileName, uploadResult, chars: pngBuffer.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
   ]);
@@ -413,6 +426,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     const fileName = `${folderName}${params.lessonNumber || ""}.md`;
     const folderPath = `${basePath}/学情反馈`;
     const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
+    assertUploadSuccess(uploadResult, "班课学情反馈");
 
     const step1Duration = Math.round((Date.now() - step1Start) / 1000);
     stepResults.feedback = {
@@ -458,6 +472,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       const fileName = `${folderName}${params.lessonNumber || ""}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
+      assertUploadSuccess(uploadResult, "班课复习文档");
       return { fileName, uploadResult, chars: reviewDocx.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
@@ -469,6 +484,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       const fileName = `${folderName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
       const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
+      assertUploadSuccess(uploadResult, "班课测试文档");
       return { fileName, uploadResult, chars: testDocx.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
@@ -480,6 +496,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       const fileName = `${folderName}${params.lessonNumber || ""}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
       const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+      assertUploadSuccess(uploadResult, "班课课后信息提取");
       return { fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
@@ -505,7 +522,8 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
           const pngBuffer = await sharp(Buffer.from(injectedSvg)).png().toBuffer();
           const fileName = `${studentName}${params.lessonNumber || ""}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
-          await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
+          const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
+          assertUploadSuccess(uploadResult, `气泡图(${studentName})`);
           successCount++;
         } catch (err: any) {
           console.error(`[后台任务] ${taskId} 气泡图 ${studentName} 失败:`, err?.message || err);

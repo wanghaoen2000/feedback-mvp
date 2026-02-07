@@ -52,34 +52,34 @@ export async function generateImage(
 
   const imgController = new AbortController();
   const imgTimer = setTimeout(() => imgController.abort(), 120_000); // 2分钟超时
-  const response = await fetch(fullUrl, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      "connect-protocol-version": "1",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify({
-      prompt: options.prompt,
-      original_images: options.originalImages || [],
-    }),
-    signal: imgController.signal,
-  }).finally(() => clearTimeout(imgTimer));
+  let result: { image: { b64Json: string; mimeType: string } };
+  try {
+    const response = await fetch(fullUrl, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "connect-protocol-version": "1",
+        authorization: `Bearer ${ENV.forgeApiKey}`,
+      },
+      body: JSON.stringify({
+        prompt: options.prompt,
+        original_images: options.originalImages || [],
+      }),
+      signal: imgController.signal,
+    });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      `Image generation request failed (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}`
-    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(
+        `Image generation request failed (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}`
+      );
+    }
+
+    result = (await response.json()) as { image: { b64Json: string; mimeType: string } };
+  } finally {
+    clearTimeout(imgTimer);
   }
-
-  const result = (await response.json()) as {
-    image: {
-      b64Json: string;
-      mimeType: string;
-    };
-  };
   const base64Data = result.image.b64Json;
   const buffer = Buffer.from(base64Data, "base64");
 
