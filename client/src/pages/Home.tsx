@@ -398,6 +398,7 @@ export default function Home() {
 
   // 生成状态
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [steps, setSteps] = useState<StepStatus[]>(initialSteps);
   const [currentStep, setCurrentStep] = useState(0);
   const [feedbackContent, setFeedbackContent] = useState("");
@@ -2133,7 +2134,10 @@ export default function Home() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return; // 防止重复提交
+    setIsSubmitting(true);
 
+    try {
     // 如果启用了自动加载上次反馈，从 Google Drive 本地文件夹读取（首次课跳过）
     const effectiveFirstLesson = courseType === 'oneToOne' ? isFirstLesson : isClassFirstLesson;
     if (autoLoadLastFeedback && !effectiveFirstLesson) {
@@ -2204,7 +2208,7 @@ export default function Home() {
       const displayName = courseType === 'class' ? `${rawName}班` : rawName;
       const expectedFileName = `${displayName}${mmdd}.docx`;
       try {
-        const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName });
+        const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName, allowSplit: true });
         autoLoadedTranscriptRef.current = result.content;
         setTranscript(result.content);
         setTranscriptFile({ name: result.fileName, content: result.content });
@@ -2261,6 +2265,9 @@ export default function Home() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '提交失败';
       alert(`任务提交失败: ${message}`);
+    }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -3420,9 +3427,9 @@ export default function Home() {
                 <Button
                   type="submit"
                   className="flex-1 h-11 text-base"
-                  disabled={isGenerating || bgTaskSubmitMutation.isPending || !isFormValid}
+                  disabled={isSubmitting || isGenerating || bgTaskSubmitMutation.isPending || !isFormValid}
                 >
-                  {bgTaskSubmitMutation.isPending ? (
+                  {isSubmitting ? (
                     <>
                       <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                       提交中...

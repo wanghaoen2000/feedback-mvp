@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { ChevronDown, ChevronUp, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronUp, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 interface TaskHistoryProps {
@@ -36,9 +36,82 @@ function isTextStep(stepKey: string): boolean {
   return stepKey === "feedback" || stepKey === "extraction";
 }
 
+/** 反馈全文查看器 */
+function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const contentQuery = trpc.bgTask.feedbackContent.useQuery({ taskId });
+
+  const handleCopy = useCallback(async () => {
+    if (!contentQuery.data?.content) return;
+    try {
+      await navigator.clipboard.writeText(contentQuery.data.content);
+      setCopied(true);
+    } catch {
+      // fallback for older browsers / non-HTTPS
+      const textarea = document.createElement("textarea");
+      textarea.value = contentQuery.data.content;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setCopied(true);
+    }
+  }, [contentQuery.data?.content]);
+
+  return (
+    <div className="mt-1 border rounded bg-white">
+      {/* 顶部操作栏 */}
+      <div className="flex items-center justify-between px-2 py-1.5 border-b bg-gray-50">
+        <span className="text-xs text-gray-500 font-medium">反馈全文</span>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`h-6 px-2 text-xs ${copied ? "text-green-600" : ""}`}
+            onClick={handleCopy}
+            disabled={!contentQuery.data?.content}
+          >
+            {copied ? (
+              <><Check className="h-3 w-3 mr-1" />已复制</>
+            ) : (
+              <><Copy className="h-3 w-3 mr-1" />复制全文</>
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            onClick={onClose}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
+      {/* 内容区 */}
+      <div className="p-2 max-h-[300px] overflow-y-auto">
+        {contentQuery.isLoading ? (
+          <div className="flex items-center justify-center py-4 text-xs text-gray-400">
+            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+            加载中...
+          </div>
+        ) : contentQuery.error ? (
+          <p className="text-xs text-red-500 py-2">{contentQuery.error.message}</p>
+        ) : (
+          <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words font-sans leading-relaxed">
+            {contentQuery.data?.content}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [viewingFeedbackTaskId, setViewingFeedbackTaskId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now()); // 用于心跳计时
 
   // 查询任务历史
@@ -202,32 +275,54 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                             {Object.entries(task.stepResults).map(([stepKey, stepResult]: [string, any]) => {
                               const stepIndex = ["feedback", "review", "test", "extraction", "bubbleChart"].indexOf(stepKey);
                               const stepName = STEP_NAMES[stepIndex] || stepKey;
+                              const isFeedbackCompleted = stepKey === "feedback" && stepResult.status === "completed";
                               return (
-                                <div key={stepKey} className="flex items-center gap-2 text-xs">
-                                  {stepResult.status === "completed" ? (
-                                    <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
-                                  ) : stepResult.status === "failed" ? (
-                                    <XCircle className="h-3 w-3 text-red-500 shrink-0" />
-                                  ) : stepResult.status === "running" ? (
-                                    <Loader2 className="h-3 w-3 text-blue-500 animate-spin shrink-0" />
-                                  ) : (
-                                    <Clock className="h-3 w-3 text-gray-300 shrink-0" />
-                                  )}
-                                  <span className="text-gray-600">{stepName}</span>
-                                  {stepResult.fileName && (
-                                    <span className="text-gray-400 truncate max-w-[120px]">{stepResult.fileName}</span>
-                                  )}
-                                  {/* 完成步骤显示耗时和字数 */}
-                                  {stepResult.status === "completed" && (
-                                    <span className="text-gray-400 ml-auto shrink-0">
-                                      {stepResult.duration != null && formatDuration(stepResult.duration)}
-                                      {isTextStep(stepKey) && stepResult.chars != null && (
-                                        <>{stepResult.duration != null && " · "}{stepResult.chars}字</>
-                                      )}
+                                <div key={stepKey}>
+                                  <div
+                                    className={`flex items-center gap-2 text-xs ${
+                                      isFeedbackCompleted ? "cursor-pointer hover:bg-black/5 rounded px-1 -mx-1 py-0.5" : ""
+                                    }`}
+                                    onClick={isFeedbackCompleted ? (e) => {
+                                      e.stopPropagation();
+                                      setViewingFeedbackTaskId(
+                                        viewingFeedbackTaskId === task.id ? null : task.id
+                                      );
+                                    } : undefined}
+                                  >
+                                    {stepResult.status === "completed" ? (
+                                      <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
+                                    ) : stepResult.status === "failed" ? (
+                                      <XCircle className="h-3 w-3 text-red-500 shrink-0" />
+                                    ) : stepResult.status === "running" ? (
+                                      <Loader2 className="h-3 w-3 text-blue-500 animate-spin shrink-0" />
+                                    ) : (
+                                      <Clock className="h-3 w-3 text-gray-300 shrink-0" />
+                                    )}
+                                    <span className={`${isFeedbackCompleted ? "text-blue-600 underline" : "text-gray-600"}`}>
+                                      {stepName}
                                     </span>
-                                  )}
-                                  {stepResult.error && (
-                                    <span className="text-red-400 truncate ml-auto">{stepResult.error}</span>
+                                    {stepResult.fileName && (
+                                      <span className="text-gray-400 truncate max-w-[120px]">{stepResult.fileName}</span>
+                                    )}
+                                    {/* 完成步骤显示耗时和字数 */}
+                                    {stepResult.status === "completed" && (
+                                      <span className="text-gray-400 ml-auto shrink-0">
+                                        {stepResult.duration != null && formatDuration(stepResult.duration)}
+                                        {isTextStep(stepKey) && stepResult.chars != null && (
+                                          <>{stepResult.duration != null && " · "}{stepResult.chars}字</>
+                                        )}
+                                      </span>
+                                    )}
+                                    {stepResult.error && (
+                                      <span className="text-red-400 truncate ml-auto">{stepResult.error}</span>
+                                    )}
+                                  </div>
+                                  {/* 反馈全文查看器 */}
+                                  {isFeedbackCompleted && viewingFeedbackTaskId === task.id && (
+                                    <FeedbackViewer
+                                      taskId={task.id}
+                                      onClose={() => setViewingFeedbackTaskId(null)}
+                                    />
                                   )}
                                 </div>
                               );

@@ -1490,9 +1490,10 @@ export const appRouter = router({
     readFromDownloads: protectedProcedure
       .input(z.object({
         fileName: z.string().min(1, "请提供文件名"),
+        allowSplit: z.boolean().optional(), // 允许分段文件检索（-1, -2）
       }))
       .mutation(async ({ input }) => {
-        const { fileName } = input;
+        const { fileName, allowSplit } = input;
 
         const ext = path.extname(fileName).toLowerCase();
         if (!['.docx', '.txt', '.md'].includes(ext)) {
@@ -1504,56 +1505,93 @@ export const appRouter = router({
 
         // 策略：先在 Downloads 目录精确读取，找不到再搜索
         const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath");
-        let buffer: Buffer | null = null;
-        let resolvedFileName = fileName;
 
-        // 阶段1：精确路径读取
-        if (gdriveDownloadsPath) {
-          try {
-            buffer = await readFileFromGoogleDrive(`${gdriveDownloadsPath}/${fileName}`);
-            console.log(`[readFromDownloads] 精确路径找到: ${gdriveDownloadsPath}/${fileName}`);
-          } catch {
-            console.log(`[readFromDownloads] 精确路径未找到，进入搜索模式...`);
+        // 辅助函数：尝试读取单个文件（精确路径 → 搜索）
+        async function tryReadFile(name: string): Promise<{ buffer: Buffer; resolvedName: string } | null> {
+          let buffer: Buffer | null = null;
+          let resolvedName = name;
+
+          if (gdriveDownloadsPath) {
+            try {
+              buffer = await readFileFromGoogleDrive(`${gdriveDownloadsPath}/${name}`);
+              console.log(`[readFromDownloads] 精确路径找到: ${gdriveDownloadsPath}/${name}`);
+            } catch {
+              // 继续搜索
+            }
+          }
+
+          if (!buffer) {
+            const result = await searchFileInGoogleDrive([name], gdriveDownloadsPath || undefined);
+            if (result) {
+              buffer = result.buffer;
+              resolvedName = result.fullPath.split('/').pop() || name;
+              console.log(`[readFromDownloads] 搜索找到: ${result.fullPath}`);
+            }
+          }
+
+          return buffer ? { buffer, resolvedName } : null;
+        }
+
+        // 辅助函数：解析文件内容
+        async function parseFileContent(buffer: Buffer, name: string): Promise<string> {
+          const fileExt = path.extname(name).toLowerCase();
+          if (fileExt === '.docx') {
+            const { parseDocxToText } = await import('./utils/documentParser');
+            return await parseDocxToText(buffer);
+          }
+          return buffer.toString('utf-8');
+        }
+
+        // 第一优先级：完整文件（如 孙浩然0206.docx）
+        const mainResult = await tryReadFile(fileName);
+
+        if (mainResult) {
+          const content = await parseFileContent(mainResult.buffer, mainResult.resolvedName);
+          if (!content.trim()) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: '文件内容为空' });
+          }
+          return { content: content.trim(), fileName: mainResult.resolvedName };
+        }
+
+        // 第二优先级：分段文件（如 孙浩然0206-1.docx + 孙浩然0206-2.docx）
+        if (allowSplit) {
+          const baseName = path.basename(fileName, ext); // 如 "孙浩然0206"
+          const part1Name = `${baseName}-1${ext}`;
+          const part1Result = await tryReadFile(part1Name);
+
+          if (part1Result) {
+            console.log(`[readFromDownloads] 分段模式：找到第1段 ${part1Name}`);
+            const part1Content = await parseFileContent(part1Result.buffer, part1Result.resolvedName);
+
+            // 找到 -1，继续找 -2
+            const part2Name = `${baseName}-2${ext}`;
+            const part2Result = await tryReadFile(part2Name);
+
+            if (part2Result) {
+              console.log(`[readFromDownloads] 分段模式：找到第2段 ${part2Name}，合并两段`);
+              const part2Content = await parseFileContent(part2Result.buffer, part2Result.resolvedName);
+              const merged = (part1Content.trim() + '\n\n' + part2Content.trim()).trim();
+              if (!merged) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: '分段文件内容均为空' });
+              }
+              return {
+                content: merged,
+                fileName: `${baseName}-1+2${ext}`,
+              };
+            } else {
+              // 有 -1 就一定有 -2，找不到说明第2段还没下载
+              throw new TRPCError({
+                code: 'NOT_FOUND',
+                message: `找到了第1段 ${part1Name}，但未找到第2段 ${part2Name}\n请检查是否已下载完整的录音转文字文件`,
+              });
+            }
           }
         }
 
-        // 阶段2：搜索（先在指定目录搜索，再全局搜索）
-        if (!buffer) {
-          const result = await searchFileInGoogleDrive([fileName], gdriveDownloadsPath || undefined);
-          if (result) {
-            buffer = result.buffer;
-            resolvedFileName = result.fullPath.split('/').pop() || fileName;
-            console.log(`[readFromDownloads] 搜索找到: ${result.fullPath}`);
-          }
-        }
-
-        if (!buffer) {
-          throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: `在 Google Drive 未找到文件: ${fileName}\n已尝试: ${gdriveDownloadsPath ? `指定目录(${gdriveDownloadsPath})` : '(未配置Downloads路径)'} + 全局搜索`,
-          });
-        }
-
-        const resolvedExt = path.extname(resolvedFileName).toLowerCase();
-        let content: string;
-        if (resolvedExt === '.docx') {
-          const { parseDocxToText } = await import('./utils/documentParser');
-          content = await parseDocxToText(buffer);
-        } else {
-          content = buffer.toString('utf-8');
-        }
-
-        if (!content.trim()) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: '文件内容为空',
-          });
-        }
-
-        return {
-          content: content.trim(),
-          fileName: resolvedFileName,
-        };
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `在 Google Drive 未找到文件: ${fileName}${allowSplit ? `\n也未找到分段文件: ${path.basename(fileName, ext)}-1${ext}` : ''}\n已尝试: ${gdriveDownloadsPath ? `指定目录(${gdriveDownloadsPath})` : '(未配置Downloads路径)'} + 全局搜索`,
+        });
       }),
 
     // 从 Google Drive 读取上次学情反馈
@@ -1794,19 +1832,46 @@ export const appRouter = router({
         .where(gte(bgTasksTable.createdAt, threeDaysAgo))
         .orderBy(desc(bgTasksTable.createdAt));
 
-      return tasks.map((t) => ({
-          id: t.id,
-          courseType: t.courseType,
-          displayName: t.displayName,
-          status: t.status,
-          currentStep: t.currentStep,
-          totalSteps: t.totalSteps,
-          stepResults: t.stepResults ? JSON.parse(t.stepResults) : null,
-          errorMessage: t.errorMessage,
-          createdAt: t.createdAt.toISOString(),
-          completedAt: t.completedAt?.toISOString() || null,
-        }));
+      return tasks.map((t) => {
+          // 从历史列表中剥离 feedback.content（太大，按需加载）
+          const stepResults = t.stepResults ? JSON.parse(t.stepResults) : null;
+          if (stepResults?.feedback?.content) {
+            delete stepResults.feedback.content;
+          }
+          return {
+            id: t.id,
+            courseType: t.courseType,
+            displayName: t.displayName,
+            status: t.status,
+            currentStep: t.currentStep,
+            totalSteps: t.totalSteps,
+            stepResults,
+            errorMessage: t.errorMessage,
+            createdAt: t.createdAt.toISOString(),
+            completedAt: t.completedAt?.toISOString() || null,
+          };
+        });
     }),
+
+    // 获取反馈全文（按需加载）
+    feedbackContent: protectedProcedure
+      .input(z.object({ taskId: z.string() }))
+      .query(async ({ input }) => {
+        const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
+          .from(bgTasksTable)
+          .where(eq(bgTasksTable.id, input.taskId))
+          .limit(1);
+        if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
+
+        const stepResults = tasks[0].stepResults ? JSON.parse(tasks[0].stepResults) : null;
+        const content = stepResults?.feedback?.content || null;
+        if (!content) throw new TRPCError({ code: "NOT_FOUND", message: "反馈内容不可用（可能是旧任务）" });
+        return { content };
+      }),
   }),
 
   // 简单计算功能（保留MVP验证）
