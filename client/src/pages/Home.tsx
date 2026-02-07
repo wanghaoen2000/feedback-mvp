@@ -11,7 +11,6 @@ import { FileUploadInput } from "@/components/FileUploadInput";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import {
   Loader2,
@@ -356,7 +355,7 @@ export default function Home() {
   
   // 小班课特有字段
   const [classNumber, setClassNumber] = useState(""); // 班号
-  const [attendanceCount, setAttendanceCount] = useState(8); // 出勤学生数，默认8人方便浏览器记忆填充
+  // 固定8个输入框，填了名字的算出勤，空的自动忽略
   const [attendanceStudents, setAttendanceStudents] = useState<string[]>(['', '', '', '', '', '', '', '']); // 出勤学生名单
   const [isClassFirstLesson, setIsClassFirstLesson] = useState(false); // 小班课首次课
   
@@ -3078,33 +3077,6 @@ export default function Home() {
 
                     {/* 出勤学生 */}
                     <div className="space-y-3 pt-2 border-t mt-4">
-                      <div className="flex items-center gap-4">
-                        <Label>出勤学生数：</Label>
-                        <Select
-                          value={String(attendanceCount)}
-                          onValueChange={(v) => {
-                            const count = parseInt(v);
-                            setAttendanceCount(count);
-                            // 调整学生名单数组长度
-                            setAttendanceStudents(prev => {
-                              const newList = [...prev];
-                              while (newList.length < count) newList.push('');
-                              return newList.slice(0, count);
-                            });
-                          }}
-                          disabled={isGenerating}
-                        >
-                          <SelectTrigger className="w-24">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {[2,3,4,5,6,7,8].map(n => (
-                              <SelectItem key={n} value={String(n)}>{n}人</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
                       <div className="space-y-2">
                         <Label>出勤学生姓名：</Label>
                         <div className="grid grid-cols-2 gap-2">
@@ -3122,6 +3094,7 @@ export default function Home() {
                             />
                           ))}
                         </div>
+                        <p className="text-xs text-gray-500">填了名字的算出勤，空的自动忽略，无需按顺序</p>
                       </div>
                     </div>
                   </>
