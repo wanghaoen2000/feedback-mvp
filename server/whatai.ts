@@ -330,6 +330,7 @@ export async function invokeWhatAIStream(
         }
       } finally {
         clearTimeout(stallTimer);
+        reader.cancel().catch(() => {}); // 释放底层连接，防止资源泄漏
       }
 
       // 检测是否因 token 限制而截断

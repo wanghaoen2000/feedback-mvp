@@ -311,6 +311,7 @@ export async function invokeAIStream(
         }
       } finally {
         clearTimeout(stallTimer);
+        reader.cancel().catch(() => {}); // 释放底层连接，防止资源泄漏
       }
 
       // 判断是否因token上限被截断

@@ -168,7 +168,17 @@ async function runTask(taskId: string) {
   if (tasks.length === 0) throw new Error(`任务不存在: ${taskId}`);
 
   const task = tasks[0];
-  const params: TaskParams = JSON.parse(task.inputParams);
+  let params: TaskParams;
+  try {
+    params = JSON.parse(task.inputParams);
+  } catch (parseErr: any) {
+    await updateTask(taskId, {
+      status: "failed",
+      errorMessage: `任务参数解析失败: ${parseErr?.message || '无效JSON'}`,
+      completedAt: new Date(),
+    });
+    throw new Error(`任务 ${taskId} inputParams 解析失败: ${parseErr?.message}`);
+  }
 
   // 更新状态为运行中
   await updateTask(taskId, { status: "running", currentStep: 0 });
