@@ -2123,7 +2123,8 @@ export default function Home() {
     e.preventDefault();
 
     // 如果启用了自动加载上次反馈，从 Google Drive 本地文件夹读取（首次课跳过）
-    if (autoLoadLastFeedback && !isFirstLesson) {
+    const effectiveFirstLesson = courseType === 'oneToOne' ? isFirstLesson : isClassFirstLesson;
+    if (autoLoadLastFeedback && !effectiveFirstLesson) {
       const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
       if (!name) {
         alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
@@ -2230,7 +2231,7 @@ export default function Home() {
         lastFeedback: finalLastFeedback || undefined,
         currentNotes: finalCurrentNotes.trim(),
         transcript: finalTranscript.trim(),
-        isFirstLesson: isFirstLesson || undefined,
+        isFirstLesson: (courseType === 'oneToOne' ? isFirstLesson : isClassFirstLesson) || undefined,
         specialRequirements: undefined,
         classNumber: classNumber.trim() || undefined,
         attendanceStudents: courseType === 'class' ? attendanceStudents.filter((s: string) => s.trim()) : undefined,

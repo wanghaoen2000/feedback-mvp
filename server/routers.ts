@@ -63,6 +63,31 @@ async function setConfig(key: string, value: string, description?: string): Prom
   }
 }
 
+// 给日期添加星期信息（与 backgroundTaskRunner/classStreamRoutes 保持一致）
+function addWeekdayToDate(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  if (dateStr.includes('周') || dateStr.includes('星期')) return dateStr;
+  try {
+    const match = dateStr.match(/(\d{4})年?(\d{1,2})月(\d{1,2})日?/);
+    if (!match) {
+      const shortMatch = dateStr.match(/(\d{1,2})月(\d{1,2})日?/);
+      if (!shortMatch) return dateStr;
+      const year = new Date().getFullYear();
+      const month = parseInt(shortMatch[1], 10) - 1;
+      const day = parseInt(shortMatch[2], 10);
+      const date = new Date(year, month, day);
+      const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+      return `${dateStr}（周${weekdays[date.getDay()]}）`;
+    }
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    const date = new Date(year, month, day);
+    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+    return `${dateStr}（周${weekdays[date.getDay()]}）`;
+  } catch { return dateStr; }
+}
+
 // 共享的输入schema（一对一）
 const feedbackInputSchema = z.object({
   studentName: z.string().min(1, "请输入学生姓名"),
@@ -390,8 +415,8 @@ export const appRouter = router({
         startStep(log, "学情反馈");
         
         try {
-          // 组合年份和日期
-          const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
+          // 组合年份和日期，并添加星期信息
+          const lessonDate = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : "";
           
           const feedbackContent = await generateFeedbackContent({
             studentName: input.studentName,
@@ -1053,8 +1078,8 @@ export const appRouter = router({
         console.log(`[小班课] 开始为 ${input.classNumber} 班生成学情反馈...`);
         console.log(`[小班课] 路书长度: ${roadmapClass?.length || 0} 字符`);
         
-        // 组合年份和日期（和一对一保持一致）
-        const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
+        // 组合年份和日期，并添加星期信息（和一对一保持一致）
+        const lessonDate = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : "";
         
         const classInput: ClassFeedbackInput = {
           classNumber: input.classNumber,

@@ -1025,6 +1025,7 @@ ${input.feedbackContent}
     classNumber: z.string().min(1),
     lessonNumber: z.string().optional(),
     lessonDate: z.string().optional(),
+    currentYear: z.string().optional(),
     attendanceStudents: z.array(z.string()),
     currentNotes: z.string(),
     combinedFeedback: z.string().min(1),
@@ -1096,6 +1097,7 @@ ${input.feedbackContent}
       // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
       const classStoragePath = await getConfig("classStoragePath");
       const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
 
       // 创建日志会话
       log = createLogSession(
@@ -1107,9 +1109,9 @@ ${input.feedbackContent}
       );
       logInfo(log, 'session', '开始小班课复习文档生成 (SSE)');
       startStep(log, 'review');
-      
-      // 给日期添加星期信息
-      const lessonDateWithWeekday = input.lessonDate ? addWeekdayToDate(input.lessonDate) : '未指定';
+
+      // 组合年份和日期，并添加星期信息
+      const lessonDateWithWeekday = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : '未指定';
       
       const userPrompt = `请根据以下小班课信息生成复习文档：
 
