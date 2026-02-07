@@ -622,6 +622,8 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
         `CJK字体文件: ${fontConfig.fontFiles.length > 0 ? fontConfig.fontFiles.join(', ') : '未找到任何CJK字体文件！'}`,
         `字体扫描目录: ${fontConfig.fontDirs.join(', ') || '无'}`,
         ``,
+        ...fontConfig.diagLines,
+        ``,
       ];
       for (const studentName of students) {
         try {
