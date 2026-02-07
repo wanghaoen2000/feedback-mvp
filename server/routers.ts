@@ -33,7 +33,6 @@ import {
   generateReviewContent,
   generateTestContent,
   generateExtractionContent,
-  generateBubbleChart,
   generateBubbleChartSVG,
   FeedbackInput,
   ClassFeedbackInput,

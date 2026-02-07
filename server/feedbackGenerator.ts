@@ -616,68 +616,6 @@ export async function textToDocx(text: string, title: string): Promise<Buffer> {
   return await Packer.toBuffer(doc);
 }
 
-/**
- * 让AI直接按V9路书生成气泡图SVG代码
- */
-async function generateBubbleChartSVGByAI(
-  feedback: string,
-  studentName: string,
-  dateStr: string,
-  lessonNumber: string,
-  config?: APIConfig
-): Promise<string> {
-  // 如果有自定义路书，直接使用路书原文；否则使用默认提示词
-  const systemPrompt = config?.roadmap && config.roadmap.trim()
-    ? config.roadmap
-    : `你是一个气泡图生成助手。请根据学情反馈生成气泡图SVG代码。`;
-
-  const userPrompt = `请根据以下学情反馈生成气泡图SVG代码。
-
-学生信息：
-- 姓名：${studentName}
-- 日期：${dateStr}
-- 课次：${lessonNumber || '未指定'}
-
-学情反馈内容：
-${feedback}
-
-请直接输出SVG代码，不要包含任何解释或markdown标记。SVG代码以<svg开头，以</svg>结尾。
-
-【重要边界限制】
-本次只需要生成气泡图SVG代码，不要生成学情反馈、复习文档、测试本或其他任何内容。
-输出</svg>后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
-
-  try {
-    console.log(`[气泡图] 开始非流式生成SVG...`);
-    const response = await invokeWhatAI([
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ], { max_tokens: 8000, timeout: 300000, retries: 1 }, config);
-    const content = response.choices?.[0]?.message?.content || '';
-    console.log(`[气泡图] SVG生成完成，长度: ${content.length}字符`);
-    
-    // 提取SVG代码
-    const svgMatch = content.match(/<svg[\s\S]*?<\/svg>/);
-    if (svgMatch) {
-      return svgMatch[0];
-    }
-    
-    // 如果没有找到SVG标签，尝试返回整个内容（可能已经是纯SVG）
-    if (content.trim().startsWith('<svg')) {
-      return content.trim();
-    }
-    
-    throw new Error('未找到有效的SVG代码');
-  } catch (error) {
-    console.error('[气泡图] AI生成失败，使用备用方案:', error);
-    // 备用方案：生成一个简单的占位图
-    return `<svg viewBox="0 0 900 700" xmlns="http://www.w3.org/2000/svg">
-      <rect width="900" height="700" fill="#F8F9FA"/>
-      <text x="450" y="350" text-anchor="middle" font-size="24" fill="#666">气泡图生成失败，请重试</text>
-    </svg>`;
-  }
-}
-
 /** 替换 SVG 中所有字体声明为中文字体，确保服务器端 Cairo/Pango 渲染正确 */
 export function injectChineseFontIntoSVG(svgString: string): string {
   // 优先使用 Noto Sans CJK SC（思源黑体），更美观专业；WenQuanYi 作为兜底
@@ -1243,7 +1181,7 @@ ${feedback}
 ${d.currentNotes}
 
 【重要边界限制】
-本次只需要生成测试本，不要生成学情反馈、复习文档、测试本或其他任何内容。
+本次只需要生成测试本，不要生成学情反馈、复习文档、课后信息提取或其他任何内容。
 测试本完成后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
   }
 
@@ -1435,8 +1373,7 @@ export async function generateClassTestContent(
   input: ClassFeedbackInput,
   combinedFeedback: string,
   roadmap: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string },
-  _onProgress?: (chars: number) => void
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
 ): Promise<Buffer> {
   const dateStr = input.lessonDate || '';
   return generateTestContent('class', input, combinedFeedback, dateStr, { ...apiConfig, roadmap });
@@ -1447,8 +1384,7 @@ export async function generateClassExtractionContent(
   input: ClassFeedbackInput,
   combinedFeedback: string,
   roadmap: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string },
-  _onProgress?: (chars: number) => void
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
 ): Promise<string> {
   return generateExtractionContent('class', input, combinedFeedback, { ...apiConfig, roadmap });
 }

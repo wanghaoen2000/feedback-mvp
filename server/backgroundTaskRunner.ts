@@ -89,6 +89,7 @@ interface StepResult {
   duration?: number; // 步骤耗时（秒）
   error?: string;
   content?: string; // 反馈全文（仅 feedback 步骤）
+  rawContent?: string; // 原始AI输出（清洗前，用于诊断换行等问题）
   genInfo?: string;  // 生成诊断信息（模式、轮次、token用量）
 }
 

@@ -6,7 +6,7 @@ import crypto from "crypto";
 import { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { APIConfig } from "./whatai";
-import { ClassFeedbackInput, textToDocx, cleanMarkdownAndHtml, stripAIMetaCommentary, generateClassTestContent, generateClassExtractionContent, generateTestContent, generateExtractionContent, invokeWithContinuation } from "./feedbackGenerator";
+import { ClassFeedbackInput, FeedbackInput, textToDocx, cleanMarkdownAndHtml, stripAIMetaCommentary, generateClassTestContent, generateClassExtractionContent, generateTestContent, generateExtractionContent, invokeWithContinuation } from "./feedbackGenerator";
 import { addWeekdayToDate } from "./utils";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive } from "./gdrive";
 import { 
@@ -46,12 +46,6 @@ const NO_INTERACTION_INSTRUCTION = `
 直接输出文档正文内容，第一行就是文档内容本身，最后一行就是文档内容的结尾。`;
 
 // cleanMarkdownAndHtml 已从 feedbackGenerator.ts 导入
-
-/**
- * 给日期字符串添加星期信息
- * 输入: "2026年1月11日" 或 "1月11日"
- * 输出: "2026年1月11日（周日）" 或 "1月11日（周日）"
- */
 
 // 输入验证 schema
 const classFeedbackInputSchema = z.object({
@@ -807,13 +801,23 @@ ${input.feedbackContent}
         sendEvent("progress", { message: "正在生成测试本..." });
       }, 15000);
 
-      let finalTestChars = 0;
+      const testFeedbackInput: FeedbackInput = {
+        studentName: input.studentName,
+        lessonNumber: input.lessonNumber || '',
+        lessonDate: input.dateStr || '',
+        nextLessonDate: '',
+        lastFeedback: '',
+        currentNotes: '',
+        transcript: '',
+        isFirstLesson: false,
+        specialRequirements: '',
+      };
       const testBuffer = await generateTestContent(
+        'oneToOne',
+        testFeedbackInput,
         input.feedbackContent,
-        input.studentName,
         input.dateStr,
-        { apiModel, apiKey, apiUrl, roadmap },
-        (chars) => { finalTestChars = chars; sendEvent("progress", { chars, message: `正在生成测试本... 已生成 ${chars} 字符` }); }
+        { apiModel, apiKey, apiUrl, roadmap }
       );
 
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
@@ -851,14 +855,14 @@ ${input.feedbackContent}
       };
 
       const testTaskId = input.taskId || crypto.randomUUID();
-      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: finalTestChars });
+      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testBuffer.length });
 
-      stepSuccess(log, '测试本', finalTestChars);
+      stepSuccess(log, '测试本', testBuffer.length);
       endLogSession(log);
 
       sendEvent("complete", {
         success: true,
-        chars: finalTestChars,
+        chars: testBuffer.length,
         contentId: testTaskId,
         uploadResult: testUploadData,
       });
@@ -948,13 +952,22 @@ ${input.feedbackContent}
         sendEvent("progress", { message: "正在生成课后信息提取..." });
       }, 15000);
 
-      let finalExtractionChars = 0;
+      const extractionFeedbackInput: FeedbackInput = {
+        studentName: input.studentName,
+        lessonNumber: input.lessonNumber || '',
+        lessonDate: input.dateStr || '',
+        nextLessonDate: input.nextLessonDate || '',
+        lastFeedback: '',
+        currentNotes: '',
+        transcript: '',
+        isFirstLesson: false,
+        specialRequirements: '',
+      };
       const extractionContent = await generateExtractionContent(
-        input.studentName,
-        input.nextLessonDate || '',
+        'oneToOne',
+        extractionFeedbackInput,
         input.feedbackContent,
-        { apiModel, apiKey, apiUrl, roadmap },
-        (chars) => { finalExtractionChars = chars; sendEvent("progress", { chars, message: `正在生成课后信息提取... 已生成 ${chars} 字符` }); }
+        { apiModel, apiKey, apiUrl, roadmap }
       );
 
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
@@ -1309,8 +1322,6 @@ ${input.currentNotes}
         sendEvent("progress", { message: "正在生成测试本..." });
       }, 15000);
 
-      let finalTestChars = 0;
-
       const classInput: ClassFeedbackInput = {
         classNumber: input.classNumber,
         lessonNumber: input.lessonNumber || '',
@@ -1327,8 +1338,7 @@ ${input.currentNotes}
         classInput,
         input.combinedFeedback,
         roadmapClass,
-        { apiModel, apiKey, apiUrl },
-        (chars) => { finalTestChars = chars; sendEvent("progress", { chars, message: `正在生成测试本... 已生成 ${chars} 字符` }); }
+        { apiModel, apiKey, apiUrl }
       );
 
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
@@ -1367,11 +1377,11 @@ ${input.currentNotes}
         folderUrl: uploadResult.folderUrl || '',
       };
       const testTaskId = input.taskId || crypto.randomUUID();
-      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: finalTestChars });
+      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testBuffer.length });
 
       sendEvent("complete", {
         success: true,
-        chars: finalTestChars,
+        chars: testBuffer.length,
         contentId: testTaskId,
         uploadResult: testUploadData,
       });
@@ -1463,8 +1473,7 @@ ${input.currentNotes}
         classInput,
         input.combinedFeedback,
         roadmapClass,
-        { apiModel, apiKey, apiUrl },
-        (chars) => sendEvent("progress", { chars, message: `正在生成课后信息提取... 已生成 ${chars} 字符` })
+        { apiModel, apiKey, apiUrl }
       );
 
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
