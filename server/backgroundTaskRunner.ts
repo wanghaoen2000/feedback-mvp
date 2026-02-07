@@ -628,10 +628,11 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
           successCount++;
         } catch (err: any) {
           console.error(`[后台任务] ${taskId} 气泡图 ${studentName} 失败:`, err?.message || err);
+          if (err?.stack) console.error(`[后台任务] ${taskId} 气泡图堆栈:`, err.stack);
         }
       }
       if (successCount === 0 && students.length > 0) {
-        throw new Error(`全部${students.length}个学生气泡图生成失败`);
+        throw new Error(`全部${students.length}个学生气泡图生成失败（最后错误见服务器日志）`);
       }
       const failedCount = students.length - successCount;
       if (failedCount > 0) {

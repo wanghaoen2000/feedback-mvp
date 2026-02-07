@@ -564,16 +564,19 @@ ${feedback}
 
 /** 替换 SVG 中所有字体声明为中文字体，确保服务器端 Cairo/Pango 渲染正确 */
 export function injectChineseFontIntoSVG(svgString: string): string {
-  const CJK_FONT = '"WenQuanYi Zen Hei", "Noto Sans CJK SC", sans-serif';
+  // SVG属性中不能用嵌套双引号，用逗号分隔的无引号字体列表
+  const CJK_FONT_ATTR = 'WenQuanYi Zen Hei, Noto Sans CJK SC, sans-serif';
+  // CSS中可以用单引号
+  const CJK_FONT_CSS = "'WenQuanYi Zen Hei', 'Noto Sans CJK SC', sans-serif";
   let result = svgString;
   // 1. 注入全局 CSS 样式（覆盖继承的字体）
-  const fontStyle = `<style>text, tspan { font-family: ${CJK_FONT} !important; }</style>`;
+  const fontStyle = `<style>text, tspan { font-family: ${CJK_FONT_CSS} !important; }</style>`;
   result = result.replace(/(<svg[^>]*>)/, `$1${fontStyle}`);
   // 2. 替换所有内联 font-family 属性（CSS !important 无法覆盖 SVG 属性）
-  result = result.replace(/font-family="[^"]*"/g, `font-family=${CJK_FONT}`);
-  result = result.replace(/font-family='[^']*'/g, `font-family=${CJK_FONT}`);
+  result = result.replace(/font-family="[^"]*"/g, `font-family="${CJK_FONT_ATTR}"`);
+  result = result.replace(/font-family='[^']*'/g, `font-family='${CJK_FONT_ATTR}'`);
   // 3. 替换内联 style 中的 font-family
-  result = result.replace(/font-family:\s*[^;"']+/g, `font-family: ${CJK_FONT}`);
+  result = result.replace(/font-family:\s*[^;"']+/g, `font-family: ${CJK_FONT_CSS}`);
   return result;
 }
 
