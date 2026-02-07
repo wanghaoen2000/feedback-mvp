@@ -1,9 +1,10 @@
+import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { COOKIE_NAME } from "@shared/const";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, gte, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -62,6 +63,31 @@ async function setConfig(key: string, value: string, description?: string): Prom
   }
 }
 
+// 给日期添加星期信息（与 backgroundTaskRunner/classStreamRoutes 保持一致）
+function addWeekdayToDate(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  if (dateStr.includes('周') || dateStr.includes('星期')) return dateStr;
+  try {
+    const match = dateStr.match(/(\d{4})年?(\d{1,2})月(\d{1,2})日?/);
+    if (!match) {
+      const shortMatch = dateStr.match(/(\d{1,2})月(\d{1,2})日?/);
+      if (!shortMatch) return dateStr;
+      const year = new Date().getFullYear();
+      const month = parseInt(shortMatch[1], 10) - 1;
+      const day = parseInt(shortMatch[2], 10);
+      const date = new Date(year, month, day);
+      const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+      return `${dateStr}（周${weekdays[date.getDay()]}）`;
+    }
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    const date = new Date(year, month, day);
+    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+    return `${dateStr}（周${weekdays[date.getDay()]}）`;
+  } catch { return dateStr; }
+}
+
 // 共享的输入schema（一对一）
 const feedbackInputSchema = z.object({
   studentName: z.string().min(1, "请输入学生姓名"),
@@ -88,7 +114,7 @@ const classFeedbackInputSchema = z.object({
   lessonNumber: z.string().optional(),
   lessonDate: z.string().optional(), // 本次课日期，如"1月15日"
   currentYear: z.string().optional(), // 年份，如"2026"
-  attendanceStudents: z.array(z.string()).min(2, "至少需要2名学生"),
+  attendanceStudents: z.array(z.string()).min(1, "至少需要1名出勤学生"),
   lastFeedback: z.string().optional(),
   currentNotes: z.string().min(1, "请输入本次课笔记"),
   transcript: z.string().min(1, "请输入录音转文字"),
@@ -389,8 +415,8 @@ export const appRouter = router({
         startStep(log, "学情反馈");
         
         try {
-          // 组合年份和日期
-          const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
+          // 组合年份和日期，并添加星期信息
+          const lessonDate = input.lessonDate ? addWeekdayToDate(input.lessonDate.includes('年') ? input.lessonDate : `${currentYear}年${input.lessonDate}`) : "";
           
           const feedbackContent = await generateFeedbackContent({
             studentName: input.studentName,
@@ -417,7 +443,7 @@ export const appRouter = router({
 
           // 上传到Google Drive
           const basePath = `${driveBasePath}/${input.studentName}`;
-          const fileName = `${input.studentName}${input.lessonNumber || ''}学情反馈.md`;
+          const fileName = `${input.studentName}${input.lessonNumber || ''}.md`;
           const folderPath = `${basePath}/学情反馈`;
           
           logInfo(log, "学情反馈", `上传到Google Drive: ${folderPath}/${fileName}`);
@@ -880,12 +906,13 @@ export const appRouter = router({
         
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
         const basePath = `${driveBasePath}/${input.studentName}`;
+        const ln = input.lessonNumber || '';
         const filePaths = [
-          `${basePath}/学情反馈/${input.studentName}${input.dateStr}阅读课反馈.md`,
-          `${basePath}/复习文档/${input.studentName}${input.dateStr}复习文档.docx`,
-          `${basePath}/复习文档/${input.studentName}${input.dateStr}测试文档.docx`,
-          `${basePath}/课后信息/${input.studentName}${input.dateStr}课后信息提取.md`,
-          `${basePath}/气泡图/${input.studentName}${input.lessonNumber || ''}气泡图.png`,
+          `${basePath}/学情反馈/${input.studentName}${ln}.md`,
+          `${basePath}/复习文档/${input.studentName}${ln}复习文档.docx`,
+          `${basePath}/复习文档/${input.studentName}${ln}测试文档.docx`,
+          `${basePath}/课后信息/${input.studentName}${ln}课后信息提取.md`,
+          `${basePath}/气泡图/${input.studentName}${ln}气泡图.png`,
         ];
         
         const verification = await verifyAllFiles(filePaths);
@@ -1051,8 +1078,8 @@ export const appRouter = router({
         console.log(`[小班课] 开始为 ${input.classNumber} 班生成学情反馈...`);
         console.log(`[小班课] 路书长度: ${roadmapClass?.length || 0} 字符`);
         
-        // 组合年份和日期（和一对一保持一致）
-        const lessonDate = input.lessonDate ? `${currentYear}年${input.lessonDate}` : "";
+        // 组合年份和日期，并添加星期信息（和一对一保持一致）
+        const lessonDate = input.lessonDate ? addWeekdayToDate(input.lessonDate.includes('年') ? input.lessonDate : `${currentYear}年${input.lessonDate}`) : "";
         
         const classInput: ClassFeedbackInput = {
           classNumber: input.classNumber,
@@ -1314,7 +1341,7 @@ export const appRouter = router({
         switch (input.fileType) {
           case 'feedback':
             // 1份完整的学情反馈，文件名用班号
-            fileName = `${input.classNumber}班${input.lessonNumber || ''}学情反馈.md`;
+            fileName = `${input.classNumber}班${input.lessonNumber || ''}.md`;
             filePath = `${basePath}/学情反馈/${fileName}`;
             contentBuffer = input.content;
             break;
@@ -1521,13 +1548,22 @@ export const appRouter = router({
     // 从 Google Drive 读取上次学情反馈
     readLastFeedback: protectedProcedure
       .input(z.object({
-        studentName: z.string().min(1),
+        studentName: z.string().default(""),
         lessonNumber: z.string().min(1),
         courseType: z.enum(['oneToOne', 'class']).default('oneToOne'),
         classNumber: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const { studentName, lessonNumber, courseType, classNumber } = input;
+
+        // 一对一模式必须有学生姓名
+        if (courseType === 'oneToOne' && !studentName.trim()) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '请输入学生姓名' });
+        }
+        // 小班课模式必须有班号
+        if (courseType === 'class' && !classNumber?.trim()) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '请输入班号' });
+        }
 
         const currentLesson = parseInt(lessonNumber.replace(/[^0-9]/g, ''), 10);
         if (isNaN(currentLesson) || currentLesson <= 1) {
@@ -1538,8 +1574,14 @@ export const appRouter = router({
         }
         const prevLesson = currentLesson - 1;
 
-        // 使用已有的 driveBasePath 配置（跟上传学情反馈用同一个路径）
-        const driveBasePath = await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
+        // 小班课优先使用 classStoragePath，一对一使用 driveBasePath
+        let driveBasePath: string;
+        if (courseType === 'class') {
+          const classStoragePath = await getConfig("classStoragePath");
+          driveBasePath = classStoragePath || await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
+        } else {
+          driveBasePath = await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
+        }
 
         // 构建文件名候选列表和搜索目录
         let folderName: string;
@@ -1549,8 +1591,6 @@ export const appRouter = router({
           const prefixes = [
             `${classNumber}班${prevLesson}`,
             `${classNumber}班 ${prevLesson}`,
-            `${classNumber}班${prevLesson}学情反馈`,
-            `${classNumber}班 ${prevLesson}学情反馈`,
           ];
           for (const prefix of prefixes) {
             candidateFileNames.push(`${prefix}.md`, `${prefix}.docx`, `${prefix}.txt`);
@@ -1560,8 +1600,6 @@ export const appRouter = router({
           const prefixes = [
             `${studentName}${prevLesson}`,
             `${studentName} ${prevLesson}`,
-            `${studentName}${prevLesson}学情反馈`,
-            `${studentName} ${prevLesson}学情反馈`,
           ];
           for (const prefix of prefixes) {
             candidateFileNames.push(`${prefix}.md`, `${prefix}.docx`, `${prefix}.txt`);
@@ -1595,23 +1633,11 @@ export const appRouter = router({
           diag.push(`精确路径: 全部未命中 (首条错误: ${firstError || 'unknown'})`);
         }
 
-        // 阶段2：搜索兜底（先在指定目录搜索，再全局搜索）
-        if (!foundBuffer) {
-          console.log(`[readLastFeedback] 精确路径全部未命中，进入搜索模式...`);
-          const result = await searchFileInGoogleDrive(candidateFileNames, feedbackFolder);
-          if (result) {
-            foundBuffer = result.buffer;
-            foundFileName = result.fullPath.split('/').pop() || null;
-            console.log(`[readLastFeedback] 搜索找到: ${result.fullPath}`);
-          } else {
-            diag.push(`搜索: 目录搜索+全局搜索均无结果`);
-          }
-        }
-
+        // 不做全局搜索兜底，避免搜到 Downloads 文件夹里的同名笔记文件
         if (!foundBuffer || !foundFileName) {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: `未找到第${prevLesson}次课反馈\n路径: ${feedbackFolder}\n候选: ${candidateFileNames.slice(0, 3).join(', ')}...\n诊断: ${diag.join(' | ')}\n\n请先运行「诊断」检查 OAuth 连接`,
+            message: `未找到第${prevLesson}次课反馈\n路径: ${feedbackFolder}\n候选: ${candidateFileNames.slice(0, 3).join(', ')}...\n诊断: ${diag.join(' | ')}\n\n请确认文件存在于学情反馈文件夹中`,
           });
         }
 
@@ -1637,6 +1663,139 @@ export const appRouter = router({
           prevLesson,
         };
       }),
+  }),
+
+  // 后台任务管理
+  bgTask: router({
+    // 提交后台任务
+    submit: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["one-to-one", "class"]),
+        // 共用字段
+        lessonNumber: z.string().optional(),
+        lessonDate: z.string().optional(),
+        currentYear: z.string().optional(),
+        lastFeedback: z.string().optional(),
+        currentNotes: z.string().min(1),
+        transcript: z.string().min(1),
+        specialRequirements: z.string().optional(),
+        // 一对一字段
+        studentName: z.string().optional(),
+        isFirstLesson: z.boolean().optional(),
+        // 小班课字段
+        classNumber: z.string().optional(),
+        attendanceStudents: z.array(z.string()).optional(),
+        // 配置快照
+        apiModel: z.string().optional(),
+        apiKey: z.string().optional(),
+        apiUrl: z.string().optional(),
+        roadmap: z.string().optional(),
+        roadmapClass: z.string().optional(),
+        driveBasePath: z.string().optional(),
+        classStoragePath: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { startBackgroundTask, cleanupOldTasks } = await import("./backgroundTaskRunner");
+        const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        // 先清理旧任务
+        await cleanupOldTasks();
+
+        // 生成任务 ID 和显示名
+        const taskId = crypto.randomUUID();
+        let displayName: string;
+        if (input.courseType === "one-to-one") {
+          if (!input.studentName) throw new TRPCError({ code: "BAD_REQUEST", message: "请输入学生姓名" });
+          displayName = `${input.studentName} 第${input.lessonNumber || "?"}次`;
+        } else {
+          if (!input.classNumber) throw new TRPCError({ code: "BAD_REQUEST", message: "请输入班号" });
+          displayName = `${input.classNumber}班 第${input.lessonNumber || "?"}次`;
+        }
+
+        // 构建参数
+        const taskParams = { ...input };
+
+        // 插入任务记录
+        await db.insert(bgTasksTable).values({
+          id: taskId,
+          courseType: input.courseType,
+          displayName,
+          status: "pending",
+          currentStep: 0,
+          totalSteps: 5,
+          inputParams: JSON.stringify(taskParams),
+        });
+
+        // 启动后台处理（不等待）
+        startBackgroundTask(taskId);
+
+        return { taskId, displayName };
+      }),
+
+    // 查询单个任务状态
+    status: protectedProcedure
+      .input(z.object({ taskId: z.string() }))
+      .query(async ({ input }) => {
+        const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        const tasks = await db.select().from(bgTasksTable).where(eq(bgTasksTable.id, input.taskId)).limit(1);
+        if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
+
+        const task = tasks[0];
+        return {
+          id: task.id,
+          courseType: task.courseType,
+          displayName: task.displayName,
+          status: task.status,
+          currentStep: task.currentStep,
+          totalSteps: task.totalSteps,
+          stepResults: task.stepResults ? JSON.parse(task.stepResults) : null,
+          errorMessage: task.errorMessage,
+          createdAt: task.createdAt.toISOString(),
+          completedAt: task.completedAt?.toISOString() || null,
+        };
+      }),
+
+    // 查询最近3天的任务历史
+    history: protectedProcedure.query(async () => {
+      const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+      const db = await getDb();
+      if (!db) return [];
+
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const tasks = await db.select({
+        id: bgTasksTable.id,
+        courseType: bgTasksTable.courseType,
+        displayName: bgTasksTable.displayName,
+        status: bgTasksTable.status,
+        currentStep: bgTasksTable.currentStep,
+        totalSteps: bgTasksTable.totalSteps,
+        stepResults: bgTasksTable.stepResults,
+        errorMessage: bgTasksTable.errorMessage,
+        createdAt: bgTasksTable.createdAt,
+        completedAt: bgTasksTable.completedAt,
+      })
+        .from(bgTasksTable)
+        .where(gte(bgTasksTable.createdAt, threeDaysAgo))
+        .orderBy(desc(bgTasksTable.createdAt));
+
+      return tasks.map((t) => ({
+          id: t.id,
+          courseType: t.courseType,
+          displayName: t.displayName,
+          status: t.status,
+          currentStep: t.currentStep,
+          totalSteps: t.totalSteps,
+          stepResults: t.stepResults ? JSON.parse(t.stepResults) : null,
+          errorMessage: t.errorMessage,
+          createdAt: t.createdAt.toISOString(),
+          completedAt: t.completedAt?.toISOString() || null,
+        }));
+    }),
   }),
 
   // 简单计算功能（保留MVP验证）

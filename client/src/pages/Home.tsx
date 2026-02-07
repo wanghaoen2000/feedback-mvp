@@ -37,6 +37,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 import { VERSION_DISPLAY } from "../version.generated";
+import { TaskHistory } from "@/components/TaskHistory";
 
 // 步骤状态类型
 interface StepStatus {
@@ -231,14 +232,25 @@ function getMMDD(dateStr: string): string | null {
   let month: number | null = null;
   let day: number | null = null;
 
+  // 优先匹配中文格式: "1月15日"
   const chineseMatch = dateStr.match(/(\d{1,2})月(\d{1,2})日?/);
   if (chineseMatch) {
     month = parseInt(chineseMatch[1]);
     day = parseInt(chineseMatch[2]);
   }
 
+  // ISO格式: "2026-01-15" → 提取月和日
   if (!month || !day) {
-    const dotMatch = dateStr.match(/(\d{1,2})[.\-](\d{1,2})/);
+    const isoMatch = dateStr.match(/\d{4}[-/](\d{1,2})[-/](\d{1,2})/);
+    if (isoMatch) {
+      month = parseInt(isoMatch[1]);
+      day = parseInt(isoMatch[2]);
+    }
+  }
+
+  // 短格式: "1.15" 或 "1-15"
+  if (!month || !day) {
+    const dotMatch = dateStr.match(/^(\d{1,2})[.\-](\d{1,2})$/);
     if (dotMatch) {
       month = parseInt(dotMatch[1]);
       day = parseInt(dotMatch[2]);
@@ -362,6 +374,10 @@ export default function Home() {
   const [autoLoadTranscript, setAutoLoadTranscript] = useState(true);
   const autoLoadedTranscriptRef = useRef<string | null>(null);
 
+  // 自动从 Downloads 文件夹加载课堂笔记
+  const [autoLoadCurrentNotes, setAutoLoadCurrentNotes] = useState(true);
+  const autoLoadedCurrentNotesRef = useRef<string | null>(null);
+
   // 自动从 Google Drive 本地文件夹加载上次反馈
   const [autoLoadLastFeedback, setAutoLoadLastFeedback] = useState(true);
   const autoLoadedLastFeedbackRef = useRef<string | null>(null);
@@ -421,6 +437,7 @@ export default function Home() {
     url?: string;
   } | null>(null); // 导出结果
   const [feedbackCopied, setFeedbackCopied] = useState(false); // 学情反馈是否已复制
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null); // 当前提交的后台任务ID
   const feedbackScrollRef = useRef<HTMLDivElement | null>(null); // 学情反馈内容滚动容器
   const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
   const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -429,6 +446,19 @@ export default function Home() {
   useEffect(() => {
     return () => { if (skipTimerRef.current) clearTimeout(skipTimerRef.current); };
   }, []);
+
+  // 监听后台任务完成，自动清除 activeTaskId（解锁 retryStep）
+  const activeTaskMonitor = trpc.bgTask.history.useQuery(undefined, {
+    enabled: !!activeTaskId,
+    refetchInterval: activeTaskId ? 5000 : false,
+  });
+  useEffect(() => {
+    if (!activeTaskId || !activeTaskMonitor.data) return;
+    const task = activeTaskMonitor.data.find((t: any) => t.id === activeTaskId);
+    if (task && task.status !== 'running' && task.status !== 'pending') {
+      setActiveTaskId(null);
+    }
+  }, [activeTaskId, activeTaskMonitor.data]);
 
   // ========== 学生课次记忆功能 ==========
   const STUDENT_LESSON_STORAGE_KEY = 'studentLessonHistoryV2';
@@ -652,6 +682,7 @@ export default function Home() {
   const readFromDownloadsMutation = trpc.localFile.readFromDownloads.useMutation();
   const readLastFeedbackMutation = trpc.localFile.readLastFeedback.useMutation();
   const diagnoseMutation = trpc.localFile.diagnose.useMutation();
+  const bgTaskSubmitMutation = trpc.bgTask.submit.useMutation();
   // 加载配置
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
@@ -2104,8 +2135,9 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // 如果启用了自动加载上次反馈，从 Google Drive 本地文件夹读取
-    if (autoLoadLastFeedback) {
+    // 如果启用了自动加载上次反馈，从 Google Drive 本地文件夹读取（首次课跳过）
+    const effectiveFirstLesson = courseType === 'oneToOne' ? isFirstLesson : isClassFirstLesson;
+    if (autoLoadLastFeedback && !effectiveFirstLesson) {
       const name = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
       if (!name) {
         alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
@@ -2132,7 +2164,32 @@ export default function Home() {
       }
     }
 
-    // 如果启用了自动加载录音转文字，先从 Downloads 文件夹读取
+    // 如果启用了自动加载课堂笔记，从 Downloads 文件夹读取（姓名+课次号.docx）
+    if (autoLoadCurrentNotes) {
+      const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
+      const lesson = lessonNumber.trim();
+      if (!name) {
+        alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
+        return;
+      }
+      if (!lesson) {
+        alert('请填写课次号（用于构建笔记文件名）');
+        return;
+      }
+      const expectedFileName = `${name}${lesson}.docx`;
+      try {
+        const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName });
+        autoLoadedCurrentNotesRef.current = result.content;
+        setCurrentNotes(result.content);
+        setCurrentNotesFile({ name: result.fileName, content: result.content });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '读取文件失败';
+        alert(`自动加载课堂笔记失败: ${message}`);
+        return;
+      }
+    }
+
+    // 如果启用了自动加载录音转文字，先从 Downloads 文件夹读取（姓名+日期.docx）
     if (autoLoadTranscript) {
       const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
       const mmdd = getMMDD(lessonDate);
@@ -2152,32 +2209,64 @@ export default function Home() {
         setTranscriptFile({ name: result.fileName, content: result.content });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '读取文件失败';
-        alert(`自动加载失败: ${message}`);
+        alert(`自动加载录音转文字失败: ${message}`);
         return;
       }
     }
 
+    // 获取最终的文本内容（可能来自自动加载）
+    const finalLastFeedback = autoLoadedLastFeedbackRef.current || lastFeedback;
+    const finalTranscript = autoLoadedTranscriptRef.current || transcript;
+    const finalCurrentNotes = autoLoadedCurrentNotesRef.current || currentNotes;
+
     if (courseType === 'oneToOne') {
-      // 一对一模式
+      // 一对一模式验证
       if (!studentName.trim()) { alert('请输入学生姓名'); return; }
-      if (!currentNotes.trim()) { alert('请输入课堂笔记'); return; }
-      if (!autoLoadTranscript && !transcript.trim()) { alert('请输入录音转文字'); return; }
-      await runGeneration();
+      if (!autoLoadCurrentNotes && !finalCurrentNotes.trim()) { alert('请输入课堂笔记'); return; }
+      if (!autoLoadTranscript && !finalTranscript.trim()) { alert('请输入录音转文字'); return; }
     } else {
-      // 小班课模式
+      // 小班课模式验证
       if (!classNumber.trim()) { alert('请输入班号'); return; }
       const validStudents = attendanceStudents.filter((s: string) => s.trim());
       if (validStudents.length === 0) { alert('请至少添加一名出勤学生'); return; }
-      if (!currentNotes.trim()) { alert('请输入课堂笔记'); return; }
-      if (!autoLoadTranscript && !transcript.trim()) { alert('请输入录音转文字'); return; }
-      await runClassGeneration();
+      if (!autoLoadCurrentNotes && !finalCurrentNotes.trim()) { alert('请输入课堂笔记'); return; }
+      if (!autoLoadTranscript && !finalTranscript.trim()) { alert('请输入录音转文字'); return; }
+    }
+
+    // 提交后台任务（服务器端执行，断网不影响）
+    try {
+      const result = await bgTaskSubmitMutation.mutateAsync({
+        courseType: courseType === 'oneToOne' ? 'one-to-one' : 'class',
+        studentName: studentName.trim() || undefined,
+        lessonNumber: lessonNumber.trim() || undefined,
+        lessonDate: lessonDate.trim() || undefined,
+        currentYear: currentYear.trim() || undefined,
+        lastFeedback: finalLastFeedback || undefined,
+        currentNotes: finalCurrentNotes.trim(),
+        transcript: finalTranscript.trim(),
+        isFirstLesson: (courseType === 'oneToOne' ? isFirstLesson : isClassFirstLesson) || undefined,
+        specialRequirements: undefined,
+        classNumber: classNumber.trim() || undefined,
+        attendanceStudents: courseType === 'class' ? attendanceStudents.filter((s: string) => s.trim()) : undefined,
+        apiModel: apiModel.trim() || undefined,
+        apiKey: apiKey.trim() || undefined,
+        apiUrl: apiUrl.trim() || undefined,
+        roadmap: roadmap || undefined,
+        roadmapClass: roadmapClass || undefined,
+        driveBasePath: driveBasePath.trim() || undefined,
+      });
+      setActiveTaskId(result.taskId);
+      alert(`任务已提交到后台！\n${result.displayName}\n\n即使关闭手机屏幕或断网，服务器也会继续生成。\n请在下方「任务记录」中查看进度。`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '提交失败';
+      alert(`任务提交失败: ${message}`);
     }
   };
 
   // 单步重试函数
   // V63.12: 根据 courseType 区分一对一和小班课接口
   const retryStep = useCallback(async (stepIndex: number) => {
-    if (isGenerating) return;
+    if (isGenerating || activeTaskId) return; // 后台任务运行中禁止SSE重试
     
     setIsGenerating(true);
     updateStep(stepIndex, { status: 'running', message: '正在重试...' });
@@ -2696,13 +2785,16 @@ export default function Home() {
   };
 
   // 表单验证：根据课程类型检查不同的必填字段
-  // 如果启用了自动加载，录音转文字不需要手动填写（会在提交时自动读取）
+  // 如果启用了自动加载，对应字段不需要手动填写（会在提交时自动读取）
   const transcriptReady = autoLoadTranscript
     ? !!(courseType === 'oneToOne' ? studentName.trim() : classNumber.trim()) && !!getMMDD(lessonDate)
     : !!transcript.trim();
+  const notesReady = autoLoadCurrentNotes
+    ? !!(courseType === 'oneToOne' ? studentName.trim() : classNumber.trim()) && !!lessonNumber.trim()
+    : !!currentNotes.trim();
   const isFormValid = courseType === 'oneToOne'
-    ? (studentName.trim() && currentNotes.trim() && transcriptReady)
-    : (classNumber.trim() && attendanceStudents.some((s: string) => s.trim()) && currentNotes.trim() && transcriptReady);
+    ? (studentName.trim() && notesReady && transcriptReady)
+    : (classNumber.trim() && attendanceStudents.some((s: string) => s.trim()) && notesReady && transcriptReady);
 
   // 计算成功数量
   const successCount = steps.filter(s => s.status === 'success').length;
@@ -2800,17 +2892,13 @@ export default function Home() {
                           />
                           {showStudentDropdown && recentStudents.length > 0 && (
                             <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                              <div className="px-3 py-2 text-xs text-gray-500 border-b bg-gray-50">
-                                最近使用的学生（点击选择）
-                              </div>
                               {recentStudents.map((s, i) => (
                                 <div
                                   key={i}
-                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
+                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer"
                                   onClick={() => handleSelectStudent(s.name)}
                                 >
                                   <span className="font-medium">{s.name}</span>
-                                  <span className="text-xs text-gray-400">上次第{s.lesson}次 → 下次第{s.lesson + 1}次</span>
                                 </div>
                               ))}
                             </div>
@@ -2905,17 +2993,13 @@ export default function Home() {
                           />
                           {showClassDropdown && recentClasses.length > 0 && (
                             <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                              <div className="px-3 py-2 text-xs text-gray-500 border-b bg-gray-50">
-                                最近使用的班级（点击选择）
-                              </div>
                               {recentClasses.map((c, i) => (
                                 <div
                                   key={i}
-                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
+                                  className="px-3 py-2 hover:bg-blue-50 cursor-pointer"
                                   onClick={() => handleSelectClass(c.classNumber)}
                                 >
                                   <span className="font-medium">{c.classNumber}班</span>
-                                  <span className="text-xs text-gray-400">上次第{c.lesson}次 → 下次第{c.lesson + 1}次</span>
                                 </div>
                               ))}
                             </div>
@@ -3129,7 +3213,7 @@ export default function Home() {
                         const prefix = courseType === 'class' ? `${classNumber.trim()}班` : name;
                         return (
                           <span className="font-mono text-blue-600 text-xs">
-                            {prefix}{prevLesson}学情反馈.md
+                            {prefix}{prevLesson}.md
                           </span>
                         );
                       })()}
@@ -3210,29 +3294,69 @@ export default function Home() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="currentNotes">本次课笔记 *</Label>
-                    <FileUploadInput
-                      onFileContent={(content, fileName) => {
-                        if (content && fileName) {
-                          setCurrentNotesFile({ name: fileName, content });
-                          setCurrentNotes(content);
-                        } else {
-                          setCurrentNotesFile(null);
-                        }
-                      }}
-                      disabled={isGenerating}
-                    />
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <Checkbox
+                          checked={autoLoadCurrentNotes}
+                          onCheckedChange={(checked) => {
+                            const val = checked === true;
+                            setAutoLoadCurrentNotes(val);
+                            if (val) {
+                              setCurrentNotesFile(null);
+                              setCurrentNotes('');
+                            }
+                          }}
+                          disabled={isGenerating}
+                        />
+                        <span className="text-xs text-gray-600 flex items-center gap-1">
+                          <FolderDown className="h-3 w-3" />
+                          云盘读取
+                        </span>
+                      </label>
+                      {!autoLoadCurrentNotes && (
+                        <FileUploadInput
+                          onFileContent={(content, fileName) => {
+                            if (content && fileName) {
+                              setCurrentNotesFile({ name: fileName, content });
+                              setCurrentNotes(content);
+                            } else {
+                              setCurrentNotesFile(null);
+                            }
+                          }}
+                          disabled={isGenerating}
+                        />
+                      )}
+                    </div>
                   </div>
-                  <DebouncedTextarea
-                    id="currentNotes"
-                    placeholder={currentNotesFile
-                      ? `已上传文件：${currentNotesFile.name}`
-                      : "粘贴本次课的笔记内容...（请在笔记开头包含日期信息，AI会自动识别）"
-                    }
-                    value={currentNotes}
-                    onValueChange={setCurrentNotes}
-                    className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${currentNotesFile ? 'bg-gray-50' : ''}`}
-                    disabled={isGenerating || !!currentNotesFile}
-                  />
+                  {autoLoadCurrentNotes ? (
+                    <div className="flex items-center gap-2 h-[72px] bg-blue-50 border border-blue-200 rounded-md px-3 text-sm text-blue-700">
+                      <FolderDown className="h-5 w-5 text-gray-400 shrink-0" />
+                      {(() => {
+                        const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
+                        const lesson = lessonNumber.trim();
+                        if (!name || !lesson) {
+                          return <span>请填写姓名和课次号</span>;
+                        }
+                        return (
+                          <span className="font-mono text-blue-600 text-xs">
+                            {name}{lesson}.docx
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <DebouncedTextarea
+                      id="currentNotes"
+                      placeholder={currentNotesFile
+                        ? `已上传文件：${currentNotesFile.name}`
+                        : "粘贴本次课的笔记内容..."
+                      }
+                      value={currentNotes}
+                      onValueChange={setCurrentNotes}
+                      className={`h-[120px] font-mono text-sm resize-none overflow-y-auto ${currentNotesFile ? 'bg-gray-50' : ''}`}
+                      disabled={isGenerating || !!currentNotesFile}
+                    />
+                  )}
                   <p className="text-xs text-gray-500">
                     知识点、生词、长难句、错题等
                   </p>
@@ -3314,14 +3438,19 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* 提交按钮和停止按钮 */}
+              {/* 提交按钮 */}
               <div className="flex gap-2">
                 <Button
                   type="submit"
                   className="flex-1 h-11 text-base"
-                  disabled={isGenerating || !isFormValid}
+                  disabled={isGenerating || bgTaskSubmitMutation.isPending || !isFormValid}
                 >
-                  {isGenerating ? (
+                  {bgTaskSubmitMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      提交中...
+                    </>
+                  ) : isGenerating ? (
                     <>
                       <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                       生成中 ({currentStep}/5)
@@ -3704,9 +3833,14 @@ export default function Home() {
           </CardContent>
         </Card>
 
+        {/* 任务记录 */}
+        <div className="mt-4">
+          <TaskHistory activeTaskId={activeTaskId} />
+        </div>
+
         {/* 底部说明 */}
-        <div className="mt-4 text-center text-xs text-gray-400">
-          <p>自动生成学情反馈、复习文档、测试本、课后信息提取、气泡图并存储到Google Drive</p>
+        <div className="mt-2 text-center text-xs text-gray-400">
+          <p>提交后台生成，关屏/断网不影响 · 在「任务记录」查看进度</p>
         </div>
           </TabsContent>
 

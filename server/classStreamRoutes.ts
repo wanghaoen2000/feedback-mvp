@@ -100,7 +100,7 @@ const classFeedbackInputSchema = z.object({
   lessonNumber: z.string().optional(),
   lessonDate: z.string().optional(),
   currentYear: z.string().optional(),
-  attendanceStudents: z.array(z.string()).min(2),
+  attendanceStudents: z.array(z.string()).min(1),
   lastFeedback: z.string().optional(),
   currentNotes: z.string().min(1),
   transcript: z.string().min(1),
@@ -178,7 +178,7 @@ export function registerClassStreamRoutes(app: Express): void {
       logInfo(log, 'session', `开始小班课学情反馈生成 (SSE)，出勤学生: ${input.attendanceStudents.join('、')}`);
       
       // 组合年份和日期，并添加星期信息
-      const lessonDate = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : "";
+      const lessonDate = input.lessonDate ? addWeekdayToDate(input.lessonDate.includes('年') ? input.lessonDate : `${currentYear}年${input.lessonDate}`) : "";
       
       // 构建输入
       const classInput: ClassFeedbackInput = {
@@ -380,7 +380,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       logInfo(log, 'session', '开始一对一学情反馈生成 (SSE)');
       
       // 组合年份和日期，并添加星期信息
-      const lessonDate = input.lessonDate ? addWeekdayToDate(`${currentYear}年${input.lessonDate}`) : "";
+      const lessonDate = input.lessonDate ? addWeekdayToDate(input.lessonDate.includes('年') ? input.lessonDate : `${currentYear}年${input.lessonDate}`) : "";
       
       // 构建 prompt
       const userPrompt = `## 学生信息
@@ -465,7 +465,7 @@ ${input.transcript}
       // 上传到 Google Drive
       const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
       const basePath = `${driveBasePath}/${input.studentName}`;
-      const fileName = `${input.studentName}${input.lessonNumber || ''}学情反馈.md`;
+      const fileName = `${input.studentName}${input.lessonNumber || ''}.md`;
       const folderPath = `${basePath}/学情反馈`;
       
 
@@ -1025,6 +1025,7 @@ ${input.feedbackContent}
     classNumber: z.string().min(1),
     lessonNumber: z.string().optional(),
     lessonDate: z.string().optional(),
+    currentYear: z.string().optional(),
     attendanceStudents: z.array(z.string()),
     currentNotes: z.string(),
     combinedFeedback: z.string().min(1),
@@ -1095,7 +1096,8 @@ ${input.feedbackContent}
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
       // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
       const classStoragePath = await getConfig("classStoragePath");
-      const driveBasePath = input.driveBasePath || classStoragePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
 
       // 创建日志会话
       log = createLogSession(
@@ -1107,9 +1109,9 @@ ${input.feedbackContent}
       );
       logInfo(log, 'session', '开始小班课复习文档生成 (SSE)');
       startStep(log, 'review');
-      
-      // 给日期添加星期信息
-      const lessonDateWithWeekday = input.lessonDate ? addWeekdayToDate(input.lessonDate) : '未指定';
+
+      // 组合年份和日期，并添加星期信息
+      const lessonDateWithWeekday = input.lessonDate ? addWeekdayToDate(input.lessonDate.includes('年') ? input.lessonDate : `${currentYear}年${input.lessonDate}`) : '未指定';
       
       const userPrompt = `请根据以下小班课信息生成复习文档：
 
@@ -1280,7 +1282,7 @@ ${input.currentNotes}
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
       // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
       const classStoragePath = await getConfig("classStoragePath");
-      const driveBasePath = input.driveBasePath || classStoragePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成测试本` });
 
@@ -1409,7 +1411,7 @@ ${input.currentNotes}
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
       // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
       const classStoragePath = await getConfig("classStoragePath");
-      const driveBasePath = input.driveBasePath || classStoragePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成课后信息提取` });
 
