@@ -11,7 +11,7 @@ interface StoredContent {
   createdAt: number;
 }
 
-const TTL = 10 * 60 * 1000; // 10 分钟过期
+const TTL = 30 * 60 * 1000; // 30 分钟过期（长生成可能耗时10分钟+用户查看时间）
 const MAX_ITEMS = 500; // 防止极端情况内存溢出
 const store = new Map<string, StoredContent>();
 

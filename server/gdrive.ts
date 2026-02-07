@@ -14,6 +14,27 @@ const REMOTE_NAME = "manus_google_drive";
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
 
+/** 转义 Drive 查询字符串中的特殊字符（反斜杠和单引号） */
+function escapeQuery(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+/** Google Drive API fetch with timeout protection (default 60s, uploads 120s) */
+async function gdriveFetch(url: string, options?: RequestInit, timeoutMs = 60_000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw new Error(`Google Drive API 请求超时 (${timeoutMs / 1000}秒)`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface UploadStatus {
   fileName: string;
   status: 'pending' | 'uploading' | 'verifying' | 'success' | 'error';
@@ -42,9 +63,9 @@ export async function verifyFileExists(filePath: string): Promise<{ exists: bool
     const folderId = folderPath ? await navigateToFolder(folderPath, token) : 'root';
     if (!folderId) return { exists: false };
 
-    const q = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+    const q = `name='${escapeQuery(fileName)}' and '${folderId}' in parents and trashed=false`;
     const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,size)&pageSize=1`;
-    const res = await fetch(searchUrl, {
+    const res = await gdriveFetch(searchUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return { exists: false };
@@ -89,21 +110,21 @@ async function _getOrCreateFolderWithOAuth(folderPath: string, token: string): P
   for (const folderName of parts) {
     // 查找文件夹是否存在
     const searchUrl = `${DRIVE_API_BASE}/files?q=name='${encodeURIComponent(folderName)}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false&fields=files(id,name)`;
-    const searchRes = await fetch(searchUrl, {
+    const searchRes = await gdriveFetch(searchUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    
+
     if (!searchRes.ok) {
       throw new Error(`查找文件夹失败: ${searchRes.status}`);
     }
-    
+
     const searchData = await searchRes.json();
-    
+
     if (searchData.files && searchData.files.length > 0) {
       parentId = searchData.files[0].id;
     } else {
       // 创建文件夹
-      const createRes = await fetch(`${DRIVE_API_BASE}/files`, {
+      const createRes = await gdriveFetch(`${DRIVE_API_BASE}/files`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -158,14 +179,14 @@ async function uploadFileWithOAuth(
     Buffer.from(closeDelimiter),
   ]);
   
-  const uploadRes = await fetch(`${DRIVE_UPLOAD_BASE}/files?uploadType=multipart&fields=id,webViewLink`, {
+  const uploadRes = await gdriveFetch(`${DRIVE_UPLOAD_BASE}/files?uploadType=multipart&fields=id,webViewLink`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': `multipart/related; boundary=${boundary}`,
     },
     body: multipartBody,
-  });
+  }, 120_000); // 上传使用 120 秒超时
   
   if (!uploadRes.ok) {
     const errorText = await uploadRes.text();
@@ -601,9 +622,9 @@ async function navigateToFolder(folderPath: string, token: string): Promise<stri
   let parentId = 'root';
 
   for (const folderName of parts) {
-    const q = `name='${folderName.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const q = `name='${escapeQuery(folderName)}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=1`;
-    const res = await fetch(searchUrl, {
+    const res = await gdriveFetch(searchUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
@@ -626,7 +647,7 @@ async function navigateToFolder(folderPath: string, token: string): Promise<stri
 async function downloadFileById(fileId: string, token: string): Promise<Buffer> {
   // 先获取文件元数据，判断是否为 Google Docs 类型（需要 export）
   const metaUrl = `${DRIVE_API_BASE}/files/${fileId}?fields=mimeType,name`;
-  const metaRes = await fetch(metaUrl, { headers: { Authorization: `Bearer ${token}` } });
+  const metaRes = await gdriveFetch(metaUrl, { headers: { Authorization: `Bearer ${token}` } });
   if (!metaRes.ok) throw new Error(`获取文件元数据失败: ${metaRes.status}`);
   const meta = await metaRes.json();
 
@@ -634,10 +655,10 @@ async function downloadFileById(fileId: string, token: string): Promise<Buffer> 
   if (meta.mimeType === 'application/vnd.google-apps.document') {
     // Google Docs 需要通过 export 下载
     const exportUrl = `${DRIVE_API_BASE}/files/${fileId}/export?mimeType=text/plain`;
-    downloadRes = await fetch(exportUrl, { headers: { Authorization: `Bearer ${token}` } });
+    downloadRes = await gdriveFetch(exportUrl, { headers: { Authorization: `Bearer ${token}` } }, 120_000);
   } else {
     const downloadUrl = `${DRIVE_API_BASE}/files/${fileId}?alt=media`;
-    downloadRes = await fetch(downloadUrl, { headers: { Authorization: `Bearer ${token}` } });
+    downloadRes = await gdriveFetch(downloadUrl, { headers: { Authorization: `Bearer ${token}` } }, 120_000);
   }
 
   if (!downloadRes.ok) throw new Error(`下载文件失败: ${downloadRes.status}`);
@@ -667,9 +688,9 @@ export async function readFileFromGoogleDrive(filePath: string): Promise<Buffer>
   }
 
   // 在目标文件夹中查找文件
-  const q = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+  const q = `name='${escapeQuery(fileName)}' and '${folderId}' in parents and trashed=false`;
   const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)&pageSize=1`;
-  const res = await fetch(searchUrl, {
+  const res = await gdriveFetch(searchUrl, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`查找文件失败: ${res.status}`);
@@ -704,9 +725,9 @@ export async function searchFileInGoogleDrive(
     if (folderId) {
       for (const fileName of fileNames) {
         try {
-          const q = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+          const q = `name='${escapeQuery(fileName)}' and '${folderId}' in parents and trashed=false`;
           const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=1`;
-          const res = await fetch(searchUrl, {
+          const res = await gdriveFetch(searchUrl, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!res.ok) continue;
@@ -728,9 +749,9 @@ export async function searchFileInGoogleDrive(
   // 阶段2：全局按文件名搜索（不限定文件夹）
   for (const fileName of fileNames) {
     try {
-      const q = `name='${fileName.replace(/'/g, "\\'")}' and trashed=false`;
+      const q = `name='${escapeQuery(fileName)}' and trashed=false`;
       const searchUrl = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,parents)&pageSize=5`;
-      const res = await fetch(searchUrl, {
+      const res = await gdriveFetch(searchUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) continue;

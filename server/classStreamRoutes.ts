@@ -129,22 +129,32 @@ export function registerClassStreamRoutes(app: Express): void {
 
   // SSE 端点：小班课学情反馈流式生成（需要登录）
   app.post("/api/class-feedback-stream", requireAuth, async (req: Request, res: Response) => {
-    
+
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no"); // 禁用 Nginx 缓冲
-    
+
+    // 客户端断连检测：中止 AI 流，省 token
+    const clientAbort = new AbortController();
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log('[SSE] 小班课学情反馈：客户端断开，中止AI流');
+        clientAbort.abort();
+      }
+    });
+
     // 发送 SSE 事件的辅助函数
     const sendEvent = (event: string, data: any) => {
+      if (clientAbort.signal.aborted) return; // 客户端已断开，不再写入
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
-    
+
     // 创建日志会话
     let log: GenerationLog | null = null;
-    
+
     try {
       // 验证输入
       const parseResult = classFeedbackInputSchema.safeParse(req.body);
@@ -240,7 +250,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: 64000 },  // 小班课需要更大的输出限制
+        { max_tokens: 64000, signal: clientAbort.signal },  // 小班课需要更大的输出限制；客户端断连时中止
         config,
         (chunk: string) => {
           charCount += chunk.length;
@@ -331,22 +341,32 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
   
   // SSE 端点：一对一学情反馈流式生成
   app.post("/api/feedback-stream", requireAuth, async (req: Request, res: Response) => {
-    
+
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no"); // 禁用 Nginx 缓冲
-    
+
+    // 客户端断连检测：中止 AI 流，省 token
+    const clientAbort = new AbortController();
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log('[SSE] 一对一学情反馈：客户端断开，中止AI流');
+        clientAbort.abort();
+      }
+    });
+
     // 发送 SSE 事件的辅助函数
     const sendEvent = (event: string, data: any) => {
+      if (clientAbort.signal.aborted) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
-    
+
     // 创建日志会话
     let log: GenerationLog | null = null;
-    
+
     try {
       // 验证输入
       const parseResult = feedbackInputSchema.safeParse(req.body);
@@ -434,7 +454,7 @@ ${input.transcript}
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: 64000 },
+        { max_tokens: 64000, signal: clientAbort.signal },
         config,
         (chunk: string) => {
           charCount += chunk.length;
@@ -592,21 +612,31 @@ ${input.transcript}
   
   // SSE 端点：一对一复习文档流式生成
   app.post("/api/review-stream", requireAuth, async (req: Request, res: Response) => {
-    
+
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
-    
+
+    // 客户端断连检测
+    const clientAbort = new AbortController();
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log('[SSE] 一对一复习文档：客户端断开，中止AI流');
+        clientAbort.abort();
+      }
+    });
+
     const sendEvent = (event: string, data: any) => {
+      if (clientAbort.signal.aborted) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
-    
+
     // 创建日志会话
     let log: GenerationLog | null = null;
-    
+
     try {
       const parseResult = reviewInputSchema.safeParse(req.body);
       if (!parseResult.success) {
@@ -668,7 +698,7 @@ ${input.feedbackContent}
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: 64000 },
+        { max_tokens: 64000, signal: clientAbort.signal },
         config,
         (chunk: string) => {
           charCount += chunk.length;
@@ -688,7 +718,7 @@ ${input.feedbackContent}
       // 转换为 Word 文档（textToDocx 内部已含 cleanMarkdownAndHtml + stripAIMetaCommentary）
       sendEvent("progress", { chars: charCount, message: "正在转换为Word文档..." });
       const docxBuffer = await textToDocx(reviewContent, `${input.studentName}${input.dateStr}复习文档`);
-      
+
       // 上传到 Google Drive
       const basePath = `${driveBasePath}/${input.studentName}`;
       const fileName = `${input.studentName}${input.lessonNumber || ''}复习文档.docx`;
@@ -777,7 +807,16 @@ ${input.feedbackContent}
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
+    let clientDisconnected = false;
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log('[SSE] 一对一测试本：客户端断开');
+        clientDisconnected = true;
+      }
+    });
+
     const sendEvent = (event: string, data: any) => {
+      if (clientDisconnected) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
@@ -909,7 +948,16 @@ ${input.feedbackContent}
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
+    let clientDisconnected = false;
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log('[SSE] 一对一课后信息提取：客户端断开');
+        clientDisconnected = true;
+      }
+    });
+
     const sendEvent = (event: string, data: any) => {
+      if (clientDisconnected) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
@@ -1065,21 +1113,31 @@ ${input.feedbackContent}
   
   // SSE 端点：小班课复习文档流式生成
   app.post("/api/class-review-stream", requireAuth, async (req: Request, res: Response) => {
-    
+
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
-    
+
+    // 客户端断连检测
+    const clientAbort = new AbortController();
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log('[SSE] 小班课复习文档：客户端断开，中止AI流');
+        clientAbort.abort();
+      }
+    });
+
     const sendEvent = (event: string, data: any) => {
+      if (clientAbort.signal.aborted) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
-    
+
     // 创建日志会话
     let log: GenerationLog | null = null;
-    
+
     try {
       const parseResult = classReviewInputSchema.safeParse(req.body);
       if (!parseResult.success) {
@@ -1150,7 +1208,7 @@ ${input.currentNotes}
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: 64000 },
+        { max_tokens: 64000, signal: clientAbort.signal },
         config,
         (chunk: string) => {
           charCount += chunk.length;
@@ -1260,7 +1318,16 @@ ${input.currentNotes}
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
+    let clientDisconnected = false;
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log('[SSE] 小班课测试本：客户端断开');
+        clientDisconnected = true;
+      }
+    });
+
     const sendEvent = (event: string, data: any) => {
+      if (clientDisconnected) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
@@ -1389,7 +1456,16 @@ ${input.currentNotes}
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
+    let clientDisconnected = false;
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log('[SSE] 小班课课后信息提取：客户端断开');
+        clientDisconnected = true;
+      }
+    });
+
     const sendEvent = (event: string, data: any) => {
+      if (clientDisconnected) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
