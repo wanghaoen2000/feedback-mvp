@@ -2166,9 +2166,9 @@ export default function Home() {
 
     // 如果启用了自动加载课堂笔记，从 Downloads 文件夹读取（姓名+课次号.docx）
     if (autoLoadCurrentNotes) {
-      const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
+      const rawName = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
       const lesson = lessonNumber.trim();
-      if (!name) {
+      if (!rawName) {
         alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
         return;
       }
@@ -2176,7 +2176,8 @@ export default function Home() {
         alert('请填写课次号（用于构建笔记文件名）');
         return;
       }
-      const expectedFileName = `${name}${lesson}.docx`;
+      const displayName = courseType === 'class' ? `${rawName}班` : rawName;
+      const expectedFileName = `${displayName}${lesson}.docx`;
       try {
         const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName });
         autoLoadedCurrentNotesRef.current = result.content;
@@ -2191,9 +2192,9 @@ export default function Home() {
 
     // 如果启用了自动加载录音转文字，先从 Downloads 文件夹读取（姓名+日期.docx）
     if (autoLoadTranscript) {
-      const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
+      const rawName = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
       const mmdd = getMMDD(lessonDate);
-      if (!name) {
+      if (!rawName) {
         alert(courseType === 'oneToOne' ? '请输入学生姓名' : '请输入班号');
         return;
       }
@@ -2201,7 +2202,8 @@ export default function Home() {
         alert('请填写本次课日期（用于构建文件名）');
         return;
       }
-      const expectedFileName = `${name}${mmdd}.docx`;
+      const displayName = courseType === 'class' ? `${rawName}班` : rawName;
+      const expectedFileName = `${displayName}${mmdd}.docx`;
       try {
         const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName });
         autoLoadedTranscriptRef.current = result.content;
@@ -3329,17 +3331,18 @@ export default function Home() {
                     </div>
                   </div>
                   {autoLoadCurrentNotes ? (
-                    <div className="flex items-center gap-2 h-[72px] bg-blue-50 border border-blue-200 rounded-md px-3 text-sm text-blue-700">
+                    <div className="h-[72px] flex items-center justify-center gap-2 bg-gray-50 border border-dashed border-gray-300 rounded-md text-xs text-gray-500">
                       <FolderDown className="h-5 w-5 text-gray-400 shrink-0" />
                       {(() => {
-                        const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
+                        const rawName = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
                         const lesson = lessonNumber.trim();
-                        if (!name || !lesson) {
+                        if (!rawName || !lesson) {
                           return <span className="text-gray-400">请填写{courseType === 'oneToOne' ? '姓名' : '班号'}和课次</span>;
                         }
+                        const displayName = courseType === 'class' ? `${rawName}班` : rawName;
                         return (
                           <span className="font-mono text-blue-600 text-xs">
-                            {name}{lesson}.docx
+                            {displayName}{lesson}.docx
                           </span>
                         );
                       })()}
@@ -3407,14 +3410,15 @@ export default function Home() {
                     <div className="h-[72px] flex items-center justify-center gap-2 bg-gray-50 border border-dashed border-gray-300 rounded-md text-xs text-gray-500">
                       <FolderDown className="h-5 w-5 text-gray-400 shrink-0" />
                       {(() => {
-                        const name = courseType === 'oneToOne' ? studentName.trim() : `${classNumber.trim()}班`;
+                        const rawName = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
                         const mmdd = getMMDD(lessonDate);
-                        if (!name || !mmdd) {
+                        if (!rawName || !mmdd) {
                           return <span className="text-gray-400">请填写{courseType === 'oneToOne' ? '姓名' : '班号'}和日期</span>;
                         }
+                        const displayName = courseType === 'class' ? `${rawName}班` : rawName;
                         return (
                           <span className="font-mono text-blue-600 text-xs">
-                            {name}{mmdd}.docx
+                            {displayName}{mmdd}.docx
                           </span>
                         );
                       })()}
@@ -3853,4 +3857,4 @@ export default function Home() {
     </div>
   );
 }
-// V115 deployed
+// V116 deployed
