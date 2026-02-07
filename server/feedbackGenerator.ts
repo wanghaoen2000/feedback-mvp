@@ -430,8 +430,31 @@ export async function textToDocx(text: string, title: string): Promise<Buffer> {
   for (const line of lines) {
     const trimmedLine = line.trim();
     
-    // 检测答案分隔符
-    if (trimmedLine.includes('===== 答案部分 =====') || trimmedLine.includes('答案部分')) {
+    // 跳过纯装饰性分隔线（如 --- 或 ===）
+    if (/^[-=]{3,}$/.test(trimmedLine)) {
+      continue;
+    }
+
+    // 检测 ===== 测试部分 ===== 之类的段落标题（转为正式标题，不显示等号）
+    if (trimmedLine.includes('=====') && !trimmedLine.includes('答案')) {
+      const sectionName = trimmedLine.replace(/[=\s]/g, '');
+      if (sectionName) {
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: sectionName, bold: true, size: 28 })],
+            heading: HeadingLevel.HEADING_1,
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 200, after: 300 },
+          })
+        );
+      }
+      continue;
+    }
+
+    // 检测答案分隔符（AI 可能写成各种格式：===== 答案 =====、===== 答案部分 =====、答案部分 等）
+    if (trimmedLine.includes('=====') && trimmedLine.includes('答案') ||
+        /^[=\s]*答案[部分]*[=\s]*$/.test(trimmedLine) ||
+        trimmedLine === '答案部分') {
       // 添加分页符
       children.push(
         new Paragraph({
