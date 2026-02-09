@@ -1,11 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { ChevronDown, ChevronUp, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X, ArrowUp, ArrowDown, Download, ExternalLink } from "lucide-react";
+import { Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X, ArrowUp, ArrowDown, Download, ExternalLink } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 interface TaskHistoryProps {
@@ -306,15 +301,14 @@ function ContentViewer({ taskId, onClose, title, queryFn }: {
 }
 
 export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
-  const [isOpen, setIsOpen] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [viewingFeedbackTaskId, setViewingFeedbackTaskId] = useState<string | null>(null);
   const [viewingExtractionTaskId, setViewingExtractionTaskId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now()); // 用于心跳计时
 
-  // 查询任务历史
+  // 查询任务历史（始终3秒刷新）
   const historyQuery = trpc.bgTask.history.useQuery(undefined, {
-    refetchInterval: isOpen ? 3000 : 30000,
+    refetchInterval: 3000,
     staleTime: 3000,
   });
 
@@ -326,13 +320,6 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
       historyQuery.refetch();
     },
   });
-
-  // 有新的运行中任务时自动展开
-  useEffect(() => {
-    if (activeTaskId) {
-      setIsOpen(true);
-    }
-  }, [activeTaskId]);
 
   // 清理指向已消失任务的引用
   useEffect(() => {
@@ -402,45 +389,37 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
   }
 
   return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="w-full">
-      <CollapsibleTrigger asChild>
-        <Button
-          variant="ghost"
-          className="w-full flex items-center justify-between px-3 py-2 h-auto text-sm"
-        >
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-gray-500" />
-            <span className="font-medium">任务记录</span>
-            {tasks.length > 0 && (
-              <span className="text-xs text-gray-400">({tasks.length})</span>
-            )}
-            {runningCount > 0 && (
-              <span className="flex items-center gap-1 text-xs text-blue-600">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                {runningCount}进行中
-              </span>
-            )}
-            {failedCount > 0 && (
-              <span className="text-xs text-red-500">{failedCount}失败</span>
-            )}
-          </div>
-          {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </Button>
-      </CollapsibleTrigger>
+    <div className="w-full">
+      {/* 标题栏 */}
+      <div className="flex items-center gap-2 px-3 py-2 text-sm">
+        <Clock className="h-4 w-4 text-gray-500" />
+        <span className="font-medium">任务记录</span>
+        {tasks.length > 0 && (
+          <span className="text-xs text-gray-400">({tasks.length})</span>
+        )}
+        {runningCount > 0 && (
+          <span className="flex items-center gap-1 text-xs text-blue-600">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {runningCount}进行中
+          </span>
+        )}
+        {failedCount > 0 && (
+          <span className="text-xs text-red-500">{failedCount}失败</span>
+        )}
+      </div>
 
-      <CollapsibleContent>
-        <div className="border rounded-lg overflow-hidden mx-1 mb-3">
-          {historyQuery.isLoading && tasks.length === 0 ? (
-            <div className="p-4 text-center text-sm text-gray-400">
-              <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
-              加载中...
-            </div>
-          ) : tasks.length === 0 ? (
-            <div className="p-4 text-center text-sm text-gray-400">
-              暂无任务记录
-            </div>
-          ) : (
-            <div className="divide-y max-h-[60vh] sm:max-h-[500px] overflow-y-auto">
+      <div className="border rounded-lg overflow-hidden mx-1 mb-3">
+        {historyQuery.isLoading && tasks.length === 0 ? (
+          <div className="p-4 text-center text-sm text-gray-400">
+            <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+            加载中...
+          </div>
+        ) : tasks.length === 0 ? (
+          <div className="p-4 text-center text-sm text-gray-400">
+            暂无任务记录
+          </div>
+        ) : (
+          <div className="divide-y">
               {tasks.map((task) => {
                 const config = STATUS_CONFIG[task.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.pending;
                 const StatusIcon = config.icon;
@@ -684,7 +663,6 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
             </Button>
           </div>
         </div>
-      </CollapsibleContent>
-    </Collapsible>
+    </div>
   );
 }
