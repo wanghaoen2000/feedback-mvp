@@ -11,6 +11,7 @@ import { FileUploadInput } from "@/components/FileUploadInput";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import {
   Loader2,
@@ -389,6 +390,7 @@ export default function Home() {
   const [apiModel, setApiModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiUrl, setApiUrl] = useState("");
+  const [modelPresets, setModelPresets] = useState(""); // 模型预设列表
   const [roadmap, setRoadmap] = useState(""); // V9路书内容（一对一）
   const [firstLessonTemplate, setFirstLessonTemplate] = useState(""); // 一对一首次课范例
   const [roadmapClass, setRoadmapClass] = useState(""); // 小班课路书内容
@@ -752,6 +754,7 @@ export default function Home() {
       setClassFirstLessonTemplate(configQuery.data.classFirstLessonTemplate || "");
       setDriveBasePath(configQuery.data.driveBasePath || "Mac/Documents/XDF/学生档案");
       setMaxTokens(configQuery.data.maxTokens || "64000");
+      setModelPresets(configQuery.data.modelPresets || "");
       setConfigLoaded(true);
     }
   }, [configQuery.data, configLoaded]);
@@ -3505,7 +3508,35 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* 提交按钮 */}
+              {/* 模型选择 + 提交按钮 */}
+              {(() => {
+                const presetList = modelPresets.split('\n').map(s => s.trim()).filter(Boolean);
+                if (presetList.length === 0) return null;
+                return (
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm text-gray-500 shrink-0">模型</span>
+                    <Select
+                      value={apiModel || '__default__'}
+                      onValueChange={(val) => {
+                        const newModel = val === '__default__' ? '' : val;
+                        setApiModel(newModel);
+                        // 自动保存到服务器（空字符串表示恢复默认）
+                        updateConfigMutation.mutate({ apiModel: newModel });
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__default__">默认模型</SelectItem>
+                        {presetList.map((model) => (
+                          <SelectItem key={model} value={model}>{model}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                );
+              })()}
               <div className="flex gap-2">
                 <Button
                   type="submit"

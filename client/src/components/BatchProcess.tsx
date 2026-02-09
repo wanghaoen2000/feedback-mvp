@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Play, 
   Square,
@@ -1658,6 +1659,34 @@ export function BatchProcess() {
           </div>
         )}
         
+        {/* 模型选择 */}
+        {(() => {
+          const presetList = (config?.modelPresets || '').split('\n').map((s: string) => s.trim()).filter(Boolean);
+          if (presetList.length === 0) return null;
+          return (
+            <div className="flex items-center justify-center gap-2 pt-4">
+              <span className="text-sm text-gray-500 shrink-0">模型</span>
+              <Select
+                value={config?.apiModel || '__default__'}
+                onValueChange={(val) => {
+                  const newModel = val === '__default__' ? '' : val;
+                  updateConfig.mutate({ apiModel: newModel });
+                }}
+              >
+                <SelectTrigger className="h-8 text-sm max-w-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default__">默认模型</SelectItem>
+                  {presetList.map((model: string) => (
+                    <SelectItem key={model} value={model}>{model}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          );
+        })()}
+
         {/* 按钮区域 */}
         <div className="flex justify-center gap-4 pt-4">
           {isGenerating ? (

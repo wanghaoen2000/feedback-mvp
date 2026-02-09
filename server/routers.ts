@@ -196,7 +196,7 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const updates: string[] = [];
         
-        if (input.apiModel !== undefined && input.apiModel.trim()) {
+        if (input.apiModel !== undefined) {
           await setConfig("apiModel", input.apiModel.trim(), "AI模型名称");
           updates.push("apiModel");
         }
@@ -373,6 +373,7 @@ export const appRouter = router({
         history: z.record(z.string(), z.object({
           lesson: z.number(),
           lastUsed: z.number(),
+          students: z.array(z.string()).optional(),
         })),
       }))
       .mutation(async ({ input }) => {

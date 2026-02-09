@@ -357,11 +357,11 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                     ) : (
                                       <Clock className="h-3 w-3 text-gray-300 shrink-0" />
                                     )}
-                                    <span className={`${isFeedbackCompleted ? "text-blue-600 underline" : "text-gray-600"}`}>
+                                    <span className={`shrink-0 whitespace-nowrap ${isFeedbackCompleted ? "text-blue-600 underline" : "text-gray-600"}`}>
                                       {stepName}
                                     </span>
                                     {stepResult.fileName && (
-                                      <span className="text-gray-400 truncate max-w-[120px]">{stepResult.fileName}</span>
+                                      <span className="text-gray-400 truncate min-w-0">{stepResult.fileName}</span>
                                     )}
                                     {/* 完成步骤显示耗时和字数 */}
                                     {(stepResult.status === "completed" || stepResult.status === "truncated") && (
@@ -372,14 +372,14 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                         )}
                                       </span>
                                     )}
-                                    {/* 生成诊断信息（非流式/流式、轮次、token用量） */}
-                                    {stepResult.genInfo && isExpanded && (
-                                      <span className="text-[10px] text-gray-300 block w-full pl-5 mt-0.5">{stepResult.genInfo}</span>
-                                    )}
                                     {stepResult.error && (
                                       <span className="text-red-400 truncate ml-auto">{stepResult.error}</span>
                                     )}
                                   </div>
+                                  {/* 生成诊断信息（非流式/流式、轮次、token用量） */}
+                                  {stepResult.genInfo && isExpanded && (
+                                    <div className="text-xs text-gray-500 pl-5 mt-0.5">{stepResult.genInfo}</div>
+                                  )}
                                   {/* 反馈全文查看器 */}
                                   {isFeedbackCompleted && viewingFeedbackTaskId === task.id && (
                                     <FeedbackViewer
