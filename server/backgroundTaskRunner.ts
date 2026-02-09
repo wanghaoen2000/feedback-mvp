@@ -391,27 +391,27 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     // 步骤2: 复习文档
     (async () => {
       const t = Date.now();
-      const reviewDocx = await generateReviewContent('oneToOne', feedbackInput!, feedbackContent, dateStr, config);
-      if (!reviewDocx || reviewDocx.length === 0) throw new Error("复习文档生成为空");
+      const reviewResult = await generateReviewContent('oneToOne', feedbackInput!, feedbackContent, dateStr, config);
+      if (!reviewResult.buffer || reviewResult.buffer.length === 0) throw new Error("复习文档生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
-      const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(reviewResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "复习文档");
-      return { step: "review" as const, fileName, uploadResult, chars: reviewDocx.length, duration: Math.round((Date.now() - t) / 1000) };
+      return { step: "review" as const, fileName, uploadResult, chars: reviewResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
     // 步骤3: 测试本
     (async () => {
       const t = Date.now();
-      const testDocx = await generateTestContent('oneToOne', feedbackInput!, feedbackContent, dateStr, config);
-      if (!testDocx || testDocx.length === 0) throw new Error("测试本生成为空");
+      const testResult = await generateTestContent('oneToOne', feedbackInput!, feedbackContent, dateStr, config);
+      if (!testResult.buffer || testResult.buffer.length === 0) throw new Error("测试本生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
-      const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(testResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "测试文档");
-      return { step: "test" as const, fileName, uploadResult, chars: testDocx.length, duration: Math.round((Date.now() - t) / 1000) };
+      return { step: "test" as const, fileName, uploadResult, chars: testResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
     // 步骤4: 课后信息提取
@@ -474,6 +474,47 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   const finalStatus = allCompleted ? "completed" : completedSteps > 1 ? "partial" : "failed";
 
   endLogSession(log);
+
+  // 上传生成日志到课后信息文件夹
+  const totalDuration = Math.round((Date.now() - taskStartTime) / 1000);
+  try {
+    const logLines: string[] = [
+      `=== 生成日志 ===`,
+      `学生: ${params.studentName}`,
+      `课次: ${params.lessonNumber || "未指定"}`,
+      `日期: ${params.lessonDate || "未指定"}`,
+      `模型: ${config.apiModel}`,
+      `状态: ${finalStatus} (${completedSteps}/5 步骤成功)`,
+      `总耗时: ${totalDuration}秒`,
+      ``,
+      `--- 各步骤详情 ---`,
+    ];
+    const stepLabels: Record<string, string> = { feedback: "反馈", review: "复习", test: "测试", extraction: "提取", bubbleChart: "气泡图" };
+    for (const [key, label] of Object.entries(stepLabels)) {
+      const sr = stepResults[key as keyof StepResults];
+      if (!sr) continue;
+      if (sr.status === "completed" || sr.status === "truncated") {
+        const charInfo = sr.chars ? `${sr.chars}字` : "";
+        const durInfo = sr.duration != null ? `${sr.duration}秒` : "";
+        const fileInfo = sr.fileName || "";
+        logLines.push(`${label}: ${sr.status === "truncated" ? "截断" : "完成"} ${[durInfo, charInfo, fileInfo].filter(Boolean).join(" · ")}`);
+      } else if (sr.status === "failed") {
+        logLines.push(`${label}: 失败 - ${sr.error || "未知错误"}`);
+      } else {
+        logLines.push(`${label}: ${sr.status}`);
+      }
+    }
+    if (stepResults.feedback?.genInfo) {
+      logLines.push(``, `--- 反馈生成信息 ---`, stepResults.feedback.genInfo);
+    }
+    const logContent = logLines.join("\n");
+    const logFileName = `${params.studentName}${params.lessonNumber || ""}生成日志.txt`;
+    const logFolderPath = `${driveBasePath}/${params.studentName}/课后信息`;
+    await uploadToGoogleDrive(logContent, logFileName, logFolderPath);
+    console.log(`[后台任务] ${taskId} 生成日志已上传: ${logFileName}`);
+  } catch (logErr: any) {
+    console.error(`[后台任务] ${taskId} 生成日志上传失败:`, logErr?.message);
+  }
 
   await updateTask(taskId, {
     status: finalStatus,
@@ -624,25 +665,25 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     // 步骤2: 复习文档
     (async () => {
       const t = Date.now();
-      const reviewDocx = await generateClassReviewContent(classInput, feedbackContent, roadmapClass, apiConfig);
-      if (!reviewDocx || reviewDocx.length === 0) throw new Error("复习文档生成为空");
+      const reviewResult = await generateClassReviewContent(classInput, feedbackContent, roadmapClass, apiConfig);
+      if (!reviewResult.buffer || reviewResult.buffer.length === 0) throw new Error("复习文档生成为空");
       const fileName = `${folderName}${params.lessonNumber || ""}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
-      const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(reviewResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "班课复习文档");
-      return { fileName, uploadResult, chars: reviewDocx.length, duration: Math.round((Date.now() - t) / 1000) };
+      return { fileName, uploadResult, chars: reviewResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
     // 步骤3: 测试本
     (async () => {
       const t = Date.now();
-      const testDocx = await generateClassTestContent(classInput, feedbackContent, roadmapClass, apiConfig);
-      if (!testDocx || testDocx.length === 0) throw new Error("测试本生成为空");
+      const testResult = await generateClassTestContent(classInput, feedbackContent, roadmapClass, apiConfig);
+      if (!testResult.buffer || testResult.buffer.length === 0) throw new Error("测试本生成为空");
       const fileName = `${folderName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
-      const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(testResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "班课测试文档");
-      return { fileName, uploadResult, chars: testDocx.length, duration: Math.round((Date.now() - t) / 1000) };
+      return { fileName, uploadResult, chars: testResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
     })(),
 
     // 步骤4: 课后信息提取

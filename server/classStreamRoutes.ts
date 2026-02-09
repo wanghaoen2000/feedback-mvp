@@ -812,7 +812,7 @@ ${input.feedbackContent}
         isFirstLesson: false,
         specialRequirements: '',
       };
-      const testBuffer = await generateTestContent(
+      const testResult = await generateTestContent(
         'oneToOne',
         testFeedbackInput,
         input.feedbackContent,
@@ -822,7 +822,7 @@ ${input.feedbackContent}
 
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
 
-      if (!testBuffer || testBuffer.length === 0) {
+      if (!testResult.buffer || testResult.buffer.length === 0) {
         throw new Error('测试本生成失败：AI 返回内容为空，请重试');
       }
 
@@ -838,7 +838,7 @@ ${input.feedbackContent}
 
       let uploadResult;
       try {
-        uploadResult = await uploadBinaryToGoogleDrive(testBuffer, fileName, folderPath);
+        uploadResult = await uploadBinaryToGoogleDrive(testResult.buffer, fileName, folderPath);
       } finally {
         clearInterval(uploadKeepAlive);
       }
@@ -855,14 +855,14 @@ ${input.feedbackContent}
       };
 
       const testTaskId = input.taskId || crypto.randomUUID();
-      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testBuffer.length });
+      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testResult.textChars });
 
-      stepSuccess(log, '测试本', testBuffer.length);
+      stepSuccess(log, '测试本', testResult.textChars);
       endLogSession(log);
 
       sendEvent("complete", {
         success: true,
-        chars: testBuffer.length,
+        chars: testResult.textChars,
         contentId: testTaskId,
         uploadResult: testUploadData,
       });
@@ -1334,7 +1334,7 @@ ${input.currentNotes}
         specialRequirements: '',
       };
 
-      const testBuffer = await generateClassTestContent(
+      const testResult = await generateClassTestContent(
         classInput,
         input.combinedFeedback,
         roadmapClass,
@@ -1344,7 +1344,7 @@ ${input.currentNotes}
       if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
 
       // 校验内容非空
-      if (!testBuffer || testBuffer.length === 0) {
+      if (!testResult.buffer || testResult.buffer.length === 0) {
         throw new Error('小班课测试本生成失败：AI 返回内容为空，请重试');
       }
 
@@ -1361,7 +1361,7 @@ ${input.currentNotes}
 
       let uploadResult;
       try {
-        uploadResult = await uploadBinaryToGoogleDrive(testBuffer, fileName, folderPath);
+        uploadResult = await uploadBinaryToGoogleDrive(testResult.buffer, fileName, folderPath);
       } finally {
         clearInterval(uploadKeepAliveTest);
       }
@@ -1377,11 +1377,11 @@ ${input.currentNotes}
         folderUrl: uploadResult.folderUrl || '',
       };
       const testTaskId = input.taskId || crypto.randomUUID();
-      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testBuffer.length });
+      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testResult.textChars });
 
       sendEvent("complete", {
         success: true,
-        chars: testBuffer.length,
+        chars: testResult.textChars,
         contentId: testTaskId,
         uploadResult: testUploadData,
       });

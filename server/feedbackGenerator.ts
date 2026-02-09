@@ -1099,7 +1099,7 @@ export async function generateReviewContent(
   feedback: string,
   dateStr: string,
   config?: APIConfig
-): Promise<Buffer> {
+): Promise<{ buffer: Buffer; textChars: number }> {
   let prompt: string;
   let label: string;
   let docxTitle: string;
@@ -1147,9 +1147,11 @@ ${d.currentNotes}
 
   console.log(`[${label}] 开始非流式生成...`);
   const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label);
-  console.log(`[${label}] 生成完成，内容长度: ${result.content.length}字符`);
+  const textChars = result.content.length;
+  console.log(`[${label}] 生成完成，内容长度: ${textChars}字符`);
 
-  return await textToDocx(result.content, docxTitle);
+  const buffer = await textToDocx(result.content, docxTitle);
+  return { buffer, textChars };
 }
 
 /**
@@ -1163,7 +1165,7 @@ export async function generateTestContent(
   feedback: string,
   dateStr: string,
   config?: APIConfig
-): Promise<Buffer> {
+): Promise<{ buffer: Buffer; textChars: number }> {
   let prompt: string;
   let label: string;
   let docxTitle: string;
@@ -1209,9 +1211,11 @@ ${d.currentNotes}
 
   console.log(`[${label}] 开始非流式生成...`);
   const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label);
-  console.log(`[${label}] 生成完成，内容长度: ${result.content.length}字符`);
+  const textChars = result.content.length;
+  console.log(`[${label}] 生成完成，内容长度: ${textChars}字符`);
 
-  return await textToDocx(result.content, docxTitle);
+  const buffer = await textToDocx(result.content, docxTitle);
+  return { buffer, textChars };
 }
 
 /**
@@ -1384,7 +1388,7 @@ export async function generateClassReviewContent(
   combinedFeedback: string,
   roadmap: string,
   apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
-): Promise<Buffer> {
+): Promise<{ buffer: Buffer; textChars: number }> {
   const dateStr = input.lessonDate || '';
   return generateReviewContent('class', input, combinedFeedback, dateStr, { ...apiConfig, roadmap });
 }
@@ -1395,7 +1399,7 @@ export async function generateClassTestContent(
   combinedFeedback: string,
   roadmap: string,
   apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
-): Promise<Buffer> {
+): Promise<{ buffer: Buffer; textChars: number }> {
   const dateStr = input.lessonDate || '';
   return generateTestContent('class', input, combinedFeedback, dateStr, { ...apiConfig, roadmap });
 }
@@ -1459,11 +1463,11 @@ export async function generateFeedbackDocuments(
     const dateStr = input.lessonDate || new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
 
     updateStep(1, 'running', '正在生成复习文档...');
-    review = await generateReviewContent('oneToOne', input, feedback, dateStr);
+    review = (await generateReviewContent('oneToOne', input, feedback, dateStr)).buffer;
     updateStep(1, 'success', '复习文档生成完成');
 
     updateStep(2, 'running', '正在生成测试本...');
-    test = await generateTestContent('oneToOne', input, feedback, dateStr);
+    test = (await generateTestContent('oneToOne', input, feedback, dateStr)).buffer;
     updateStep(2, 'success', '测试本生成完成');
 
     updateStep(3, 'running', '正在生成课后信息提取...');

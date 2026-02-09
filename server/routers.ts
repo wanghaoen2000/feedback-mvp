@@ -540,7 +540,7 @@ export const appRouter = router({
             specialRequirements: "",
           };
 
-          const reviewDocx = await generateReviewContent(
+          const { buffer: reviewDocx, textChars: reviewChars } = await generateReviewContent(
             'oneToOne',
             feedbackInput,
             input.feedbackContent,
@@ -555,16 +555,16 @@ export const appRouter = router({
           const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${input.lessonNumber || ''}复习文档.docx`;
           const folderPath = `${basePath}/复习文档`;
-          
+
           logInfo(log, "复习文档", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
-          
+
           // 检查上传结果状态
           if (uploadResult.status === 'error') {
             throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
           }
-          
-          stepSuccess(log, "复习文档", reviewDocx.length);
+
+          stepSuccess(log, "复习文档", reviewChars);
           endLogSession(log);
 
           const reviewResult = {
@@ -581,7 +581,7 @@ export const appRouter = router({
 
           // 存入 contentStore，供前端代理超时后轮询
           if (input.taskId) {
-            storeContent(input.taskId, JSON.stringify(reviewResult.uploadResult), { type: 'review', chars: reviewDocx.length });
+            storeContent(input.taskId, JSON.stringify(reviewResult.uploadResult), { type: 'review', chars: reviewChars });
           }
 
           return reviewResult;
@@ -645,7 +645,7 @@ export const appRouter = router({
             specialRequirements: "",
           };
 
-          const testDocx = await generateTestContent(
+          const { buffer: testDocx, textChars: testChars } = await generateTestContent(
             'oneToOne',
             feedbackInput,
             input.feedbackContent,
@@ -660,16 +660,16 @@ export const appRouter = router({
           const basePath = `${driveBasePath}/${input.studentName}`;
           const fileName = `${input.studentName}${input.lessonNumber || ''}测试文档.docx`;
           const folderPath = `${basePath}/复习文档`;
-          
+
           logInfo(log, "测试本", `上传到Google Drive: ${folderPath}/${fileName}`);
           const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
-          
+
           // 检查上传结果状态
           if (uploadResult.status === 'error') {
             throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
           }
-          
-          stepSuccess(log, "测试本", testDocx.length);
+
+          stepSuccess(log, "测试本", testChars);
           endLogSession(log);
 
           const testResult = {
@@ -685,7 +685,7 @@ export const appRouter = router({
           };
 
           if (input.taskId) {
-            storeContent(input.taskId, JSON.stringify(testResult.uploadResult), { type: 'test', chars: testDocx.length });
+            storeContent(input.taskId, JSON.stringify(testResult.uploadResult), { type: 'test', chars: testChars });
           }
 
           return testResult;
@@ -1191,7 +1191,7 @@ export const appRouter = router({
             specialRequirements: '',
           };
 
-          const reviewBuffer = await generateClassReviewContent(
+          const reviewResult = await generateClassReviewContent(
             classInput,
             input.combinedFeedback,
             roadmapClass,
@@ -1200,7 +1200,7 @@ export const appRouter = router({
 
           return {
             success: true,
-            content: reviewBuffer.toString('base64'),
+            content: reviewResult.buffer.toString('base64'),
           };
         } catch (error) {
           console.error('[generateClassReview] 生成复习文档失败:', error);
@@ -1244,7 +1244,7 @@ export const appRouter = router({
             specialRequirements: '',
           };
 
-          const testBuffer = await generateClassTestContent(
+          const testResult = await generateClassTestContent(
             classInput,
             input.combinedFeedback,
             roadmapClass,
@@ -1253,7 +1253,7 @@ export const appRouter = router({
 
           return {
             success: true,
-            content: testBuffer.toString('base64'),
+            content: testResult.buffer.toString('base64'),
           };
         } catch (error) {
           console.error('[generateClassTest] 生成测试本失败:', error);

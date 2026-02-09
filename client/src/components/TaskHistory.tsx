@@ -32,9 +32,9 @@ function formatDuration(seconds: number): string {
   return sec > 0 ? `${min}分${sec}秒` : `${min}分`;
 }
 
-// 判断是否为文本步骤（只有文本步骤的字数对用户有意义）
+// 判断是否为文本步骤（文本步骤显示字数）
 function isTextStep(stepKey: string): boolean {
-  return stepKey === "feedback" || stepKey === "extraction";
+  return stepKey === "feedback" || stepKey === "extraction" || stepKey === "review" || stepKey === "test";
 }
 
 /** 反馈全文查看器 */
