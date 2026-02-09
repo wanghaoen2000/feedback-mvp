@@ -174,6 +174,12 @@ ${classInput.currentNotes}
 ${classInput.transcript}
 
 ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequirements}\n` : ''}
+请严格按照路书规范生成完整的学情反馈文档。
+特别注意：
+1. 不要使用任何markdown标记（不要用#、**、*、\`\`\`等），输出纯文本
+2. 不要用表格格式
+3. 用中括号【】标记章节标题
+4. 【生词】部分必须达到15-25个，不足15个必须从课堂材料中补齐！
 
 【重要边界限制】
 本次只需要生成学情反馈文档，不要生成复习文档、测试本、课后信息提取或其他任何内容。

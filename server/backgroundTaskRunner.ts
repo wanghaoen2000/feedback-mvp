@@ -380,15 +380,34 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   // 取消检查点：步骤1完成后、步骤2-5开始前
   await checkCancellation(taskId, stepResults, 1);
 
-  // ===== 步骤 2-5: 并行执行 =====
+  // ===== 步骤 2-5: 并行执行（每步完成立即更新DB，前端实时看到进度） =====
+  let completedSteps = 1; // 步骤1已完成
   stepResults.review = { status: "running" };
   stepResults.test = { status: "running" };
   stepResults.extraction = { status: "running" };
   stepResults.bubbleChart = { status: "running" };
   await updateStepResults(taskId, stepResults, 2);
 
-  const parallelStart = Date.now();
-  const parallelResults = await Promise.allSettled([
+  // 每个步骤完成/失败后立即写DB，前端轮询即可看到最新进度（而非等全部完成才更新）
+  const markDone = (name: "review" | "test" | "extraction" | "bubbleChart", r: any) => {
+    const { fileName, uploadResult, chars, duration, content, files } = r;
+    stepResults[name] = {
+      status: "completed", fileName, url: uploadResult?.url || "", path: uploadResult?.path || "",
+      ...(uploadResult?.folderUrl ? { folderUrl: uploadResult.folderUrl } : {}),
+      chars, duration, ...(content ? { content } : {}), ...(files ? { files } : {}),
+    };
+    completedSteps++;
+    console.log(`[后台任务] ${taskId} ${name} 完成: ${fileName} (${duration}秒) [${completedSteps}/5]`);
+    updateStepResults(taskId, stepResults, completedSteps).catch(() => {});
+  };
+  const markFailed = (name: "review" | "test" | "extraction" | "bubbleChart", err: any) => {
+    stepResults[name] = { status: "failed", error: err?.message || String(err) };
+    failedSteps++;
+    console.error(`[后台任务] ${taskId} ${name} 失败:`, err?.message || err);
+    updateStepResults(taskId, stepResults, completedSteps).catch(() => {});
+  };
+
+  await Promise.allSettled([
     // 步骤2: 复习文档
     (async () => {
       const t = Date.now();
@@ -400,7 +419,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const uploadResult = await uploadBinaryToGoogleDrive(reviewResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "复习文档");
       return { step: "review" as const, fileName, uploadResult, chars: reviewResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
-    })(),
+    })().then(r => { markDone("review", r); }, e => { markFailed("review", e); }),
 
     // 步骤3: 测试本
     (async () => {
@@ -413,7 +432,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const uploadResult = await uploadBinaryToGoogleDrive(testResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "测试文档");
       return { step: "test" as const, fileName, uploadResult, chars: testResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
-    })(),
+    })().then(r => { markDone("test", r); }, e => { markFailed("test", e); }),
 
     // 步骤4: 课后信息提取
     (async () => {
@@ -426,7 +445,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
       assertUploadSuccess(uploadResult, "课后信息提取");
       return { step: "extraction" as const, fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000), content: extractionContent };
-    })(),
+    })().then(r => { markDone("extraction", r); }, e => { markFailed("extraction", e); }),
 
     // 步骤5: 气泡图
     (async () => {
@@ -439,37 +458,10 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "气泡图");
       return { step: "bubbleChart" as const, fileName, uploadResult, chars: pngBuffer.length, duration: Math.round((Date.now() - t) / 1000) };
-    })(),
+    })().then(r => { markDone("bubbleChart", r); }, e => { markFailed("bubbleChart", e); }),
   ]);
 
-  // 处理并行结果
-  let completedSteps = 1; // 步骤1已完成
-  const stepNames: ("review" | "test" | "extraction" | "bubbleChart")[] = ["review", "test", "extraction", "bubbleChart"];
-  for (let i = 0; i < parallelResults.length; i++) {
-    const result = parallelResults[i];
-    if (result.status === "fulfilled") {
-      const { step, fileName, uploadResult, chars, duration } = result.value;
-      stepResults[step] = {
-        status: "completed",
-        fileName,
-        url: uploadResult.url || "",
-        path: uploadResult.path || "",
-        folderUrl: uploadResult.folderUrl || "",
-        chars,
-        duration,
-        ...(step === "extraction" && "content" in result.value ? { content: (result.value as any).content } : {}),
-      };
-      completedSteps++;
-      console.log(`[后台任务] ${taskId} ${step} 完成: ${fileName} (${duration}秒)`);
-    } else {
-      stepResults[stepNames[i]] = {
-        status: "failed",
-        error: result.reason?.message || String(result.reason),
-      };
-      failedSteps++;
-      console.error(`[后台任务] ${taskId} ${stepNames[i]} 失败:`, result.reason);
-    }
-  }
+  // 并行步骤已在各自的 .then() 中即时更新了 stepResults 和 completedSteps
 
   // 确定最终状态
   const allCompleted = failedSteps === 0;
@@ -656,14 +648,33 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   // 取消检查点：步骤1完成后、步骤2-5开始前
   await checkCancellation(taskId, stepResults, 1);
 
-  // ===== 步骤 2-5: 并行执行 =====
+  // ===== 步骤 2-5: 并行执行（每步完成立即更新DB，前端实时看到进度） =====
+  let completedSteps = 1; // 步骤1已完成
   stepResults.review = { status: "running" };
   stepResults.test = { status: "running" };
   stepResults.extraction = { status: "running" };
   stepResults.bubbleChart = { status: "running" };
   await updateStepResults(taskId, stepResults, 2);
 
-  const parallelResults = await Promise.allSettled([
+  // 每个步骤完成/失败后立即写DB，前端轮询即可看到最新进度
+  const markDone = (name: "review" | "test" | "extraction" | "bubbleChart", r: any) => {
+    const { fileName, uploadResult, chars, duration, content, files } = r;
+    stepResults[name] = {
+      status: "completed", fileName, url: uploadResult?.url || "", path: uploadResult?.path || "",
+      chars, duration, ...(content ? { content } : {}), ...(files ? { files } : {}),
+    };
+    completedSteps++;
+    console.log(`[后台任务] ${taskId} ${name} 完成 [${completedSteps}/5]`);
+    updateStepResults(taskId, stepResults, completedSteps).catch(() => {});
+  };
+  const markFailed = (name: "review" | "test" | "extraction" | "bubbleChart", err: any) => {
+    stepResults[name] = { status: "failed", error: err?.message || String(err) };
+    failedSteps++;
+    console.error(`[后台任务] ${taskId} ${name} 失败:`, err?.message || err);
+    updateStepResults(taskId, stepResults, completedSteps).catch(() => {});
+  };
+
+  await Promise.allSettled([
     // 步骤2: 复习文档
     (async () => {
       const t = Date.now();
@@ -674,7 +685,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       const uploadResult = await uploadBinaryToGoogleDrive(reviewResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "班课复习文档");
       return { fileName, uploadResult, chars: reviewResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
-    })(),
+    })().then(r => { markDone("review", r); }, e => { markFailed("review", e); }),
 
     // 步骤3: 测试本
     (async () => {
@@ -686,7 +697,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       const uploadResult = await uploadBinaryToGoogleDrive(testResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "班课测试文档");
       return { fileName, uploadResult, chars: testResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
-    })(),
+    })().then(r => { markDone("test", r); }, e => { markFailed("test", e); }),
 
     // 步骤4: 课后信息提取
     (async () => {
@@ -698,7 +709,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
       assertUploadSuccess(uploadResult, "班课课后信息提取");
       return { fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000), content: extractionContent };
-    })(),
+    })().then(r => { markDone("extraction", r); }, e => { markFailed("extraction", e); }),
 
     // 步骤5: 气泡图（每个学生一张）
     (async () => {
@@ -805,35 +816,10 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
         throw new Error(`气泡图部分失败(${successCount}/${students.length}成功)`);
       }
       return { fileName: `气泡图(${successCount}/${students.length}成功)`, uploadResult: { url: "", path: "" }, chars: successCount, duration: Math.round((Date.now() - t) / 1000), files: perStudentFiles };
-    })(),
+    })().then(r => { markDone("bubbleChart", r); }, e => { markFailed("bubbleChart", e); }),
   ]);
 
-  // 处理并行结果
-  let completedSteps = 1;
-  const stepNames: ("review" | "test" | "extraction" | "bubbleChart")[] = ["review", "test", "extraction", "bubbleChart"];
-  for (let i = 0; i < parallelResults.length; i++) {
-    const result = parallelResults[i];
-    if (result.status === "fulfilled") {
-      const { fileName, uploadResult, chars, duration, content, files } = result.value as any;
-      stepResults[stepNames[i]] = {
-        status: "completed",
-        fileName,
-        url: uploadResult.url || "",
-        path: uploadResult.path || "",
-        chars,
-        duration,
-        ...(stepNames[i] === "extraction" && content ? { content } : {}),
-        ...(files ? { files } : {}),
-      };
-      completedSteps++;
-    } else {
-      stepResults[stepNames[i]] = {
-        status: "failed",
-        error: result.reason?.message || String(result.reason),
-      };
-      failedSteps++;
-    }
-  }
+  // 并行步骤已在各自的 .then() 中即时更新了 stepResults 和 completedSteps
 
   const allCompleted = failedSteps === 0;
   const finalStatus = allCompleted ? "completed" : completedSteps > 1 ? "partial" : "failed";
