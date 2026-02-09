@@ -5,7 +5,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { ChevronDown, ChevronUp, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X, ArrowUp, ArrowDown } from "lucide-react";
+import { ChevronDown, ChevronUp, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X, ArrowUp, ArrowDown, Download, ExternalLink } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 interface TaskHistoryProps {
@@ -49,6 +49,136 @@ function shortModelName(model: string): string {
   // 将 "4-5" 格式转为 "4.5"
   s = s.replace(/(\d+)-(\d+)/, "$1.$2");
   return s;
+}
+
+// 从 Google Drive webViewLink 提取 fileId
+// 格式: https://drive.google.com/file/d/{FILE_ID}/view?...
+//   或: https://docs.google.com/document/d/{FILE_ID}/edit?...
+function extractFileId(url: string): string | null {
+  if (!url) return null;
+  const match = url.match(/\/d\/([^/]+)/);
+  return match ? match[1] : null;
+}
+
+// 收集任务的可下载文件
+function getDownloadFiles(stepResults: any) {
+  if (!stepResults) return { docFiles: [] as { fileId: string; fileName: string }[], bubbleFiles: [] as { fileId: string; fileName: string }[] };
+
+  const docFiles: { fileId: string; fileName: string }[] = [];
+
+  // 复习文档
+  if (stepResults.review?.status === "completed" && stepResults.review?.url) {
+    const fid = extractFileId(stepResults.review.url);
+    if (fid) docFiles.push({ fileId: fid, fileName: stepResults.review.fileName || "复习文档.docx" });
+  }
+  // 测试文档
+  if (stepResults.test?.status === "completed" && stepResults.test?.url) {
+    const fid = extractFileId(stepResults.test.url);
+    if (fid) docFiles.push({ fileId: fid, fileName: stepResults.test.fileName || "测试文档.docx" });
+  }
+
+  const bubbleFiles: { fileId: string; fileName: string }[] = [];
+
+  if (stepResults.bubbleChart?.status === "completed") {
+    // 班课模式：多个学生气泡图
+    if (stepResults.bubbleChart.files && stepResults.bubbleChart.files.length > 0) {
+      for (const f of stepResults.bubbleChart.files) {
+        const fid = extractFileId(f.url);
+        if (fid) bubbleFiles.push({ fileId: fid, fileName: f.fileName });
+      }
+    } else if (stepResults.bubbleChart.url) {
+      // 1对1模式：单个气泡图
+      const fid = extractFileId(stepResults.bubbleChart.url);
+      if (fid) bubbleFiles.push({ fileId: fid, fileName: stepResults.bubbleChart.fileName || "气泡图.png" });
+    }
+  }
+
+  return { docFiles, bubbleFiles };
+}
+
+/** 下载按钮组件（带状态反馈） */
+function DownloadButton({ label, files }: {
+  label: string;
+  files: { fileId: string; fileName: string }[];
+}) {
+  const [state, setState] = useState<"idle" | "downloading" | "success" | "failed">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  // 成功/失败后自动恢复
+  useEffect(() => {
+    if (state === "success" || state === "failed") {
+      const timer = setTimeout(() => { setState("idle"); setErrorMsg(""); }, state === "success" ? 4000 : 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [state]);
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (state === "downloading" || files.length === 0) return;
+    setState("downloading");
+    setErrorMsg("");
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 500));
+        const { fileId, fileName } = files[i];
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 60000);
+        try {
+          const res = await fetch(
+            `/api/download-drive-file?fileId=${encodeURIComponent(fileId)}&fileName=${encodeURIComponent(fileName)}`,
+            { signal: controller.signal }
+          );
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: "下载失败" }));
+            throw new Error(err.error || `HTTP ${res.status}`);
+          }
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 3000);
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+      setState("success");
+    } catch (err: any) {
+      const msg = err?.name === "AbortError" ? "下载超时" : (err?.message || "下载失败");
+      setErrorMsg(msg);
+      setState("failed");
+    }
+  };
+
+  if (files.length === 0) return null;
+
+  return (
+    <button
+      className={`w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+        state === "idle" ? "bg-blue-500 hover:bg-blue-600 text-white active:bg-blue-700" :
+        state === "downloading" ? "bg-blue-400 text-white/90 cursor-wait" :
+        state === "success" ? "bg-green-500 text-white" :
+        "bg-red-500 text-white"
+      }`}
+      onClick={handleDownload}
+      disabled={state === "downloading"}
+    >
+      {state === "downloading" && <Loader2 className="h-4 w-4 animate-spin" />}
+      {state === "success" && <Check className="h-4 w-4" />}
+      {state === "failed" && <XCircle className="h-4 w-4" />}
+      {state === "idle" && <Download className="h-4 w-4" />}
+      <span>
+        {state === "idle" && label}
+        {state === "downloading" && "下载中..."}
+        {state === "success" && (files.length > 1 ? `下载成功 (${files.length}个文件)` : "下载成功")}
+        {state === "failed" && (errorMsg ? `下载失败: ${errorMsg}` : "下载失败")}
+      </span>
+    </button>
+  );
 }
 
 /** 通用全文查看器 */
@@ -436,7 +566,21 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                       {stepName}
                                     </span>
                                     {stepResult.fileName && (
-                                      <span className="text-gray-400 truncate min-w-0">{stepResult.fileName}</span>
+                                      stepResult.url ? (
+                                        <a
+                                          href={stepResult.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-blue-400 hover:text-blue-600 truncate min-w-0 inline-flex items-center gap-0.5"
+                                          onClick={(e) => e.stopPropagation()}
+                                          title="在 Google Drive 中查看"
+                                        >
+                                          {stepResult.fileName}
+                                          <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                                        </a>
+                                      ) : (
+                                        <span className="text-gray-400 truncate min-w-0">{stepResult.fileName}</span>
+                                      )
                                     )}
                                     {/* 运行中步骤显示实时字符数或等待状态 */}
                                     {stepResult.status === "running" && (
@@ -500,6 +644,23 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                             {feedbackChars > 0 && ` · 反馈${feedbackChars}字`}
                           </p>
                         )}
+                        {/* 下载按钮区域 */}
+                        {(task.status === "completed" || task.status === "partial") && (() => {
+                          const { docFiles, bubbleFiles } = getDownloadFiles(task.stepResults);
+                          if (docFiles.length === 0 && bubbleFiles.length === 0) return null;
+                          return (
+                            <div className="mt-2 space-y-2">
+                              <DownloadButton
+                                label="下载复习与测试文档"
+                                files={docFiles}
+                              />
+                              <DownloadButton
+                                label={bubbleFiles.length > 1 ? `下载全部气泡图 (${bubbleFiles.length}张)` : "下载气泡图"}
+                                files={bubbleFiles}
+                              />
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>

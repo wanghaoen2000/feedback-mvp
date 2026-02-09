@@ -101,6 +101,7 @@ interface StepResult {
   content?: string; // 反馈全文（仅 feedback 步骤）
   rawContent?: string; // 原始AI输出（清洗前，用于诊断换行等问题）
   genInfo?: string;  // 生成诊断信息（模式、轮次、token用量）
+  files?: { fileName: string; url: string; path: string }[]; // 多文件支持（班课气泡图等）
 }
 
 interface StepResults {
@@ -704,6 +705,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       const t = Date.now();
       const students = params.attendanceStudents.filter((s) => s.trim());
       let successCount = 0;
+      const perStudentFiles: { fileName: string; url: string; path: string }[] = [];
       // 收集调试信息（只记录第一个学生的完整SVG，其余只记录摘要）
       const fontConfig = getResvgFontConfig();
       const debugLines: string[] = [
@@ -767,6 +769,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
           const folderPath = `${basePath}/气泡图`;
           const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
           assertUploadSuccess(uploadResult, `气泡图(${studentName})`);
+          perStudentFiles.push({ fileName, url: uploadResult.url || "", path: uploadResult.path || "" });
           successCount++;
         } catch (err: any) {
           debugLines.push(`错误: ${err?.message || err}`);
@@ -801,7 +804,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       if (failedCount > 0) {
         throw new Error(`气泡图部分失败(${successCount}/${students.length}成功)`);
       }
-      return { fileName: `气泡图(${successCount}/${students.length}成功)`, uploadResult: { url: "", path: "" }, chars: successCount, duration: Math.round((Date.now() - t) / 1000) };
+      return { fileName: `气泡图(${successCount}/${students.length}成功)`, uploadResult: { url: "", path: "" }, chars: successCount, duration: Math.round((Date.now() - t) / 1000), files: perStudentFiles };
     })(),
   ]);
 
@@ -811,7 +814,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   for (let i = 0; i < parallelResults.length; i++) {
     const result = parallelResults[i];
     if (result.status === "fulfilled") {
-      const { fileName, uploadResult, chars, duration, content } = result.value as any;
+      const { fileName, uploadResult, chars, duration, content, files } = result.value as any;
       stepResults[stepNames[i]] = {
         status: "completed",
         fileName,
@@ -820,6 +823,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
         chars,
         duration,
         ...(stepNames[i] === "extraction" && content ? { content } : {}),
+        ...(files ? { files } : {}),
       };
       completedSteps++;
     } else {
