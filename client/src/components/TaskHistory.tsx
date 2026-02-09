@@ -37,6 +37,20 @@ function isTextStep(stepKey: string): boolean {
   return stepKey === "feedback" || stepKey === "extraction" || stepKey === "review" || stepKey === "test";
 }
 
+// 将完整模型ID缩短为易读名称
+// 例: "claude-opus-4-5-20251101-cc" → "opus-4.5-cc"
+//     "claude-sonnet-4-5-20250929" → "sonnet-4.5"
+function shortModelName(model: string): string {
+  if (!model) return "";
+  // 移除 "claude-" 前缀
+  let s = model.replace(/^claude-/, "");
+  // 移除日期部分 (8位数字)
+  s = s.replace(/-\d{8}/, "");
+  // 将 "4-5" 格式转为 "4.5"
+  s = s.replace(/(\d+)-(\d+)/, "$1.$2");
+  return s;
+}
+
 /** 反馈全文查看器 */
 function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
@@ -317,6 +331,11 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                           {isRunning && (
                             <span className="text-xs text-blue-500">
                               ({task.currentStep}/{task.totalSteps})
+                            </span>
+                          )}
+                          {task.model && (
+                            <span className="text-xs text-gray-400 shrink-0">
+                              ({shortModelName(task.model)})
                             </span>
                           )}
                         </div>

@@ -1859,6 +1859,7 @@ export const appRouter = router({
         errorMessage: bgTasksTable.errorMessage,
         createdAt: bgTasksTable.createdAt,
         completedAt: bgTasksTable.completedAt,
+        inputParams: bgTasksTable.inputParams,
       })
         .from(bgTasksTable)
         .where(gte(bgTasksTable.createdAt, threeDaysAgo))
@@ -1875,6 +1876,12 @@ export const appRouter = router({
           if (stepResults?.feedback?.content) {
             delete stepResults.feedback.content;
           }
+          // 从 inputParams 中提取使用的模型名称
+          let model: string | null = null;
+          try {
+            const params = t.inputParams ? JSON.parse(t.inputParams) : null;
+            model = params?.apiModel || null;
+          } catch { /* ignore */ }
           return {
             id: t.id,
             courseType: t.courseType,
@@ -1884,6 +1891,7 @@ export const appRouter = router({
             totalSteps: t.totalSteps,
             stepResults,
             errorMessage: t.errorMessage,
+            model,
             createdAt: t.createdAt.toISOString(),
             completedAt: t.completedAt?.toISOString() || null,
           };
