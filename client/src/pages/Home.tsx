@@ -384,6 +384,9 @@ export default function Home() {
   // 自动从 Downloads 文件夹加载录音转文字
   const [autoLoadTranscript, setAutoLoadTranscript] = useState(true);
   const autoLoadedTranscriptRef = useRef<string | null>(null);
+  // 多段录音：勾选后明确指定段数
+  const [multiSegment, setMultiSegment] = useState(false);
+  const [segmentCount, setSegmentCount] = useState(2);
 
   // 自动从 Downloads 文件夹加载课堂笔记
   const [autoLoadCurrentNotes, setAutoLoadCurrentNotes] = useState(true);
@@ -2272,7 +2275,11 @@ export default function Home() {
         const displayName = courseType === 'class' ? `${rawName}班` : rawName;
         const expectedFileName = `${displayName}${mmdd}.docx`;
         try {
-          const result = await readFromDownloadsMutation.mutateAsync({ fileName: expectedFileName, allowSplit: true });
+          // 多段模式：传 segmentCount；默认模式：传 allowSplit
+          const loadParams = multiSegment
+            ? { fileName: expectedFileName, segmentCount }
+            : { fileName: expectedFileName, allowSplit: true };
+          const result = await readFromDownloadsMutation.mutateAsync(loadParams);
           autoLoadedTranscriptRef.current = result.content;
           setTranscript(result.content);
           setTranscriptFile({ name: result.fileName, content: result.content });
@@ -3481,22 +3488,61 @@ export default function Home() {
                     </div>
                   </div>
                   {autoLoadTranscript ? (
-                    // 自动加载模式：显示预期文件名
-                    <div className="h-[72px] flex items-center justify-center gap-2 bg-gray-50 border border-dashed border-gray-300 rounded-md text-xs text-gray-500">
-                      <FolderDown className="h-5 w-5 text-gray-400 shrink-0" />
-                      {(() => {
-                        const rawName = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
-                        const mmdd = getMMDD(lessonDate);
-                        if (!rawName || !mmdd) {
-                          return <span className="text-gray-400">请填写{courseType === 'oneToOne' ? '姓名' : '班号'}和日期</span>;
-                        }
-                        const displayName = courseType === 'class' ? `${rawName}班` : rawName;
-                        return (
-                          <span className="font-mono text-blue-600 text-xs">
-                            {displayName}{mmdd}.docx
-                          </span>
-                        );
-                      })()}
+                    // 自动加载模式：显示预期文件名 + 多段选项
+                    <div className="space-y-2">
+                      <div className="min-h-[72px] flex items-center justify-center gap-2 bg-gray-50 border border-dashed border-gray-300 rounded-md text-xs text-gray-500 p-3">
+                        <FolderDown className="h-5 w-5 text-gray-400 shrink-0" />
+                        {(() => {
+                          const rawName = courseType === 'oneToOne' ? studentName.trim() : classNumber.trim();
+                          const mmdd = getMMDD(lessonDate);
+                          if (!rawName || !mmdd) {
+                            return <span className="text-gray-400">请填写{courseType === 'oneToOne' ? '姓名' : '班号'}和日期</span>;
+                          }
+                          const displayName = courseType === 'class' ? `${rawName}班` : rawName;
+                          if (multiSegment && segmentCount >= 2) {
+                            // 多段模式：显示所有分段文件名
+                            return (
+                              <div className="flex flex-col items-center gap-0.5">
+                                {Array.from({ length: segmentCount }, (_, i) => (
+                                  <span key={i} className="font-mono text-blue-600 text-xs">
+                                    {displayName}{mmdd}-{i + 1}.docx
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return (
+                            <span className="font-mono text-blue-600 text-xs">
+                              {displayName}{mmdd}.docx
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      {/* 多段构成选项 */}
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <Checkbox
+                            checked={multiSegment}
+                            onCheckedChange={(checked) => setMultiSegment(checked === true)}
+                            disabled={isGenerating}
+                          />
+                          <span className="text-xs text-gray-600">多段构成</span>
+                        </label>
+                        {multiSegment && (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min={1}
+                              max={10}
+                              value={segmentCount}
+                              onChange={(e) => setSegmentCount(Math.max(1, Math.min(10, parseInt(e.target.value) || 2)))}
+                              className="w-12 h-6 text-xs text-center border border-gray-300 rounded px-1"
+                              disabled={isGenerating}
+                            />
+                            <span className="text-xs text-gray-500">段</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <DebouncedTextarea

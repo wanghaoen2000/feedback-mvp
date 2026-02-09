@@ -1523,9 +1523,10 @@ export const appRouter = router({
       .input(z.object({
         fileName: z.string().min(1, "请提供文件名"),
         allowSplit: z.boolean().optional(), // 允许分段文件检索（-1, -2）
+        segmentCount: z.number().int().min(1).max(10).optional(), // 明确指定段数（1=单文件, 2=-1+-2, 3=-1+-2+-3...）
       }))
       .mutation(async ({ input }) => {
-        const { fileName, allowSplit } = input;
+        const { fileName, allowSplit, segmentCount } = input;
 
         const ext = path.extname(fileName).toLowerCase();
         if (!['.docx', '.txt', '.md'].includes(ext)) {
@@ -1574,6 +1575,62 @@ export const appRouter = router({
           return buffer.toString('utf-8');
         }
 
+        const baseName = path.basename(fileName, ext); // 如 "孙浩然0206"
+
+        // === 模式A：用户明确指定了段数（segmentCount） ===
+        if (segmentCount !== undefined) {
+          if (segmentCount === 1) {
+            // 单文件模式：只找完整文件
+            const mainResult = await tryReadFile(fileName);
+            if (mainResult) {
+              const content = await parseFileContent(mainResult.buffer, mainResult.resolvedName);
+              if (!content.trim()) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: '文件内容为空' });
+              }
+              return { content: content.trim(), fileName: mainResult.resolvedName };
+            }
+            throw new TRPCError({
+              code: 'NOT_FOUND',
+              message: `未找到文件: ${fileName}\n已尝试: ${gdriveDownloadsPath ? `指定目录(${gdriveDownloadsPath})` : '(未配置Downloads路径)'} + 全局搜索`,
+            });
+          }
+
+          // 多段模式：找 -1, -2, ... -N，必须全部找到
+          const parts: string[] = [];
+          const found: string[] = [];
+          const missing: string[] = [];
+          for (let i = 1; i <= segmentCount; i++) {
+            const partName = `${baseName}-${i}${ext}`;
+            const partResult = await tryReadFile(partName);
+            if (partResult) {
+              const content = await parseFileContent(partResult.buffer, partResult.resolvedName);
+              parts.push(content.trim());
+              found.push(partName);
+              console.log(`[readFromDownloads] 多段模式：找到第${i}段 ${partName}`);
+            } else {
+              missing.push(partName);
+            }
+          }
+
+          if (missing.length > 0) {
+            throw new TRPCError({
+              code: 'NOT_FOUND',
+              message: `指定了${segmentCount}段，但有${missing.length}段未找到:\n${missing.map(m => `  ✗ ${m}`).join('\n')}${found.length > 0 ? `\n已找到:\n${found.map(f => `  ✓ ${f}`).join('\n')}` : ''}\n请检查文件是否已上传到 Google Drive`,
+            });
+          }
+
+          const merged = parts.join('\n\n').trim();
+          if (!merged) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: '所有分段文件内容均为空' });
+          }
+          const segLabel = Array.from({ length: segmentCount }, (_, i) => i + 1).join('+');
+          return {
+            content: merged,
+            fileName: `${baseName}-${segLabel}${ext}`,
+          };
+        }
+
+        // === 模式B：默认模式（checkbox关闭，保持原有逻辑） ===
         // 第一优先级：完整文件（如 孙浩然0206.docx）
         const mainResult = await tryReadFile(fileName);
 
@@ -1587,7 +1644,6 @@ export const appRouter = router({
 
         // 第二优先级：分段文件（如 孙浩然0206-1.docx + 孙浩然0206-2.docx）
         if (allowSplit) {
-          const baseName = path.basename(fileName, ext); // 如 "孙浩然0206"
           const part1Name = `${baseName}-1${ext}`;
           const part1Result = await tryReadFile(part1Name);
 
@@ -1595,7 +1651,6 @@ export const appRouter = router({
             console.log(`[readFromDownloads] 分段模式：找到第1段 ${part1Name}`);
             const part1Content = await parseFileContent(part1Result.buffer, part1Result.resolvedName);
 
-            // 找到 -1，继续找 -2
             const part2Name = `${baseName}-2${ext}`;
             const part2Result = await tryReadFile(part2Name);
 
@@ -1611,7 +1666,6 @@ export const appRouter = router({
                 fileName: `${baseName}-1+2${ext}`,
               };
             } else {
-              // 有 -1 就一定有 -2，找不到说明第2段还没下载
               throw new TRPCError({
                 code: 'NOT_FOUND',
                 message: `找到了第1段 ${part1Name}，但未找到第2段 ${part2Name}\n请检查是否已下载完整的录音转文字文件`,
@@ -1622,7 +1676,7 @@ export const appRouter = router({
 
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: `在 Google Drive 未找到文件: ${fileName}${allowSplit ? `\n也未找到分段文件: ${path.basename(fileName, ext)}-1${ext}` : ''}\n已尝试: ${gdriveDownloadsPath ? `指定目录(${gdriveDownloadsPath})` : '(未配置Downloads路径)'} + 全局搜索`,
+          message: `在 Google Drive 未找到文件: ${fileName}${allowSplit ? `\n也未找到分段文件: ${baseName}-1${ext}` : ''}\n已尝试: ${gdriveDownloadsPath ? `指定目录(${gdriveDownloadsPath})` : '(未配置Downloads路径)'} + 全局搜索`,
         });
       }),
 
