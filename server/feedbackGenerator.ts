@@ -850,7 +850,7 @@ async function invokeNonStreamWithContinuation(
 
     const streamResult = await invokeWhatAIStream(
       messages,
-      { max_tokens: 64000, timeout: 600000, retries: 1 },
+      { max_tokens: 64000, timeout: 90_000, retries: 1 },
       config,
       onChunk,
     );
@@ -1071,7 +1071,7 @@ ${d.specialRequirements ? `【特殊要求】\n${d.specialRequirements}\n` : ''}
   const chunkCallback = onProgress ? (chunk: string) => {
     charCount += chunk.length;
     const now = Date.now();
-    if (now - lastProgressTime >= 2000) { // 每2秒回报一次
+    if (now - lastProgressTime >= 1000) { // 每1秒回报一次（加速响应）
       onProgress(charCount);
       lastProgressTime = now;
     }

@@ -162,7 +162,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
 
   // 查询任务历史
   const historyQuery = trpc.bgTask.history.useQuery(undefined, {
-    refetchInterval: isOpen ? 5000 : 30000,
+    refetchInterval: isOpen ? 3000 : 30000,
     staleTime: 3000,
   });
 
@@ -329,9 +329,13 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                               · {formatDuration(duration)}
                             </span>
                           )}
-                          {/* 运行中显示实时字符数 */}
-                          {isRunning && runningChars > 0 && (
-                            <span className="text-blue-500 tabular-nums">· 已接收{runningChars}字</span>
+                          {/* 运行中显示实时字符数或等待状态 */}
+                          {isRunning && (
+                            runningChars > 0 ? (
+                              <span className="text-blue-500 tabular-nums">· 已接收{runningChars}字</span>
+                            ) : (
+                              <span className="text-blue-400">· 等待AI响应...</span>
+                            )
                           )}
                           {/* 完成后显示反馈字数 */}
                           {!isRunning && feedbackChars > 0 && (
@@ -396,11 +400,17 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                     {stepResult.fileName && (
                                       <span className="text-gray-400 truncate min-w-0">{stepResult.fileName}</span>
                                     )}
-                                    {/* 运行中步骤显示实时字符数 */}
-                                    {stepResult.status === "running" && isTextStep(stepKey) && stepResult.chars > 0 && (
-                                      <span className="text-blue-500 ml-auto shrink-0 tabular-nums">
-                                        已接收{stepResult.chars}字
-                                      </span>
+                                    {/* 运行中步骤显示实时字符数或等待状态 */}
+                                    {stepResult.status === "running" && (
+                                      isTextStep(stepKey) && stepResult.chars > 0 ? (
+                                        <span className="text-blue-500 ml-auto shrink-0 tabular-nums">
+                                          已接收{stepResult.chars}字
+                                        </span>
+                                      ) : (
+                                        <span className="text-blue-400 ml-auto shrink-0">
+                                          等待AI响应...
+                                        </span>
+                                      )
                                     )}
                                     {/* 完成步骤显示耗时和字数 */}
                                     {(stepResult.status === "completed" || stepResult.status === "truncated") && (

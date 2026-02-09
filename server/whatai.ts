@@ -204,15 +204,16 @@ export async function invokeWhatAIStream(
   const apiKey = config?.apiKey || DEFAULT_API_KEY;
   const baseUrl = config?.apiUrl || DEFAULT_BASE_URL;
   const model = config?.apiModel || options?.model || DEFAULT_MODEL;
-  
+
   const max_tokens = options?.max_tokens || 32000;
   const temperature = options?.temperature ?? 0.7;
-  const timeout = options?.timeout || 600000; // 默认10分钟
+  // 连接超时：等待 HTTP 响应头（不含AI思考时间）
+  const connectTimeout = options?.timeout || 90_000; // 默认90秒（原来10分钟太长了）
   const maxRetries = options?.retries ?? 2;
 
   console.log(`[WhatAI流式] 调用模型: ${model}`);
   console.log(`[WhatAI流式] API地址: ${baseUrl}`);
-  console.log(`[WhatAI流式] 消息数量: ${messages.length}`);
+  console.log(`[WhatAI流式] 消息数量: ${messages.length}, 连接超时: ${connectTimeout / 1000}秒`);
   // 详细日志：打印 messages 内容长度
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -224,13 +225,13 @@ export async function invokeWhatAIStream(
   }
 
   let lastError: Error | null = null;
-  
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
       console.log(`[WhatAI流式] 第${attempt}次重试...`);
       await delay(2000 * attempt);
     }
-    
+
     try {
       // 外部取消检查（如客户端已断连）
       if (options?.signal?.aborted) {
@@ -247,8 +248,11 @@ export async function invokeWhatAIStream(
         options.signal.addEventListener('abort', onExternalAbort, { once: true });
       }
 
-      // 初始超时：等待 API 首次响应
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      // 连接超时：等待 API 返回 HTTP 响应头
+      const timeoutId = setTimeout(() => {
+        console.error(`[WhatAI流式] 连接超时（${connectTimeout / 1000}秒无HTTP响应），中止`);
+        controller.abort();
+      }, connectTimeout);
 
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
@@ -272,10 +276,12 @@ export async function invokeWhatAIStream(
         const errorText = await response.text();
         console.error(`[WhatAI流式] API错误: ${response.status} - ${errorText}`);
 
-        if (response.status === 403 || response.status === 401) {
+        // 4xx 客户端错误：不重试（重试也不会有不同结果）
+        if (response.status >= 400 && response.status < 500) {
           throw new Error(`WhatAI API错误: ${response.status} - ${errorText}`);
         }
 
+        // 5xx 服务端错误：可以重试
         lastError = new Error(`WhatAI API错误: ${response.status} - ${errorText}`);
         continue;
       }
@@ -286,14 +292,21 @@ export async function invokeWhatAIStream(
         throw new Error('无法获取响应流');
       }
 
-      // 滚动卡死保护：每收到数据就重置计时器，2分钟无数据则中止
-      const STALL_TIMEOUT = 120_000; // 2分钟
+      // 首 token 超时：流已连接但等待AI输出第一个token（含思考时间）
+      const FIRST_TOKEN_TIMEOUT = 180_000; // 3分钟（thinking模型可能需要较长思考）
+      // 后续卡死保护：收到首个token后，任意时刻超过60秒无新数据则中止
+      const STALL_TIMEOUT = 60_000; // 60秒
+      let gotFirstToken = false;
       let stallTimer = setTimeout(() => {
-        console.error(`[WhatAI流式] 流式读取卡死（${STALL_TIMEOUT / 1000}秒无数据），中止`);
+        console.error(`[WhatAI流式] 等待首个token超时（${FIRST_TOKEN_TIMEOUT / 1000}秒），中止`);
         controller.abort();
-      }, STALL_TIMEOUT);
+      }, FIRST_TOKEN_TIMEOUT);
       const resetStallTimer = () => {
         clearTimeout(stallTimer);
+        if (!gotFirstToken) {
+          gotFirstToken = true;
+          console.log(`[WhatAI流式] 收到首个token`);
+        }
         stallTimer = setTimeout(() => {
           console.error(`[WhatAI流式] 流式读取卡死（${STALL_TIMEOUT / 1000}秒无数据），中止`);
           controller.abort();
@@ -368,12 +381,13 @@ export async function invokeWhatAIStream(
       }
 
       if (error.name === 'AbortError') {
-        lastError = new Error(`请求超时（${timeout / 1000}秒）`);
+        lastError = new Error(`请求超时（连接超时${connectTimeout / 1000}秒 / 首token超时180秒 / 卡死超时60秒）`);
       } else {
         lastError = error;
       }
 
-      if (error.message?.includes('403') || error.message?.includes('401')) {
+      // 4xx 客户端错误不重试（已在上面 throw，这里是 catch 到的情况）
+      if (error.message?.includes('API错误: 4')) {
         throw error;
       }
     }
