@@ -125,7 +125,7 @@ function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => vo
         </div>
       </div>
       {/* 内容区 */}
-      <div ref={scrollRef} className="p-2 max-h-[300px] overflow-y-auto">
+      <div ref={scrollRef} className="p-2 max-h-[30vh] sm:max-h-[300px] overflow-y-auto">
         {contentQuery.isLoading ? (
           <div className="flex items-center justify-center py-4 text-xs text-gray-400">
             <Loader2 className="h-3 w-3 animate-spin mr-1" />
@@ -285,7 +285,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
               暂无任务记录
             </div>
           ) : (
-            <div className="divide-y max-h-[400px] overflow-y-auto">
+            <div className="divide-y max-h-[60vh] sm:max-h-[500px] overflow-y-auto">
               {tasks.map((task) => {
                 const config = STATUS_CONFIG[task.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.pending;
                 const StatusIcon = config.icon;
