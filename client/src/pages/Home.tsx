@@ -386,7 +386,7 @@ export default function Home() {
   const autoLoadedTranscriptRef = useRef<string | null>(null);
   // 多段录音：勾选后明确指定段数
   const [multiSegment, setMultiSegment] = useState(false);
-  const [segmentCount, setSegmentCount] = useState(2);
+  const [segmentCount, setSegmentCount] = useState(3);
 
   // 自动从 Downloads 文件夹加载课堂笔记
   const [autoLoadCurrentNotes, setAutoLoadCurrentNotes] = useState(true);
