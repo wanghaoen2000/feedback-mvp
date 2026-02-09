@@ -644,7 +644,7 @@ async function navigateToFolder(folderPath: string, token: string): Promise<stri
 /**
  * 通过 OAuth API 下载文件内容
  */
-async function downloadFileById(fileId: string, token: string): Promise<Buffer> {
+export async function downloadFileById(fileId: string, token: string): Promise<Buffer> {
   // 先获取文件元数据，判断是否为 Google Docs 类型（需要 export）
   const metaUrl = `${DRIVE_API_BASE}/files/${fileId}?fields=mimeType,name`;
   const metaRes = await gdriveFetch(metaUrl, { headers: { Authorization: `Bearer ${token}` } });

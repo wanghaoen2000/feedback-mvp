@@ -8,7 +8,8 @@ import { z } from "zod";
 import { APIConfig } from "./whatai";
 import { ClassFeedbackInput, FeedbackInput, textToDocx, cleanMarkdownAndHtml, stripAIMetaCommentary, generateClassTestContent, generateClassExtractionContent, generateTestContent, generateExtractionContent, invokeWithContinuation } from "./feedbackGenerator";
 import { addWeekdayToDate } from "./utils";
-import { uploadToGoogleDrive, uploadBinaryToGoogleDrive } from "./gdrive";
+import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, downloadFileById } from "./gdrive";
+import { getValidToken } from "./googleAuth";
 import { 
   createLogSession, 
   startStep, 
@@ -1528,6 +1529,48 @@ ${input.currentNotes}
     } finally {
       if (keepAlive) clearInterval(keepAlive);
       res.end();
+    }
+  });
+
+  // 从 Google Drive 下载文件（代理端点）
+  app.get("/api/download-drive-file", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { fileId, fileName } = req.query;
+      if (!fileId || typeof fileId !== 'string') {
+        res.status(400).json({ error: '缺少 fileId 参数' });
+        return;
+      }
+      if (!fileName || typeof fileName !== 'string') {
+        res.status(400).json({ error: '缺少 fileName 参数' });
+        return;
+      }
+
+      const token = await getValidToken();
+      if (!token) {
+        res.status(401).json({ error: '未授权 Google Drive，请先在设置中完成 OAuth 授权' });
+        return;
+      }
+
+      console.log(`[Download] 下载文件: ${fileName} (fileId: ${fileId})`);
+      const buffer = await downloadFileById(fileId, token);
+
+      // 根据文件扩展名设置 Content-Type
+      let contentType = 'application/octet-stream';
+      if (fileName.endsWith('.docx')) {
+        contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      } else if (fileName.endsWith('.png')) {
+        contentType = 'image/png';
+      } else if (fileName.endsWith('.md')) {
+        contentType = 'text/markdown; charset=utf-8';
+      }
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      res.setHeader('Content-Length', buffer.length.toString());
+      res.send(buffer);
+    } catch (error: any) {
+      console.error('[Download] 下载失败:', error);
+      res.status(500).json({ error: error.message || '下载失败' });
     }
   });
 
