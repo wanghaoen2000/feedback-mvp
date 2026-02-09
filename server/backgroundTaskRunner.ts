@@ -301,7 +301,11 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       specialRequirements: params.specialRequirements || "",
     };
 
-    const feedbackResult = await generateFeedbackContent('oneToOne', feedbackInput, config);
+    const feedbackResult = await generateFeedbackContent('oneToOne', feedbackInput, config, (chars) => {
+      // 实时更新字符数到 DB（前端通过轮询获取）
+      stepResults.feedback = { ...stepResults.feedback!, status: "running", chars };
+      updateStepResults(taskId, stepResults, 1);
+    });
     feedbackContent = feedbackResult.content;
     const feedbackMeta = feedbackResult.meta;
     const feedbackRawContent = feedbackResult.rawContent;
@@ -539,7 +543,11 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   startStep(log, 'feedback');
 
   try {
-    const classResult = await generateClassFeedbackContent(classInput, roadmapClass, apiConfig);
+    const classResult = await generateClassFeedbackContent(classInput, roadmapClass, apiConfig, (chars) => {
+      // 实时更新字符数到 DB（前端通过轮询获取）
+      stepResults.feedback = { ...stepResults.feedback!, status: "running", chars };
+      updateStepResults(taskId, stepResults, 1);
+    });
     feedbackContent = classResult.content;
     const classMeta = classResult.meta;
     const classRawContent = classResult.rawContent;

@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { ChevronDown, ChevronUp, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X, ArrowUp, ArrowDown } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 interface TaskHistoryProps {
@@ -40,6 +40,7 @@ function isTextStep(stepKey: string): boolean {
 /** 反馈全文查看器 */
 function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const contentQuery = trpc.bgTask.feedbackContent.useQuery({ taskId });
 
   const handleCopy = useCallback(async () => {
@@ -85,6 +86,24 @@ function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => vo
           <Button
             variant="ghost"
             size="sm"
+            className="h-6 w-6 p-0"
+            title="回到顶部"
+            onClick={() => scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+          >
+            <ArrowUp className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            title="滚动到底部"
+            onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })}
+          >
+            <ArrowDown className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             className={`h-6 px-2 text-xs ${copied ? "text-green-600" : ""}`}
             onClick={handleCopy}
             disabled={!contentQuery.data?.content}
@@ -106,7 +125,7 @@ function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => vo
         </div>
       </div>
       {/* 内容区 */}
-      <div className="p-2 max-h-[300px] overflow-y-auto">
+      <div ref={scrollRef} className="p-2 max-h-[300px] overflow-y-auto">
         {contentQuery.isLoading ? (
           <div className="flex items-center justify-center py-4 text-xs text-gray-400">
             <Loader2 className="h-3 w-3 animate-spin mr-1" />
@@ -208,10 +227,19 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
     return 0;
   };
 
-  // 计算反馈文档字数（最有意义的指标）
+  // 计算反馈文档字数（完成后的最终字数）
   const getFeedbackChars = (stepResults: any): number => {
     if (!stepResults?.feedback?.chars) return 0;
     return (stepResults.feedback.status === "completed" || stepResults.feedback.status === "truncated") ? stepResults.feedback.chars : 0;
+  };
+
+  // 获取正在生成中的实时字符数（running 状态的 feedback 步骤）
+  const getRunningChars = (stepResults: any): number => {
+    if (!stepResults?.feedback) return 0;
+    if (stepResults.feedback.status === "running" && stepResults.feedback.chars) {
+      return stepResults.feedback.chars;
+    }
+    return 0;
   };
 
   if (tasks.length === 0 && !historyQuery.isLoading) {
@@ -266,6 +294,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                 const duration = getTaskDuration(task);
                 const isRunning = task.status === "running" || task.status === "pending";
                 const feedbackChars = getFeedbackChars(task.stepResults);
+                const runningChars = getRunningChars(task.stepResults);
 
                 return (
                   <div
@@ -299,6 +328,10 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                             <span className={isRunning ? "text-blue-500 tabular-nums" : "text-gray-400"}>
                               · {formatDuration(duration)}
                             </span>
+                          )}
+                          {/* 运行中显示实时字符数 */}
+                          {isRunning && runningChars > 0 && (
+                            <span className="text-blue-500 tabular-nums">· 已接收{runningChars}字</span>
                           )}
                           {/* 完成后显示反馈字数 */}
                           {!isRunning && feedbackChars > 0 && (
@@ -362,6 +395,12 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                     </span>
                                     {stepResult.fileName && (
                                       <span className="text-gray-400 truncate min-w-0">{stepResult.fileName}</span>
+                                    )}
+                                    {/* 运行中步骤显示实时字符数 */}
+                                    {stepResult.status === "running" && isTextStep(stepKey) && stepResult.chars > 0 && (
+                                      <span className="text-blue-500 ml-auto shrink-0 tabular-nums">
+                                        已接收{stepResult.chars}字
+                                      </span>
                                     )}
                                     {/* 完成步骤显示耗时和字数 */}
                                     {(stepResult.status === "completed" || stepResult.status === "truncated") && (

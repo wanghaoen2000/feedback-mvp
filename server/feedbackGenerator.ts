@@ -827,7 +827,8 @@ async function invokeNonStreamWithContinuation(
   systemPrompt: string,
   userPrompt: string,
   config?: APIConfig,
-  label: string = '反馈'
+  label: string = '反馈',
+  onChunk?: (chunk: string) => void
 ): Promise<{ content: string; meta: GenerationMeta }> {
   let fullContent = '';
   let messages: WhatAIMessage[] = [
@@ -851,6 +852,7 @@ async function invokeNonStreamWithContinuation(
       messages,
       { max_tokens: 64000, timeout: 600000, retries: 1 },
       config,
+      onChunk,
     );
 
     // 检查截断标记（由 invokeWhatAIStream 在 finish_reason=length 时追加）
@@ -997,7 +999,8 @@ function selectSystemPrompt(step: 'feedback' | 'review' | 'test' | 'extraction',
 export async function generateFeedbackContent(
   courseType: CourseType,
   input: FeedbackInput | ClassFeedbackInput,
-  config?: APIConfig
+  config?: APIConfig,
+  onProgress?: (chars: number) => void
 ): Promise<{ content: string; rawContent?: string; meta: GenerationMeta }> {
   let prompt: string;
   let label: string;
@@ -1062,7 +1065,21 @@ ${d.specialRequirements ? `【特殊要求】\n${d.specialRequirements}\n` : ''}
     console.log(`[${label}] 路书长度: ${config?.roadmap?.length || 0} 字符`);
   }
 
-  const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label);
+  // 进度回调：追踪已接收字符数
+  let charCount = 0;
+  let lastProgressTime = 0;
+  const chunkCallback = onProgress ? (chunk: string) => {
+    charCount += chunk.length;
+    const now = Date.now();
+    if (now - lastProgressTime >= 2000) { // 每2秒回报一次
+      onProgress(charCount);
+      lastProgressTime = now;
+    }
+  } : undefined;
+
+  const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label, chunkCallback);
+  // 最终回报一次（确保最后的字符数被报告）
+  if (onProgress) onProgress(result.content.length);
   console.log(`[${label}] 生成完成，内容长度: ${result.content.length}字符`);
 
   const rawContent = result.content;
@@ -1355,9 +1372,10 @@ export async function generateBubbleChart(
 export async function generateClassFeedbackContent(
   input: ClassFeedbackInput,
   roadmap: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string },
+  onProgress?: (chars: number) => void
 ): Promise<{ content: string; rawContent?: string; meta: GenerationMeta }> {
-  return generateFeedbackContent('class', input, { ...apiConfig, roadmap });
+  return generateFeedbackContent('class', input, { ...apiConfig, roadmap }, onProgress);
 }
 
 /** @deprecated 使用 generateReviewContent('class', ...) */
