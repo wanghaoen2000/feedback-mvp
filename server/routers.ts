@@ -1923,6 +1923,31 @@ export const appRouter = router({
         return { content };
       }),
 
+    // 获取课后信息提取全文（按需加载）
+    extractionContent: protectedProcedure
+      .input(z.object({ taskId: z.string() }))
+      .query(async ({ input }) => {
+        const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
+          .from(bgTasksTable)
+          .where(eq(bgTasksTable.id, input.taskId))
+          .limit(1);
+        if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
+
+        let stepResults = null;
+        try {
+          stepResults = tasks[0].stepResults ? JSON.parse(tasks[0].stepResults) : null;
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "任务数据损坏，无法解析" });
+        }
+        const content = stepResults?.extraction?.content || null;
+        if (!content) throw new TRPCError({ code: "NOT_FOUND", message: "提取内容不可用（可能是旧任务）" });
+        return { content };
+      }),
+
     // 取消运行中的任务
     cancel: protectedProcedure
       .input(z.object({ taskId: z.string() }))

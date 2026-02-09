@@ -424,7 +424,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const folderPath = `${basePath}/课后信息`;
       const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
       assertUploadSuccess(uploadResult, "课后信息提取");
-      return { step: "extraction" as const, fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000) };
+      return { step: "extraction" as const, fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000), content: extractionContent };
     })(),
 
     // 步骤5: 气泡图
@@ -456,6 +456,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
         folderUrl: uploadResult.folderUrl || "",
         chars,
         duration,
+        ...(step === "extraction" && "content" in result.value ? { content: (result.value as any).content } : {}),
       };
       completedSteps++;
       console.log(`[后台任务] ${taskId} ${step} 完成: ${fileName} (${duration}秒)`);
@@ -695,7 +696,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       const folderPath = `${basePath}/课后信息`;
       const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
       assertUploadSuccess(uploadResult, "班课课后信息提取");
-      return { fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000) };
+      return { fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000), content: extractionContent };
     })(),
 
     // 步骤5: 气泡图（每个学生一张）
@@ -810,7 +811,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
   for (let i = 0; i < parallelResults.length; i++) {
     const result = parallelResults[i];
     if (result.status === "fulfilled") {
-      const { fileName, uploadResult, chars, duration } = result.value;
+      const { fileName, uploadResult, chars, duration, content } = result.value as any;
       stepResults[stepNames[i]] = {
         status: "completed",
         fileName,
@@ -818,6 +819,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
         path: uploadResult.path || "",
         chars,
         duration,
+        ...(stepNames[i] === "extraction" && content ? { content } : {}),
       };
       completedSteps++;
     } else {

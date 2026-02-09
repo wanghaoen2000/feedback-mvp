@@ -51,11 +51,18 @@ function shortModelName(model: string): string {
   return s;
 }
 
-/** 反馈全文查看器 */
-function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+/** 通用全文查看器 */
+function ContentViewer({ taskId, onClose, title, queryFn }: {
+  taskId: string;
+  onClose: () => void;
+  title: string;
+  queryFn: "feedbackContent" | "extractionContent";
+}) {
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const contentQuery = trpc.bgTask.feedbackContent.useQuery({ taskId });
+  const feedbackQuery = trpc.bgTask.feedbackContent.useQuery({ taskId }, { enabled: queryFn === "feedbackContent" });
+  const extractionQuery = trpc.bgTask.extractionContent.useQuery({ taskId }, { enabled: queryFn === "extractionContent" });
+  const contentQuery = queryFn === "feedbackContent" ? feedbackQuery : extractionQuery;
 
   const handleCopy = useCallback(async () => {
     if (!contentQuery.data?.content) return;
@@ -95,7 +102,7 @@ function FeedbackViewer({ taskId, onClose }: { taskId: string; onClose: () => vo
     <div className="mt-1 border rounded bg-white">
       {/* 顶部操作栏 */}
       <div className="flex items-center justify-between px-2 py-1.5 border-b bg-gray-50">
-        <span className="text-xs text-gray-500 font-medium">反馈全文</span>
+        <span className="text-xs text-gray-500 font-medium">{title}</span>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -172,6 +179,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [viewingFeedbackTaskId, setViewingFeedbackTaskId] = useState<string | null>(null);
+  const [viewingExtractionTaskId, setViewingExtractionTaskId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now()); // 用于心跳计时
 
   // 查询任务历史
@@ -201,10 +209,13 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
     if (viewingFeedbackTaskId && !tasks.find((t) => t.id === viewingFeedbackTaskId)) {
       setViewingFeedbackTaskId(null);
     }
+    if (viewingExtractionTaskId && !tasks.find((t) => t.id === viewingExtractionTaskId)) {
+      setViewingExtractionTaskId(null);
+    }
     if (expandedTaskId && !tasks.find((t) => t.id === expandedTaskId)) {
       setExpandedTaskId(null);
     }
-  }, [tasks, viewingFeedbackTaskId, expandedTaskId]);
+  }, [tasks, viewingFeedbackTaskId, viewingExtractionTaskId, expandedTaskId]);
 
   // 心跳计时器：运行中任务每秒更新
   const hasRunning = tasks.some((t) => t.status === "running" || t.status === "pending");
@@ -391,17 +402,25 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                               const stepIndex = ["feedback", "review", "test", "extraction", "bubbleChart"].indexOf(stepKey);
                               const stepName = STEP_NAMES[stepIndex] || stepKey;
                               const isFeedbackCompleted = stepKey === "feedback" && stepResult.status === "completed";
+                              const isExtractionCompleted = stepKey === "extraction" && stepResult.status === "completed";
+                              const isClickable = isFeedbackCompleted || isExtractionCompleted;
                               return (
                                 <div key={stepKey}>
                                   <div
                                     className={`flex items-center gap-2 text-xs ${
-                                      isFeedbackCompleted ? "cursor-pointer hover:bg-black/5 rounded px-1 -mx-1 py-0.5" : ""
+                                      isClickable ? "cursor-pointer hover:bg-black/5 rounded px-1 -mx-1 py-0.5" : ""
                                     }`}
-                                    onClick={isFeedbackCompleted ? (e) => {
+                                    onClick={isClickable ? (e) => {
                                       e.stopPropagation();
-                                      setViewingFeedbackTaskId(
-                                        viewingFeedbackTaskId === task.id ? null : task.id
-                                      );
+                                      if (isFeedbackCompleted) {
+                                        setViewingFeedbackTaskId(
+                                          viewingFeedbackTaskId === task.id ? null : task.id
+                                        );
+                                      } else if (isExtractionCompleted) {
+                                        setViewingExtractionTaskId(
+                                          viewingExtractionTaskId === task.id ? null : task.id
+                                        );
+                                      }
                                     } : undefined}
                                   >
                                     {stepResult.status === "completed" ? (
@@ -413,7 +432,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                     ) : (
                                       <Clock className="h-3 w-3 text-gray-300 shrink-0" />
                                     )}
-                                    <span className={`shrink-0 whitespace-nowrap ${isFeedbackCompleted ? "text-blue-600 underline" : "text-gray-600"}`}>
+                                    <span className={`shrink-0 whitespace-nowrap ${isClickable ? "text-blue-600 underline" : "text-gray-600"}`}>
                                       {stepName}
                                     </span>
                                     {stepResult.fileName && (
@@ -450,9 +469,20 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                   )}
                                   {/* 反馈全文查看器 */}
                                   {isFeedbackCompleted && viewingFeedbackTaskId === task.id && (
-                                    <FeedbackViewer
+                                    <ContentViewer
                                       taskId={task.id}
+                                      title="反馈全文"
+                                      queryFn="feedbackContent"
                                       onClose={() => setViewingFeedbackTaskId(null)}
+                                    />
+                                  )}
+                                  {/* 提取全文查看器 */}
+                                  {isExtractionCompleted && viewingExtractionTaskId === task.id && (
+                                    <ContentViewer
+                                      taskId={task.id}
+                                      title="提取全文"
+                                      queryFn="extractionContent"
+                                      onClose={() => setViewingExtractionTaskId(null)}
                                     />
                                   )}
                                 </div>
