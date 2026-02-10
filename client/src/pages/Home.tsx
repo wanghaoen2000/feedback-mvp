@@ -457,6 +457,7 @@ export default function Home() {
   } | null>(null); // 导出结果
   const [feedbackCopied, setFeedbackCopied] = useState(false); // 学情反馈是否已复制
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null); // 当前提交的后台任务ID
+  const [hwImportStatus, setHwImportStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const feedbackScrollRef = useRef<HTMLDivElement | null>(null); // 学情反馈内容滚动容器
   const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
   const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -752,6 +753,7 @@ export default function Home() {
   const readLastFeedbackMutation = trpc.localFile.readLastFeedback.useMutation();
   const diagnoseMutation = trpc.localFile.diagnose.useMutation();
   const bgTaskSubmitMutation = trpc.bgTask.submit.useMutation();
+  const hwImportFromTaskMutation = trpc.homework.importFromTask.useMutation();
   // 加载配置
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
@@ -831,6 +833,7 @@ export default function Home() {
     setIsComplete(false);
     setHasError(false);
     setIsStopping(false);
+    setHwImportStatus('idle'); // 重置作业管理导入状态
     setCurrentGeneratingStudent(studentName.trim()); // 设置当前生成的学生名
     setSteps(initialSteps);
     setCurrentStep(1);
@@ -2855,6 +2858,22 @@ export default function Home() {
     setIsClassFirstLesson(false);
   };
 
+  // 一键导入作业管理（从课后信息提取）
+  const handleHwImport = useCallback(async () => {
+    if (!activeTaskId || !studentName.trim()) return;
+    setHwImportStatus('loading');
+    try {
+      await hwImportFromTaskMutation.mutateAsync({
+        taskId: activeTaskId,
+        studentName: studentName.trim(),
+      });
+      setHwImportStatus('success');
+    } catch (err: any) {
+      console.error("[作业管理导入] 失败:", err);
+      setHwImportStatus('error');
+    }
+  }, [activeTaskId, studentName, hwImportFromTaskMutation]);
+
   // 导出日志到Google Drive
   const handleExportLog = async () => {
     setIsExportingLog(true);
@@ -3795,6 +3814,25 @@ export default function Home() {
                                         <Download className="w-3 h-3" />
                                         下载
                                       </a>
+                                    )}
+                                    {step.name === '课后信息提取' && activeTaskId && courseType === 'oneToOne' && (
+                                      <button
+                                        onClick={handleHwImport}
+                                        disabled={hwImportStatus === 'loading' || hwImportStatus === 'success'}
+                                        className={`text-xs flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
+                                          hwImportStatus === 'success'
+                                            ? 'text-green-600 bg-green-50'
+                                            : hwImportStatus === 'error'
+                                              ? 'text-red-600 hover:bg-red-50'
+                                              : 'text-emerald-600 hover:bg-emerald-50 hover:underline'
+                                        }`}
+                                      >
+                                        {hwImportStatus === 'loading' && <Loader2 className="w-3 h-3 animate-spin" />}
+                                        {hwImportStatus === 'success' && <CheckCircle2 className="w-3 h-3" />}
+                                        {hwImportStatus === 'error' && <AlertCircle className="w-3 h-3" />}
+                                        {hwImportStatus === 'idle' && <BookOpen className="w-3 h-3" />}
+                                        {hwImportStatus === 'success' ? '已导入' : hwImportStatus === 'error' ? '导入失败，点击重试' : '导入作业管理'}
+                                      </button>
                                     )}
                                   </div>
                                 )}

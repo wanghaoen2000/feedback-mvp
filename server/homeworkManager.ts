@@ -334,3 +334,74 @@ export async function confirmAllPreStaged() {
     .where(eq(hwEntries.entryStatus, "pre_staged"));
   return { success: true };
 }
+
+// ============= 从课后信息提取一键导入 =============
+
+export async function importFromExtraction(
+  studentName: string,
+  extractionContent: string,
+): Promise<{ id: number; studentCreated: boolean }> {
+  await ensureHwTables();
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+
+  // 自动创建学生（如不存在）
+  let studentCreated = false;
+  const existing = await db.select().from(hwStudents)
+    .where(eq(hwStudents.name, studentName.trim()))
+    .limit(1);
+  if (existing.length === 0) {
+    await db.insert(hwStudents).values({
+      name: studentName.trim(),
+      planType: "weekly",
+      status: "active",
+    });
+    studentCreated = true;
+    console.log(`[作业管理] 自动创建学生: ${studentName}`);
+  }
+
+  // 直接创建 pre_staged 条目（课后信息提取已是结构化内容，无需再过AI）
+  const result = await db.insert(hwEntries).values({
+    studentName: studentName.trim(),
+    rawInput: `[从课后信息提取导入] ${studentName}`,
+    parsedContent: extractionContent.trim(),
+    aiModel: null,
+    entryStatus: "pre_staged",
+  });
+  const insertId = (result as any)[0]?.insertId;
+  console.log(`[作业管理] 从课后信息提取导入: ${studentName}, 条目ID: ${insertId}`);
+
+  return { id: insertId, studentCreated };
+}
+
+/**
+ * 从后台任务ID获取课后信息提取内容并导入
+ */
+export async function importFromTaskExtraction(
+  taskId: string,
+  studentName: string,
+): Promise<{ id: number; studentCreated: boolean }> {
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+
+  // 从后台任务中获取课后信息提取内容
+  const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+  const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
+    .from(bgTasksTable)
+    .where(eq(bgTasksTable.id, taskId))
+    .limit(1);
+
+  if (tasks.length === 0) throw new Error("任务不存在");
+
+  let stepResults: any = null;
+  try {
+    stepResults = tasks[0].stepResults ? JSON.parse(tasks[0].stepResults) : null;
+  } catch {
+    throw new Error("任务数据损坏");
+  }
+
+  const content = stepResults?.extraction?.content;
+  if (!content) throw new Error("课后信息提取内容不可用（可能任务未完成或该步骤失败）");
+
+  return importFromExtraction(studentName, content);
+}

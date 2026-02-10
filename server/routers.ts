@@ -58,6 +58,8 @@ import {
   deleteEntry,
   confirmEntries,
   confirmAllPreStaged,
+  importFromExtraction,
+  importFromTaskExtraction,
 } from "./homeworkManager";
 
 // 设置配置值
@@ -2264,6 +2266,26 @@ export const appRouter = router({
           await setConfig("hwSupplementaryNotes", input.hwSupplementaryNotes, "作业管理补充说明");
         }
         return { success: true };
+      }),
+
+    // 从课后信息提取一键导入（直接传内容）
+    importFromExtraction: protectedProcedure
+      .input(z.object({
+        studentName: z.string().min(1),
+        extractionContent: z.string().min(1),
+      }))
+      .mutation(async ({ input }) => {
+        return importFromExtraction(input.studentName, input.extractionContent);
+      }),
+
+    // 从后台任务一键导入（自动获取课后信息提取内容）
+    importFromTask: protectedProcedure
+      .input(z.object({
+        taskId: z.string().min(1),
+        studentName: z.string().min(1),
+      }))
+      .mutation(async ({ input }) => {
+        return importFromTaskExtraction(input.taskId, input.studentName);
       }),
   }),
 });
