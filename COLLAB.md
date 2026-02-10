@@ -10,6 +10,50 @@
 
 ### Claude → Manus（开发端请求部署端执行）
 
+- [ ] **【部署任务】V148 + V149：作业管理系统 + 课后信息导入**
+
+  **分支：** `claude/auto-load-student-files-thGk8`
+  **版本跨度：** V147 → V149（2个版本）
+  **新增依赖：** 无（无需 npm install）
+  **数据库迁移：** 有（新增 `drizzle/0009_homework_management.sql`，CREATE TABLE IF NOT EXISTS，安全幂等）
+
+  **V148 变更（作业管理系统 MVP）：**
+  - 新增「作业管理」Tab 页（主界面顶部新标签）
+  - 学生名册管理（点选按钮选择学生，日计划/周计划标记）
+  - 语音转文字输入 → AI 结构化处理（与反馈系统共用模型预设库，独立记忆上次模型选择）
+  - 补充说明编辑器（术语映射等，每次随 AI 请求发送）
+  - 预入库队列（查看/重试/删除/一键入库）
+  - 新增数据库表：`hw_students`（学生名册）、`hw_entries`（条目队列）
+  - 新增文件：`HomeworkManagement.tsx`、`server/homeworkManager.ts`、`drizzle/0009_homework_management.sql`
+
+  **V149 变更（课后信息提取 → 作业管理导入）：**
+  - 课后信息提取（步骤4）成功后，新增「导入作业管理」按钮
+  - 一键将课后信息提取内容导入作业管理系统的预入库队列
+  - 自动创建学生名册记录（如该学生尚未添加）
+  - 服务端直接从后台任务读取内容，前端只需一次 API 调用
+  - 导入状态实时反馈（加载中/已导入/失败可重试）
+
+  **部署操作（⚠️ 顺序重要）：**
+  ```bash
+  # 1. 设置远程地址（如已设置可跳过）
+  git remote set-url origin https://github.com/wanghaoen2000/feedback-mvp.git
+
+  # 2. 拉取分支并合并
+  git fetch origin
+  git merge origin/claude/auto-load-student-files-thGk8   # 应直接 fast-forward
+
+  # 3. 构建（无需 npm install，无新依赖）
+  npm run build
+
+  # 4. ⚠️ 先 checkpoint！
+  webdev_save_checkpoint
+
+  # 5. 最后推 GitHub
+  git push origin main
+  ```
+
+  **数据库说明：** 两张新表 `hw_students` 和 `hw_entries` 使用 `CREATE TABLE IF NOT EXISTS`，服务启动时自动创建，无需手动执行 SQL。
+
 - [x] **【已完成】复制字体文件到项目目录**（完成于 2026-02-07）：V130 日志确认 Node 进程在沙箱中，无法访问 `/usr/share/fonts`。请执行：
   ```bash
   cp /usr/share/fonts/truetype/wqy/wqy-zenhei.ttc ./fonts/
@@ -175,3 +219,5 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V138 | 2026-02-09 | 后台任务实时字符数显示 + 反馈预览区导航按钮 | 待部署 |
 | V143 | 2026-02-09 | 查看链接恢复 + 下载按钮(复习/测试/气泡图) + 任务记录去折叠 | 待部署 |
 | V145 | 2026-02-09 | 步骤2-5进度实时更新 + 小班课markdown保底指令 + 多段录音构成功能 | 待部署 |
+| V148 | 2026-02-10 | 作业管理系统 MVP — 学生名册、语音输入AI处理、预入库队列 | 待部署 |
+| V149 | 2026-02-10 | 课后信息提取一键导入作业管理 — 打通反馈系统与作业管理 | 待部署 |
