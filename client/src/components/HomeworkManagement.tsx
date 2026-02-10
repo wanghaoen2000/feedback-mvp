@@ -314,7 +314,15 @@ export function HomeworkManagement() {
                         className="h-6 w-6 p-0 text-gray-400 hover:text-red-500"
                         onClick={() => {
                           if (confirm(`确定要移除学生「${s.name}」吗？`)) {
-                            removeStudentMut.mutate({ id: s.id });
+                            const removedName = s.name;
+                            removeStudentMut.mutate({ id: s.id }, {
+                              onSuccess: () => {
+                                // 如果删除的是当前选中的学生，清空选择
+                                if (selectedStudent === removedName) {
+                                  setSelectedStudent("");
+                                }
+                              },
+                            });
                           }
                         }}
                         title="移除学生"

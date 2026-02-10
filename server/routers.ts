@@ -2168,12 +2168,12 @@ export const appRouter = router({
     updateStudent: protectedProcedure
       .input(z.object({
         id: z.number(),
-        name: z.string().optional(),
-        planType: z.string().optional(),
+        name: z.string().min(1).optional(),
+        planType: z.enum(["daily", "weekly"]).optional(),
         nextClassDate: z.string().nullable().optional(),
         examTarget: z.string().nullable().optional(),
         examDate: z.string().nullable().optional(),
-        status: z.string().optional(),
+        status: z.enum(["active", "inactive"]).optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;

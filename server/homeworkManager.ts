@@ -45,6 +45,19 @@ export async function ensureHwTables(): Promise<void> {
     )`);
     tableEnsured = true;
     console.log("[作业管理] 表已就绪");
+    // 恢复卡死的条目：服务器重启后 processing/pending 状态的条目不会继续处理
+    try {
+      const stuck = await db.update(hwEntries)
+        .set({ entryStatus: "failed", errorMessage: "服务器重启，处理中断，请重试" })
+        .where(inArray(hwEntries.entryStatus, ["processing", "pending"]));
+      // MySQL returns affected rows info
+      const affectedRows = (stuck as any)[0]?.affectedRows ?? 0;
+      if (affectedRows > 0) {
+        console.log(`[作业管理] 恢复 ${affectedRows} 条卡死条目为失败状态`);
+      }
+    } catch (recoverErr: any) {
+      console.warn("[作业管理] 恢复卡死条目失败:", recoverErr?.message);
+    }
   } catch (err: any) {
     console.error("[作业管理] 建表失败:", err?.message || err);
   }
@@ -196,6 +209,9 @@ export async function createEntry(studentName: string, rawInput: string, aiModel
   });
   // MySQL insert returns insertId
   const insertId = (result as any)[0]?.insertId;
+  if (!insertId || typeof insertId !== "number") {
+    throw new Error("创建条目失败：无法获取条目ID");
+  }
   return { id: insertId };
 }
 
@@ -204,12 +220,27 @@ export async function submitAndProcessEntry(
   rawInput: string,
   aiModel?: string,
   supplementaryNotes?: string
-): Promise<{ id: number; status: string; parsedContent?: string; error?: string }> {
+): Promise<{ id: number; status: string }> {
   // Create entry first
   const { id } = await createEntry(studentName, rawInput, aiModel);
 
+  // 后台异步处理 — 立即返回，不阻塞用户继续提交其他条目
+  // 前端通过 5 秒轮询 listPendingEntries 获取最新状态
+  processEntryInBackground(id, studentName, rawInput, aiModel, supplementaryNotes);
+
+  return { id, status: "pending" };
+}
+
+/** 后台处理单个条目（不阻塞调用方） */
+async function processEntryInBackground(
+  id: number,
+  studentName: string,
+  rawInput: string,
+  aiModel?: string,
+  supplementaryNotes?: string,
+): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("数据库不可用");
+  if (!db) return;
 
   // Update status to processing
   await db.update(hwEntries)
@@ -235,7 +266,7 @@ export async function submitAndProcessEntry(
       })
       .where(eq(hwEntries.id, id));
 
-    return { id, status: "pre_staged", parsedContent };
+    console.log(`[作业管理] 条目 ${id} 处理完成`);
   } catch (err: any) {
     const errorMsg = err?.message || "AI处理失败";
     console.error(`[作业管理] 条目 ${id} 处理失败:`, errorMsg);
@@ -246,8 +277,6 @@ export async function submitAndProcessEntry(
         errorMessage: errorMsg,
       })
       .where(eq(hwEntries.id, id));
-
-    return { id, status: "failed", error: errorMsg };
   }
 }
 
@@ -283,6 +312,9 @@ export async function retryEntry(id: number, supplementaryNotes?: string) {
   const rows = await db.select().from(hwEntries).where(eq(hwEntries.id, id)).limit(1);
   if (rows.length === 0) throw new Error("条目不存在");
   const entry = rows[0];
+  if (entry.entryStatus !== "failed") {
+    throw new Error(`条目当前状态为「${entry.entryStatus}」，只能重试失败的条目`);
+  }
 
   // Reset to processing
   await db.update(hwEntries)
@@ -388,6 +420,9 @@ export async function importFromExtraction(
     entryStatus: "pre_staged",
   });
   const insertId = (result as any)[0]?.insertId;
+  if (!insertId || typeof insertId !== "number") {
+    throw new Error("导入失败：无法获取条目ID");
+  }
   console.log(`[作业管理] 从课后信息提取导入: ${studentName}, 条目ID: ${insertId}`);
 
   return { id: insertId, studentCreated };
