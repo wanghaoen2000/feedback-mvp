@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X, ArrowUp, ArrowDown, Download, ExternalLink, FileText, ChevronDown, ChevronRight } from "lucide-react";
+import { Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X, ArrowUp, ArrowDown, Download, ExternalLink, FileText, ChevronDown, ChevronRight, BookOpen } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 interface TaskHistoryProps {
@@ -171,6 +171,51 @@ function DownloadButton({ label, files }: {
         {state === "downloading" && "下载中..."}
         {state === "success" && (files.length > 1 ? `下载成功 (${files.length}个文件)` : "下载成功")}
         {state === "failed" && (errorMsg ? `下载失败: ${errorMsg}` : "下载失败")}
+      </span>
+    </button>
+  );
+}
+
+/** 一键导入作业管理按钮 */
+function HwImportButton({ taskId, studentName }: { taskId: string; studentName: string }) {
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+  const importMutation = trpc.homework.importFromTask.useMutation();
+
+  const handleImport = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (status === "loading" || status === "success") return;
+    setStatus("loading");
+    setErrorMsg("");
+    try {
+      await importMutation.mutateAsync({ taskId, studentName });
+      setStatus("success");
+    } catch (err: any) {
+      setErrorMsg(err?.message || "导入失败");
+      setStatus("error");
+    }
+  };
+
+  return (
+    <button
+      className={`w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+        status === "idle" ? "bg-emerald-500 hover:bg-emerald-600 text-white active:bg-emerald-700" :
+        status === "loading" ? "bg-emerald-400 text-white/90 cursor-wait" :
+        status === "success" ? "bg-green-500 text-white" :
+        "bg-red-500 hover:bg-red-600 text-white"
+      }`}
+      onClick={handleImport}
+      disabled={status === "loading" || status === "success"}
+    >
+      {status === "loading" && <Loader2 className="h-4 w-4 animate-spin" />}
+      {status === "success" && <CheckCircle2 className="h-4 w-4" />}
+      {status === "error" && <XCircle className="h-4 w-4" />}
+      {status === "idle" && <BookOpen className="h-4 w-4" />}
+      <span>
+        {status === "idle" && "导入作业管理"}
+        {status === "loading" && "导入中..."}
+        {status === "success" && "已导入作业管理"}
+        {status === "error" && (errorMsg ? `导入失败: ${errorMsg}` : "导入失败，点击重试")}
       </span>
     </button>
   );
@@ -752,6 +797,19 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                             </div>
                           );
                         })()}
+                        {/* 导入作业管理按钮（1对1课程、提取步骤完成时显示） */}
+                        {(task.status === "completed" || task.status === "partial") &&
+                          task.courseType === "one-to-one" &&
+                          task.stepResults?.extraction?.status === "completed" && (() => {
+                            const nameMatch = task.displayName?.match(/^(.+?)\s*第/);
+                            const studentName = nameMatch ? nameMatch[1] : "";
+                            if (!studentName) return null;
+                            return (
+                              <div className="mt-2">
+                                <HwImportButton taskId={task.id} studentName={studentName} />
+                              </div>
+                            );
+                          })()}
                         {/* 查看发送素材 */}
                         {task.materialsSummary && (
                           viewingMaterialsTaskId === task.id ? (
