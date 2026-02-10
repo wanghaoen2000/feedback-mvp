@@ -393,8 +393,8 @@ export async function retryEntry(id: number) {
   const rows = await db.select().from(hwEntries).where(eq(hwEntries.id, id)).limit(1);
   if (rows.length === 0) throw new Error("条目不存在");
   const entry = rows[0];
-  if (entry.entryStatus !== "failed") {
-    throw new Error(`条目当前状态为「${entry.entryStatus}」，只能重试失败的条目`);
+  if (entry.entryStatus !== "failed" && entry.entryStatus !== "pre_staged") {
+    throw new Error(`条目当前状态为「${entry.entryStatus}」，只能重试失败或待入库的条目`);
   }
 
   // Reset to processing

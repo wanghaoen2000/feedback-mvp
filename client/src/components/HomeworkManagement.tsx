@@ -135,6 +135,7 @@ export function HomeworkManagement() {
   const [localModel, setLocalModel] = useState("");
   const [localPrompt, setLocalPrompt] = useState("");
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
+  const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   // --- 学生当前状态 ---
   const studentStatusQuery = trpc.homework.getStudentStatus.useQuery(
@@ -241,13 +242,38 @@ export function HomeworkManagement() {
               <p className="text-xs text-gray-500 mb-1">
                 定义学生状态文档的格式要求和AI处理规则。类似学情反馈的路书，每次AI处理时会使用此提示词。
               </p>
-              <Textarea
-                value={localPrompt}
-                onChange={(e) => setLocalPrompt(e.target.value)}
-                placeholder={"在这里编写作业管理提示词...\n\n例如：\n- 学生状态文档的格式模板\n- 各模块（作业布置、完成情况、成绩轨迹、词汇进展等）的具体要求\n- 作业标准名称列表\n- 更新规则（哪些字段原封不动保留，哪些需要更新）"}
-                rows={12}
-                className="text-sm font-mono"
-              />
+              <div className="relative">
+                <Textarea
+                  ref={promptTextareaRef}
+                  value={localPrompt}
+                  onChange={(e) => setLocalPrompt(e.target.value)}
+                  placeholder={"在这里编写作业管理提示词...\n\n例如：\n- 学生状态文档的格式模板\n- 各模块（作业布置、完成情况、成绩轨迹、词汇进展等）的具体要求\n- 作业标准名称列表\n- 更新规则（哪些字段原封不动保留，哪些需要更新）"}
+                  rows={12}
+                  className="text-sm font-mono !field-sizing-fixed max-h-[45vh] overflow-y-auto"
+                  style={{ fieldSizing: 'fixed' } as React.CSSProperties}
+                />
+                {/* 一键到顶/到底 */}
+                {localPrompt.length > 500 && (
+                  <div className="absolute right-2 top-2 flex flex-col gap-1">
+                    <button
+                      type="button"
+                      className="w-7 h-7 rounded bg-white/80 border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-white shadow-sm"
+                      onClick={() => { promptTextareaRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                      title="滚动到顶部"
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      className="w-7 h-7 rounded bg-white/80 border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-white shadow-sm"
+                      onClick={() => { promptTextareaRef.current?.scrollTo({ top: promptTextareaRef.current.scrollHeight, behavior: 'smooth' }); }}
+                      title="滚动到底部"
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xs text-gray-400">
                   {localPrompt ? `${localPrompt.length} 字符` : "未配置"}
@@ -501,34 +527,45 @@ export function HomeworkManagement() {
                       {new Date(entry.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
-                  <div className="flex gap-1 shrink-0">
-                    {entry.entryStatus === "failed" && (
+                  <div className="flex gap-2 shrink-0">
+                    {/* 展开/收起按钮 */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-xs"
+                      onClick={() => setExpandedEntry(expandedEntry === entry.id ? null : entry.id)}
+                    >
+                      {expandedEntry === entry.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </Button>
+                    {/* 重试按钮（失败或待入库状态可用） */}
+                    {(entry.entryStatus === "failed" || entry.entryStatus === "pre_staged") && (
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-2 text-xs"
-                        onClick={() => retryEntryMut.mutate({ id: entry.id })}
+                        className="h-8 px-3 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                        onClick={() => {
+                          if (confirm(`确定要重新处理「${entry.studentName}」的这条记录吗？\nAI将重新分析原文并生成结果。`)) {
+                            retryEntryMut.mutate({ id: entry.id });
+                          }
+                        }}
                         disabled={retryEntryMut.isPending}
                       >
-                        <RefreshCw className="w-3 h-3 mr-1" />重试
+                        <RefreshCw className="w-3.5 h-3.5 mr-1" />重试
                       </Button>
                     )}
+                    {/* 删除按钮 */}
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 px-2 text-xs text-gray-400 hover:text-red-500"
-                      onClick={() => deleteEntryMut.mutate({ id: entry.id })}
+                      className="h-8 px-3 text-xs text-gray-400 hover:text-red-600 hover:bg-red-50"
+                      onClick={() => {
+                        if (confirm(`确定要删除「${entry.studentName}」的这条记录吗？\n删除后无法恢复。`)) {
+                          deleteEntryMut.mutate({ id: entry.id });
+                        }
+                      }}
                       disabled={deleteEntryMut.isPending}
                     >
-                      <X className="w-3 h-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-xs"
-                      onClick={() => setExpandedEntry(expandedEntry === entry.id ? null : entry.id)}
-                    >
-                      {expandedEntry === entry.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
                 </div>
@@ -541,22 +578,31 @@ export function HomeworkManagement() {
                 {/* 展开详情 */}
                 {expandedEntry === entry.id && (
                   <div className="mt-2 space-y-2">
+                    {/* AI处理结果（放在最上面，这是用户最关心的） */}
                     <div>
-                      <p className="text-xs font-medium text-gray-600">原文：</p>
-                      <p className="text-xs text-gray-700 bg-white rounded p-2 whitespace-pre-wrap">{entry.rawInput}</p>
+                      <p className="text-sm font-semibold text-blue-700 mb-1">AI处理结果：</p>
+                      {entry.parsedContent ? (
+                        <pre className="text-xs text-gray-700 bg-white rounded p-2 whitespace-pre-wrap font-sans border border-blue-100">{entry.parsedContent}</pre>
+                      ) : (entry.entryStatus === "pending" || entry.entryStatus === "processing") ? (
+                        <div className="flex items-center gap-2 text-xs text-blue-500 bg-white rounded p-2 border border-blue-100">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          AI处理中，请稍候...
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 bg-white rounded p-2 border border-gray-100">暂无结果</p>
+                      )}
                     </div>
-                    {entry.parsedContent && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-600">AI解析结果：</p>
-                        <pre className="text-xs text-gray-700 bg-white rounded p-2 whitespace-pre-wrap font-sans">{entry.parsedContent}</pre>
-                      </div>
-                    )}
                     {entry.errorMessage && (
                       <div>
                         <p className="text-xs font-medium text-red-600">错误信息：</p>
-                        <p className="text-xs text-red-500 bg-white rounded p-2">{entry.errorMessage}</p>
+                        <p className="text-xs text-red-500 bg-white rounded p-2 break-words whitespace-pre-wrap">{entry.errorMessage}</p>
                       </div>
                     )}
+                    {/* 原文（放在下面） */}
+                    <div>
+                      <p className="text-xs font-medium text-gray-500">原文：</p>
+                      <p className="text-xs text-gray-600 bg-white rounded p-2 whitespace-pre-wrap">{entry.rawInput}</p>
+                    </div>
                     {entry.aiModel && (
                       <p className="text-xs text-gray-400">使用模型：{entry.aiModel}</p>
                     )}
