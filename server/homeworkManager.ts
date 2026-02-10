@@ -536,21 +536,15 @@ export async function importFromExtraction(
     console.log(`[作业管理] 重新激活学生: ${studentName}`);
   }
 
-  // 直接创建 pre_staged 条目（课后信息提取已是结构化内容，无需再过AI）
-  const result = await db.insert(hwEntries).values({
-    studentName: studentName.trim(),
-    rawInput: `[从课后信息提取导入] ${studentName}`,
-    parsedContent: extractionContent.trim(),
-    aiModel: null,
-    entryStatus: "pre_staged",
-  });
-  const insertId = (result as any)[0]?.insertId;
-  if (!insertId || typeof insertId !== "number") {
-    throw new Error("导入失败：无法获取条目ID");
-  }
-  console.log(`[作业管理] 从课后信息提取导入: ${studentName}, 条目ID: ${insertId}`);
+  // 创建 pending 条目，走 AI 处理流程（课后信息提取内容格式与作业管理格式不同，需要 AI 转换）
+  const rawInput = `[从课后信息提取导入]\n${extractionContent.trim()}`;
+  const { id } = await createEntry(studentName, rawInput);
+  console.log(`[作业管理] 从课后信息提取导入: ${studentName}, 条目ID: ${id}, 将进行AI处理`);
 
-  return { id: insertId, studentCreated };
+  // 后台异步 AI 处理（不阻塞返回）
+  processEntryInBackground(id, studentName, rawInput);
+
+  return { id, studentCreated };
 }
 
 /**
