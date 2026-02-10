@@ -22,6 +22,9 @@ import {
   UserPlus,
   BookOpen,
   X,
+  History,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 // ============= 学生名片按钮组件 =============
@@ -118,8 +121,9 @@ export function HomeworkManagement() {
   const deleteEntryMut = trpc.homework.deleteEntry.useMutation({
     onSuccess: () => pendingEntriesQuery.refetch(),
   });
+  const trpcUtils = trpc.useUtils();
   const confirmAllMut = trpc.homework.confirmAll.useMutation({
-    onSuccess: () => pendingEntriesQuery.refetch(),
+    onSuccess: () => { pendingEntriesQuery.refetch(); trpcUtils.homework.listStudentEntries.invalidate(); },
   });
 
   // --- 本地状态 ---
@@ -132,6 +136,14 @@ export function HomeworkManagement() {
   const [localNotes, setLocalNotes] = useState("");
   const [localModel, setLocalModel] = useState("");
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
+  const [showRecords, setShowRecords] = useState(false);
+  const [expandedRecord, setExpandedRecord] = useState<number | null>(null);
+
+  // --- 已入库记录 ---
+  const studentEntriesQuery = trpc.homework.listStudentEntries.useQuery(
+    { studentName: selectedStudent, limit: 50 },
+    { enabled: !!selectedStudent && showRecords }
+  );
 
   // 从服务器加载配置
   useEffect(() => {
@@ -405,6 +417,93 @@ export function HomeworkManagement() {
           </p>
         )}
       </div>
+
+      {/* ===== 已入库记录 ===== */}
+      {selectedStudent && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowRecords(!showRecords)}
+            className="flex items-center gap-2 text-sm text-gray-600 hover:text-blue-600 transition-colors py-1"
+          >
+            {showRecords ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            <History className="w-4 h-4" />
+            <span>{selectedStudent} 的已入库记录</span>
+            {studentEntriesQuery.data && (
+              <span className="text-xs text-gray-400">（{studentEntriesQuery.data.total}条）</span>
+            )}
+          </button>
+
+          {showRecords && (
+            <Card className="mt-2">
+              <CardContent className="px-4 py-3">
+                {studentEntriesQuery.isLoading ? (
+                  <div className="flex items-center justify-center py-4 text-sm text-gray-400">
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    加载中...
+                  </div>
+                ) : !studentEntriesQuery.data || studentEntriesQuery.data.entries.length === 0 ? (
+                  <p className="text-center py-4 text-sm text-gray-400">暂无已入库记录</p>
+                ) : (
+                  <div className="space-y-2">
+                    {studentEntriesQuery.data.entries.map((record) => (
+                      <div
+                        key={record.id}
+                        className="border rounded-lg p-3 border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span className="text-xs text-gray-500">
+                              {new Date(record.createdAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
+                              {" "}
+                              {new Date(record.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs shrink-0"
+                            onClick={() => setExpandedRecord(expandedRecord === record.id ? null : record.id)}
+                          >
+                            {expandedRecord === record.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          </Button>
+                        </div>
+
+                        {/* 折叠时显示解析结果摘要 */}
+                        {expandedRecord !== record.id && (
+                          <p className="text-xs text-gray-600 mt-1 line-clamp-2 whitespace-pre-wrap">
+                            {record.parsedContent || record.rawInput}
+                          </p>
+                        )}
+
+                        {/* 展开详情 */}
+                        {expandedRecord === record.id && (
+                          <div className="mt-2 space-y-2">
+                            {record.parsedContent && (
+                              <div>
+                                <p className="text-xs font-medium text-gray-500 mb-1">AI解析结果：</p>
+                                <pre className="text-xs text-gray-700 bg-white rounded p-2 whitespace-pre-wrap font-sans">{record.parsedContent}</pre>
+                              </div>
+                            )}
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 mb-1">原文：</p>
+                              <p className="text-xs text-gray-500 bg-white rounded p-2 whitespace-pre-wrap">{record.rawInput}</p>
+                            </div>
+                            {record.aiModel && (
+                              <p className="text-xs text-gray-400">模型：{record.aiModel}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
 
       {/* ===== 预入库队列 ===== */}
       {entries.length > 0 && (

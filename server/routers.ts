@@ -60,6 +60,7 @@ import {
   confirmAllPreStaged,
   importFromExtraction,
   importFromTaskExtraction,
+  listStudentEntries,
 } from "./homeworkManager";
 
 // 设置配置值
@@ -2212,6 +2213,17 @@ export const appRouter = router({
       .input(z.object({ status: z.string().optional() }).optional())
       .query(async ({ input }) => {
         return listEntries(input?.status);
+      }),
+
+    // 查询某学生的已入库记录
+    listStudentEntries: protectedProcedure
+      .input(z.object({
+        studentName: z.string().min(1),
+        limit: z.number().min(1).max(200).default(50),
+        offset: z.number().min(0).default(0),
+      }))
+      .query(async ({ input }) => {
+        return listStudentEntries(input.studentName, input.limit, input.offset);
       }),
 
     retryEntry: protectedProcedure

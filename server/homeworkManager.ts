@@ -304,6 +304,30 @@ export async function listPendingEntries() {
     .orderBy(desc(hwEntries.createdAt));
 }
 
+/** 查询某学生的已入库记录（confirmed），支持分页 */
+export async function listStudentEntries(studentName: string, limit: number = 50, offset: number = 0) {
+  await ensureHwTables();
+  const db = await getDb();
+  if (!db) return { entries: [], total: 0 };
+
+  const condition = and(
+    eq(hwEntries.studentName, studentName),
+    eq(hwEntries.entryStatus, "confirmed")
+  );
+
+  const [rows, countResult] = await Promise.all([
+    db.select().from(hwEntries)
+      .where(condition)
+      .orderBy(desc(hwEntries.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ count: sql<number>`COUNT(*)` }).from(hwEntries)
+      .where(condition),
+  ]);
+
+  return { entries: rows, total: Number(countResult[0]?.count ?? 0) };
+}
+
 export async function retryEntry(id: number, supplementaryNotes?: string) {
   await ensureHwTables();
   const db = await getDb();
