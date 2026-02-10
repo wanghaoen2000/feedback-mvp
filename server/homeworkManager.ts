@@ -43,6 +43,16 @@ export async function ensureHwTables(): Promise<void> {
       \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (\`id\`)
     )`);
+    // 安全添加 current_status 列（已有表可能没有此列）
+    try {
+      await db.execute(sql`ALTER TABLE \`hw_students\` ADD COLUMN \`current_status\` MEDIUMTEXT`);
+      console.log("[作业管理] 已添加 current_status 列");
+    } catch (alterErr: any) {
+      // 如果列已存在，MySQL 会报 Duplicate column name 错误，忽略即可
+      if (!alterErr?.message?.includes("Duplicate column")) {
+        console.warn("[作业管理] ALTER TABLE 警告:", alterErr?.message);
+      }
+    }
     tableEnsured = true;
     console.log("[作业管理] 表已就绪");
     // 恢复卡死的条目：服务器重启后 processing/pending 状态的条目不会继续处理
@@ -162,6 +172,36 @@ function buildSystemContext(studentName: string): string {
   return `当前时间：北京时间 ${dateStr} ${timeStr} ${weekday}\n当前学生姓名：${studentName}\n⚠️ 学生姓名以此处系统提供的「${studentName}」为唯一标准。语音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。`;
 }
 
+/**
+ * 获取学生的最新状态文档（优先取预入库中最新的，否则取正式状态）
+ */
+export async function getStudentLatestStatus(studentName: string): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  // 先查预入库队列中该学生最新的 pre_staged 条目
+  const latestPreStaged = await db.select({ parsedContent: hwEntries.parsedContent })
+    .from(hwEntries)
+    .where(and(
+      eq(hwEntries.studentName, studentName),
+      eq(hwEntries.entryStatus, "pre_staged"),
+    ))
+    .orderBy(desc(hwEntries.createdAt))
+    .limit(1);
+
+  if (latestPreStaged.length > 0 && latestPreStaged[0].parsedContent) {
+    return latestPreStaged[0].parsedContent;
+  }
+
+  // 没有预入库的就取正式状态
+  const student = await db.select({ currentStatus: hwStudents.currentStatus })
+    .from(hwStudents)
+    .where(eq(hwStudents.name, studentName))
+    .limit(1);
+
+  return student[0]?.currentStatus || null;
+}
+
 export async function processEntry(
   studentName: string,
   rawInput: string,
@@ -183,8 +223,17 @@ export async function processEntry(
     systemPrompt = `${buildSystemContext(studentName)}\n\n${HW_DEFAULT_SYSTEM_PROMPT}`;
   }
 
-  let userPrompt = `【语音转文字原文】\n${rawInput}\n`;
-  userPrompt += `\n请按照系统提示中的格式要求，整理输出。`;
+  // 获取学生的当前状态文档（用于迭代更新）
+  const existingStatus = await getStudentLatestStatus(studentName);
+
+  let userPrompt: string;
+  if (existingStatus) {
+    // 迭代模式：有现有状态，让AI在此基础上更新
+    userPrompt = `【该学生当前的状态文档】\n${existingStatus}\n\n【本次新增信息（语音转文字原文）】\n${rawInput}\n\n请根据本次新增信息，更新上述状态文档，输出更新后的完整状态文档。只输出更新后的文档内容，不要加任何额外说明。`;
+  } else {
+    // 全新模式：没有现有状态，从零开始
+    userPrompt = `【语音转文字原文】\n${rawInput}\n\n请按照系统提示中的格式要求，整理输出。`;
+  }
 
   const messages = [
     { role: "system" as const, content: systemPrompt },
@@ -396,25 +445,70 @@ export async function confirmEntries(ids: number[]) {
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
   if (ids.length === 0) return { count: 0 };
-  await db.update(hwEntries)
-    .set({ entryStatus: "confirmed" })
-    .where(
-      and(
-        inArray(hwEntries.id, ids),
-        eq(hwEntries.entryStatus, "pre_staged")
-      )
-    );
-  return { count: ids.length };
+
+  // 获取指定的 pre_staged 条目
+  const entries = await db.select().from(hwEntries)
+    .where(and(inArray(hwEntries.id, ids), eq(hwEntries.entryStatus, "pre_staged")))
+    .orderBy(desc(hwEntries.createdAt));
+
+  if (entries.length === 0) return { count: 0 };
+
+  // 按学生分组，每个学生取最新一条的 parsedContent 存入 current_status
+  const studentLatest = new Map<string, string>();
+  for (const entry of entries) {
+    if (!studentLatest.has(entry.studentName) && entry.parsedContent) {
+      studentLatest.set(entry.studentName, entry.parsedContent);
+    }
+  }
+
+  const studentNames = Array.from(studentLatest.keys());
+  for (const name of studentNames) {
+    await db.update(hwStudents)
+      .set({ currentStatus: studentLatest.get(name)! })
+      .where(eq(hwStudents.name, name));
+  }
+
+  // 删除这些条目
+  await db.delete(hwEntries).where(inArray(hwEntries.id, ids));
+
+  return { count: entries.length };
 }
 
 export async function confirmAllPreStaged() {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
-  const result = await db.update(hwEntries)
-    .set({ entryStatus: "confirmed" })
-    .where(eq(hwEntries.entryStatus, "pre_staged"));
-  return { success: true };
+
+  // 1. 获取所有 pre_staged 条目
+  const preStagedEntries = await db.select().from(hwEntries)
+    .where(eq(hwEntries.entryStatus, "pre_staged"))
+    .orderBy(desc(hwEntries.createdAt));
+
+  if (preStagedEntries.length === 0) return { success: true, updatedStudents: [] };
+
+  // 2. 按学生分组，每个学生取最新一条的 parsedContent 存入 current_status
+  const studentLatest = new Map<string, string>();
+  for (const entry of preStagedEntries) {
+    if (!studentLatest.has(entry.studentName) && entry.parsedContent) {
+      studentLatest.set(entry.studentName, entry.parsedContent);
+    }
+  }
+
+  // 3. 更新每个学生的 current_status
+  const updatedStudents: string[] = Array.from(studentLatest.keys());
+  for (const name of updatedStudents) {
+    await db.update(hwStudents)
+      .set({ currentStatus: studentLatest.get(name)! })
+      .where(eq(hwStudents.name, name));
+    console.log(`[作业管理] 入库: ${name} 的状态已更新`);
+  }
+
+  // 4. 删除所有 pre_staged 条目（旧记录不保留）
+  const entryIds = preStagedEntries.map(e => e.id);
+  await db.delete(hwEntries).where(inArray(hwEntries.id, entryIds));
+  console.log(`[作业管理] 入库完成: 已删除 ${entryIds.length} 条预入库记录`);
+
+  return { success: true, updatedStudents };
 }
 
 // ============= 从课后信息提取一键导入 =============

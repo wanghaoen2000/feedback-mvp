@@ -61,6 +61,7 @@ import {
   importFromExtraction,
   importFromTaskExtraction,
   listStudentEntries,
+  getStudentLatestStatus,
 } from "./homeworkManager";
 
 // 设置配置值
@@ -2275,6 +2276,14 @@ export const appRouter = router({
           await setConfig("hwPromptTemplate", input.hwPromptTemplate, "作业管理提示词");
         }
         return { success: true };
+      }),
+
+    // 获取学生当前状态文档
+    getStudentStatus: protectedProcedure
+      .input(z.object({ studentName: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const status = await getStudentLatestStatus(input.studentName);
+        return { currentStatus: status };
       }),
 
     // 从课后信息提取一键导入（直接传内容）

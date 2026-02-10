@@ -122,7 +122,7 @@ export function HomeworkManagement() {
   });
   const trpcUtils = trpc.useUtils();
   const confirmAllMut = trpc.homework.confirmAll.useMutation({
-    onSuccess: () => { pendingEntriesQuery.refetch(); trpcUtils.homework.listStudentEntries.invalidate(); },
+    onSuccess: () => { pendingEntriesQuery.refetch(); trpcUtils.homework.getStudentStatus.invalidate(); },
   });
 
   // --- 本地状态 ---
@@ -136,9 +136,9 @@ export function HomeworkManagement() {
   const [localPrompt, setLocalPrompt] = useState("");
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
 
-  // --- 已入库记录 ---
-  const studentEntriesQuery = trpc.homework.listStudentEntries.useQuery(
-    { studentName: selectedStudent, limit: 50 },
+  // --- 学生当前状态 ---
+  const studentStatusQuery = trpc.homework.getStudentStatus.useQuery(
+    { studentName: selectedStudent },
     { enabled: !!selectedStudent }
   );
 
@@ -431,54 +431,25 @@ export function HomeworkManagement() {
         )}
       </div>
 
-      {/* ===== 已入库记录（直接展开显示） ===== */}
+      {/* ===== 学生当前状态文档 ===== */}
       {selectedStudent && (
         <div>
           <div className="flex items-center gap-2 text-sm text-gray-600 py-1">
             <History className="w-4 h-4" />
-            <span>{selectedStudent} 的已入库记录</span>
-            {studentEntriesQuery.data && (
-              <span className="text-xs text-gray-400">（{studentEntriesQuery.data.total}条）</span>
-            )}
+            <span>{selectedStudent} 的当前状态</span>
           </div>
 
           <Card className="mt-2">
             <CardContent className="px-4 py-3">
-              {studentEntriesQuery.isLoading ? (
+              {studentStatusQuery.isLoading ? (
                 <div className="flex items-center justify-center py-4 text-sm text-gray-400">
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   加载中...
                 </div>
-              ) : !studentEntriesQuery.data || studentEntriesQuery.data.entries.length === 0 ? (
-                <p className="text-center py-4 text-sm text-gray-400">暂无已入库记录</p>
+              ) : !studentStatusQuery.data?.currentStatus ? (
+                <p className="text-center py-4 text-sm text-gray-400">暂无状态记录，提交信息并入库后会在此显示</p>
               ) : (
-                <div className="space-y-2">
-                  {studentEntriesQuery.data.entries.map((record) => (
-                    <div
-                      key={record.id}
-                      className="border rounded-lg p-3 border-gray-200 bg-gray-50"
-                    >
-                      <div className="flex items-center gap-2 mb-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span className="text-xs text-gray-500">
-                          {new Date(record.createdAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
-                          {" "}
-                          {new Date(record.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                        {record.aiModel && (
-                          <span className="text-xs text-gray-400">({record.aiModel})</span>
-                        )}
-                      </div>
-                      {record.parsedContent && (
-                        <pre className="text-xs text-gray-700 bg-white rounded p-2 whitespace-pre-wrap font-sans">{record.parsedContent}</pre>
-                      )}
-                      <div className="mt-2">
-                        <p className="text-xs font-medium text-gray-400 mb-1">原文：</p>
-                        <p className="text-xs text-gray-500 bg-white rounded p-2 whitespace-pre-wrap">{record.rawInput}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <pre className="text-xs text-gray-700 bg-gray-50 rounded p-3 whitespace-pre-wrap font-sans leading-relaxed">{studentStatusQuery.data.currentStatus}</pre>
               )}
             </CardContent>
           </Card>

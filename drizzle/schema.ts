@@ -77,6 +77,7 @@ export const hwStudents = mysqlTable("hw_students", {
   nextClassDate: varchar("next_class_date", { length: 20 }),
   examTarget: varchar("exam_target", { length: 255 }),
   examDate: varchar("exam_date", { length: 20 }),
+  currentStatus: mediumtext("current_status"), // 学生当前正式状态文档（迭代更新）
   status: varchar("status", { length: 10 }).notNull().default("active"), // 'active' | 'inactive'
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
