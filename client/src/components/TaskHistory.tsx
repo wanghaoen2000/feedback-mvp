@@ -739,10 +739,10 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                         )}
                                       </span>
                                     )}
-                                    {stepResult.error && (
-                                      <span className="text-red-400 truncate ml-auto">{stepResult.error}</span>
-                                    )}
                                   </div>
+                                  {stepResult.error && (
+                                    <p className="text-xs text-red-400 mt-0.5 pl-5 break-words whitespace-pre-wrap">{stepResult.error}</p>
+                                  )}
                                   {/* 生成诊断信息（非流式/流式、轮次、token用量） */}
                                   {stepResult.genInfo && isExpanded && (
                                     <div className="text-xs text-gray-500 pl-5 mt-0.5">{stepResult.genInfo}</div>

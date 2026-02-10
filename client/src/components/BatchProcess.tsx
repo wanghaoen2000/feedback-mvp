@@ -1066,15 +1066,16 @@ export function BatchProcess() {
                 {task.truncated ? '⚠️ 已生成但被截断' : (task.url ? '已生成并上传' : '已生成')}，共{task.chars}字
               </span>
             )}
-            {task.status === 'error' && (
-              <span className="text-sm text-red-600 truncate">
-                {task.error || '失败'}
-              </span>
+            {task.status === 'error' && !task.error && (
+              <span className="text-sm text-red-600">失败</span>
             )}
             {task.status === 'waiting' && (
               <span className="text-sm text-gray-500">等待中</span>
             )}
           </div>
+          {task.status === 'error' && task.error && (
+            <p className="text-sm text-red-600 mt-1 break-words whitespace-pre-wrap">{task.error}</p>
+          )}
           {task.filename && (
             <div className="text-xs text-gray-500 truncate">{task.filename}</div>
           )}

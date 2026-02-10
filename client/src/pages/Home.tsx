@@ -2177,10 +2177,35 @@ export default function Home() {
       
     } catch (error: any) {
       setHasError(true);
-      
+
       const rawMessage = error.message || '未知错误';
       let displayError = rawMessage;
-      
+
+      // 尝试解析结构化错误
+      try {
+        const parsed = JSON.parse(rawMessage);
+        if (parsed.userMessage) {
+          displayError = parsed.userMessage;
+        } else if (parsed.message && parsed.suggestion) {
+          displayError = `${parsed.message}。${parsed.suggestion}`;
+        }
+      } catch (e) {
+        // 不是JSON，尝试匹配常见错误并转换为中文
+        if (rawMessage.toLowerCase().includes('failed to fetch') || rawMessage.toLowerCase().includes('fetch failed')) {
+          displayError = '网络连接失败，请检查网络后重试';
+        } else if (rawMessage.includes('insufficient_user_quota') || rawMessage.includes('预扣费额度失败')) {
+          displayError = 'API余额不足，请登录DMXapi充值后重试';
+        } else if (rawMessage.includes('401') || rawMessage.includes('Unauthorized')) {
+          displayError = 'API密钥无效，请点击右上角设置按钮检查密钥';
+        } else if (rawMessage.includes('403')) {
+          displayError = 'API访问被拒绝，可能是余额不足或密钥权限问题';
+        } else if (rawMessage.includes('429') || rawMessage.includes('rate limit')) {
+          displayError = '请求太频繁，请稍等1分钟后重试';
+        } else if (rawMessage.includes('timeout') || rawMessage.includes('超时')) {
+          displayError = '请求超时，可能是网络问题或AI响应太慢，请稍后重试';
+        }
+      }
+
       // 标记当前步骤为失败
       // 注意：localCurrentStep === 5 表示并行阶段结束后的聚合错误，
       // 此时各步骤已有自己的独立状态，不应覆盖（否则会把成功的气泡图标为失败）
@@ -3707,7 +3732,7 @@ export default function Home() {
                   {hasError && !isGenerating && (
                     <div className="mb-4 p-3 bg-red-100 rounded-lg border border-red-200">
                       <p className="text-sm text-red-700 font-medium">错误详情：</p>
-                      <p className="text-sm text-red-600 mt-1">
+                      <p className="text-sm text-red-600 mt-1 break-words whitespace-pre-wrap">
                         {steps.find(s => s.status === 'error')?.error || '未知错误'}
                       </p>
                     </div>
@@ -3840,7 +3865,7 @@ export default function Home() {
                             )}
                             {/* 错误状态 */}
                             {step.error && (
-                              <p className="text-xs text-red-600 mt-1">{step.error}</p>
+                              <p className="text-xs text-red-600 mt-1 break-words whitespace-pre-wrap">{step.error}</p>
                             )}
                           </div>
                           {/* 重试/重做按钮 */}
