@@ -8,6 +8,7 @@ import { hwStudents, hwEntries } from "../drizzle/schema";
 import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { invokeWhatAI } from "./whatai";
 import { getConfigValue } from "./core/aiClient";
+import { getBeijingTimeContext } from "./utils";
 
 // ============= 表自动创建 =============
 
@@ -163,13 +164,7 @@ const HW_DEFAULT_SYSTEM_PROMPT = `你是一个教学助手的作业管理助手�
 
 // 系统提示词（固定部分，不管有没有自定义提示词都会发送）
 function buildSystemContext(studentName: string): string {
-  const now = new Date();
-  const bjTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
-  const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-  const dateStr = `${bjTime.getUTCFullYear()}年${bjTime.getUTCMonth() + 1}月${bjTime.getUTCDate()}日`;
-  const timeStr = `${String(bjTime.getUTCHours()).padStart(2, "0")}:${String(bjTime.getUTCMinutes()).padStart(2, "0")}`;
-  const weekday = weekdays[bjTime.getUTCDay()];
-  return `当前时间：北京时间 ${dateStr} ${timeStr} ${weekday}\n当前学生姓名：${studentName}\n⚠️ 学生姓名以此处系统提供的「${studentName}」为唯一标准。语音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。`;
+  return `${getBeijingTimeContext()}\n当前学生姓名：${studentName}\n⚠️ 学生姓名以此处系统提供的「${studentName}」为唯一标准。语音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。`;
 }
 
 /**

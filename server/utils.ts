@@ -3,6 +3,23 @@
  */
 
 /**
+ * 获取当前北京时间上下文字符串（含精确星期，用于系统提示词）
+ * 星期由代码通过 Date 对象精确计算，不依赖 AI 推算，确保日期与星期对应关系绝对准确。
+ */
+export function getBeijingTimeContext(): string {
+  const now = new Date();
+  const bjTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
+  const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+  const year = bjTime.getUTCFullYear();
+  const month = bjTime.getUTCMonth() + 1;
+  const day = bjTime.getUTCDate();
+  const dateStr = `${year}年${month}月${day}日`;
+  const timeStr = `${String(bjTime.getUTCHours()).padStart(2, "0")}:${String(bjTime.getUTCMinutes()).padStart(2, "0")}`;
+  const weekday = weekdays[bjTime.getUTCDay()];
+  return `当前时间：北京时间 ${dateStr} ${timeStr} ${weekday}\n⚠️ 以上日期与星期的对应关系由系统代码精确计算，绝对准确。请直接采用，不要自行推算或修改日期与星期的对应关系。`;
+}
+
+/**
  * 给日期字符串添加星期几信息
  * 支持格式："2026年1月11日" → "2026年1月11日（周六）"
  *           "1月11日" → "1月11日（周六）"

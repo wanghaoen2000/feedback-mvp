@@ -7,7 +7,7 @@ import { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { APIConfig } from "./whatai";
 import { ClassFeedbackInput, FeedbackInput, textToDocx, cleanMarkdownAndHtml, stripAIMetaCommentary, generateClassTestContent, generateClassExtractionContent, generateTestContent, generateExtractionContent, invokeWithContinuation } from "./feedbackGenerator";
-import { addWeekdayToDate } from "./utils";
+import { addWeekdayToDate, getBeijingTimeContext } from "./utils";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, downloadFileById } from "./gdrive";
 import { getValidToken } from "./googleAuth";
 import { 
@@ -186,8 +186,9 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
 学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
 
       let systemPrompt = roadmapClass && roadmapClass.trim() ? roadmapClass : CLASS_FEEDBACK_SYSTEM_PROMPT;
-      // 在系统提示词中注入学生名单，告诉 AI 以此为准
-      systemPrompt = `当前出勤学生：${studentList}\n⚠️ 学生姓名以此处系统提供的名单为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
+      // 在系统提示词中注入当前时间（含精确星期）和学生名单，告诉 AI 以此为准
+      const timeCtx = getBeijingTimeContext();
+      systemPrompt = `${timeCtx}\n当前出勤学生：${studentList}\n⚠️ 学生姓名以此处系统提供的名单为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
 
       // 发送开始事件
       sendEvent("start", {
@@ -387,8 +388,9 @@ ${input.transcript}
 学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
       
       let systemPrompt = roadmap && roadmap.trim() ? roadmap : FEEDBACK_SYSTEM_PROMPT;
-      // 在系统提示词中注入学生姓名，告诉 AI 以此为准（不要被语音转文字带跑）
-      systemPrompt = `当前学生姓名：${input.studentName}\n⚠️ 学生姓名以此处系统提供的「${input.studentName}」为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
+      // 在系统提示词中注入当前时间（含精确星期）和学生姓名，告诉 AI 以此为准
+      const timeCtx = getBeijingTimeContext();
+      systemPrompt = `${timeCtx}\n当前学生姓名：${input.studentName}\n⚠️ 学生姓名以此处系统提供的「${input.studentName}」为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
 
       // 发送开始事件
       sendEvent("start", {

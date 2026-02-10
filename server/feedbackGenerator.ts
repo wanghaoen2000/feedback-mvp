@@ -1,4 +1,5 @@
 import { invokeWhatAI, invokeWhatAIStream, WhatAIMessage, MODELS, APIConfig } from "./whatai";
+import { getBeijingTimeContext } from "./utils";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak, AlignmentType } from "docx";
 import { Resvg } from "@resvg/resvg-js";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
@@ -1067,14 +1068,15 @@ ${d.specialRequirements ? `【特殊要求】\n${d.specialRequirements}\n` : ''}
   }
 
   let systemPrompt = selectSystemPrompt('feedback', courseType, config?.roadmap);
-  // 在系统提示词中注入学生姓名，告诉 AI 以此为准（不要被语音转文字带跑）
+  // 在系统提示词中注入当前时间（含精确星期）和学生姓名，告诉 AI 以此为准
+  const timeContext = getBeijingTimeContext();
   if (courseType === 'oneToOne') {
     const d = input as FeedbackInput;
-    systemPrompt = `当前学生姓名：${d.studentName}\n⚠️ 学生姓名以此处系统提供的「${d.studentName}」为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
+    systemPrompt = `${timeContext}\n当前学生姓名：${d.studentName}\n⚠️ 学生姓名以此处系统提供的「${d.studentName}」为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
   } else {
     const d = input as ClassFeedbackInput;
     const studentList = d.attendanceStudents.filter(s => s.trim()).join('、');
-    systemPrompt = `当前出勤学生：${studentList}\n⚠️ 学生姓名以此处系统提供的名单为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
+    systemPrompt = `${timeContext}\n当前出勤学生：${studentList}\n⚠️ 学生姓名以此处系统提供的名单为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
   }
   if (courseType === 'class') {
     console.log(`[${label}] 路书长度: ${config?.roadmap?.length || 0} 字符`);
