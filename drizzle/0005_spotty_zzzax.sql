@@ -1,0 +1,1 @@
+ALTER TABLE `hw_students` ADD `current_status` mediumtext;
