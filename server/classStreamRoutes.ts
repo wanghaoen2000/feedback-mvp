@@ -185,12 +185,12 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
 本次只需要生成学情反馈文档，不要生成复习文档、测试本、课后信息提取或其他任何内容。
 学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
 
-      const systemPrompt = roadmapClass && roadmapClass.trim() ? roadmapClass : CLASS_FEEDBACK_SYSTEM_PROMPT;
-      
+      let systemPrompt = roadmapClass && roadmapClass.trim() ? roadmapClass : CLASS_FEEDBACK_SYSTEM_PROMPT;
+      // 在系统提示词中注入学生名单，告诉 AI 以此为准
+      systemPrompt = `当前出勤学生：${studentList}\n⚠️ 学生姓名以此处系统提供的名单为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
 
-      
       // 发送开始事件
-      sendEvent("start", { 
+      sendEvent("start", {
         message: `开始为 ${input.classNumber} 班生成学情反馈`,
         students: classInput.attendanceStudents.length
       });
@@ -386,12 +386,12 @@ ${input.transcript}
 本次只需要生成学情反馈文档，不要生成复习文档、测试本、课后信息提取或其他任何内容。
 学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
       
-      const systemPrompt = roadmap && roadmap.trim() ? roadmap : FEEDBACK_SYSTEM_PROMPT;
-      
+      let systemPrompt = roadmap && roadmap.trim() ? roadmap : FEEDBACK_SYSTEM_PROMPT;
+      // 在系统提示词中注入学生姓名，告诉 AI 以此为准（不要被语音转文字带跑）
+      systemPrompt = `当前学生姓名：${input.studentName}\n⚠️ 学生姓名以此处系统提供的「${input.studentName}」为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
 
-      
       // 发送开始事件
-      sendEvent("start", { 
+      sendEvent("start", {
         message: `开始为 ${input.studentName} 生成学情反馈`,
         studentName: input.studentName
       });

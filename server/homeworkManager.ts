@@ -152,14 +152,14 @@ const HW_DEFAULT_SYSTEM_PROMPT = `你是一个教学助手的作业管理助手�
 4. 只输出上述格式的结构化数据，不要添加任何额外解释或问候语`;
 
 // 系统提示词（固定部分，不管有没有自定义提示词都会发送）
-function buildSystemContext(): string {
+function buildSystemContext(studentName: string): string {
   const now = new Date();
   const bjTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
   const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
   const dateStr = `${bjTime.getUTCFullYear()}年${bjTime.getUTCMonth() + 1}月${bjTime.getUTCDate()}日`;
   const timeStr = `${String(bjTime.getUTCHours()).padStart(2, "0")}:${String(bjTime.getUTCMinutes()).padStart(2, "0")}`;
   const weekday = weekdays[bjTime.getUTCDay()];
-  return `当前时间：北京时间 ${dateStr} ${timeStr} ${weekday}`;
+  return `当前时间：北京时间 ${dateStr} ${timeStr} ${weekday}\n当前学生姓名：${studentName}\n⚠️ 学生姓名以此处系统提供的「${studentName}」为唯一标准。语音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。`;
 }
 
 export async function processEntry(
@@ -176,22 +176,20 @@ export async function processEntry(
   // 读取用户自定义提示词
   const hwPromptTemplate = await getConfigValue("hwPromptTemplate");
 
-  // 构建系统提示词：如果用户配置了自定义提示词，用自定义的；否则用默认的
+  // 构建系统提示词：时间戳+学生姓名（固定）+ 自定义提示词或默认提示词
   let systemPrompt: string;
   if (hwPromptTemplate && hwPromptTemplate.trim()) {
-    systemPrompt = `${buildSystemContext()}\n\n${hwPromptTemplate.trim()}`;
+    systemPrompt = `${buildSystemContext(studentName)}\n\n${hwPromptTemplate.trim()}`;
   } else {
-    systemPrompt = `${buildSystemContext()}\n\n${HW_DEFAULT_SYSTEM_PROMPT}`;
+    systemPrompt = `${buildSystemContext(studentName)}\n\n${HW_DEFAULT_SYSTEM_PROMPT}`;
   }
 
-  let userPrompt = `当前学生姓名：${studentName}\n`;
-  userPrompt += `\n⚠️ 重要：以下内容为语音转文字，学生姓名可能识别不准确，请以上方「${studentName}」为准。对于内容中看起来像学生姓名但与「${studentName}」对不上的文字，都应当理解为指代该学生。\n`;
-
+  let userPrompt = '';
   if (supplementaryNotes && supplementaryNotes.trim()) {
-    userPrompt += `\n【补充说明】\n${supplementaryNotes.trim()}\n`;
+    userPrompt += `【补充说明】\n${supplementaryNotes.trim()}\n\n`;
   }
 
-  userPrompt += `\n【语音转文字原文】\n${rawInput}\n`;
+  userPrompt += `【语音转文字原文】\n${rawInput}\n`;
   userPrompt += `\n请按照系统提示中的格式要求，整理输出。`;
 
   const messages = [

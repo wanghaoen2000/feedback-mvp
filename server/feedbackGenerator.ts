@@ -1066,7 +1066,16 @@ ${d.specialRequirements ? `【特殊要求】\n${d.specialRequirements}\n` : ''}
 学情反馈文档以【OK】结束，输出【OK】后立即停止，不要继续输出任何内容。${NO_INTERACTION_INSTRUCTION}`;
   }
 
-  const systemPrompt = selectSystemPrompt('feedback', courseType, config?.roadmap);
+  let systemPrompt = selectSystemPrompt('feedback', courseType, config?.roadmap);
+  // 在系统提示词中注入学生姓名，告诉 AI 以此为准（不要被语音转文字带跑）
+  if (courseType === 'oneToOne') {
+    const d = input as FeedbackInput;
+    systemPrompt = `当前学生姓名：${d.studentName}\n⚠️ 学生姓名以此处系统提供的「${d.studentName}」为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
+  } else {
+    const d = input as ClassFeedbackInput;
+    const studentList = d.attendanceStudents.filter(s => s.trim()).join('、');
+    systemPrompt = `当前出勤学生：${studentList}\n⚠️ 学生姓名以此处系统提供的名单为唯一标准。录音转文字中出现的姓名可能识别错误，一律以此为准，不要被带跑。\n\n${systemPrompt}`;
+  }
   if (courseType === 'class') {
     console.log(`[${label}] 路书长度: ${config?.roadmap?.length || 0} 字符`);
   }
