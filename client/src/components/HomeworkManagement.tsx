@@ -16,7 +16,6 @@ import {
   Trash2,
   RefreshCw,
   Send,
-  Settings,
   ChevronDown,
   ChevronUp,
   UserPlus,
@@ -132,9 +131,7 @@ export function HomeworkManagement() {
   const [showStudentMgmt, setShowStudentMgmt] = useState(false);
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentPlan, setNewStudentPlan] = useState<"daily" | "weekly">("weekly");
-  const [showSettings, setShowSettings] = useState(false);
   const [showPromptEditor, setShowPromptEditor] = useState(false);
-  const [localNotes, setLocalNotes] = useState("");
   const [localModel, setLocalModel] = useState("");
   const [localPrompt, setLocalPrompt] = useState("");
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
@@ -148,7 +145,6 @@ export function HomeworkManagement() {
   // 从服务器加载配置
   useEffect(() => {
     if (hwConfigQuery.data) {
-      setLocalNotes(hwConfigQuery.data.hwSupplementaryNotes || "");
       setLocalModel(hwConfigQuery.data.hwAiModel || "");
       setLocalPrompt(hwConfigQuery.data.hwPromptTemplate || "");
     }
@@ -173,17 +169,8 @@ export function HomeworkManagement() {
       studentName: selectedStudent,
       rawInput: inputText.trim(),
       aiModel: localModel || undefined,
-      supplementaryNotes: localNotes || undefined,
     });
-  }, [selectedStudent, inputText, localModel, localNotes, submitEntryMut]);
-
-  // 保存配置
-  const saveConfig = useCallback(() => {
-    updateHwConfigMut.mutate({
-      hwAiModel: localModel,
-      hwSupplementaryNotes: localNotes,
-    });
-  }, [localModel, localNotes, updateHwConfigMut]);
+  }, [selectedStudent, inputText, localModel, submitEntryMut]);
 
   // 添加学生
   const handleAddStudent = useCallback(() => {
@@ -229,15 +216,6 @@ export function HomeworkManagement() {
           >
             <FileText className="w-4 h-4" />
             <span className="hidden sm:inline ml-1">提示词</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowSettings(!showSettings)}
-            className="h-8"
-          >
-            <Settings className="w-4 h-4" />
-            <span className="hidden sm:inline ml-1">设置</span>
           </Button>
           <Button
             variant="ghost"
@@ -298,33 +276,6 @@ export function HomeworkManagement() {
                   </Button>
                 </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ===== 设置面板（折叠） ===== */}
-      {showSettings && (
-        <Card className="border-dashed">
-          <CardContent className="pt-4 space-y-3">
-            <div>
-              <Label className="text-sm font-medium">补充说明（每次发送给AI的附加信息）</Label>
-              <p className="text-xs text-gray-500 mb-1">
-                如：术语映射（冲分=冲刺、进阶=强化、基础=初级）、作业名称标准等
-              </p>
-              <Textarea
-                value={localNotes}
-                onChange={(e) => setLocalNotes(e.target.value)}
-                placeholder={"示例：\n冲分和冲刺是同一个意思\n进阶和强化是同一个意思\n基础和初级是同一个意思\n日常阅读分为：基础练习、进阶练习、冲分练习"}
-                rows={4}
-                className="text-sm"
-              />
-            </div>
-            <div className="flex justify-end">
-              <Button size="sm" onClick={saveConfig} disabled={updateHwConfigMut.isPending}>
-                {updateHwConfigMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
-                保存设置
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -585,7 +536,7 @@ export function HomeworkManagement() {
                         variant="ghost"
                         size="sm"
                         className="h-6 px-2 text-xs"
-                        onClick={() => retryEntryMut.mutate({ id: entry.id, supplementaryNotes: localNotes || undefined })}
+                        onClick={() => retryEntryMut.mutate({ id: entry.id })}
                         disabled={retryEntryMut.isPending}
                       >
                         <RefreshCw className="w-3 h-3 mr-1" />重试

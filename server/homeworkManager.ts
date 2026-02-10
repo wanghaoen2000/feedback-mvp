@@ -166,7 +166,6 @@ export async function processEntry(
   studentName: string,
   rawInput: string,
   aiModel?: string,
-  supplementaryNotes?: string
 ): Promise<{ parsedContent: string }> {
   // Build API config
   const apiKey = await getConfigValue("apiKey");
@@ -184,12 +183,7 @@ export async function processEntry(
     systemPrompt = `${buildSystemContext(studentName)}\n\n${HW_DEFAULT_SYSTEM_PROMPT}`;
   }
 
-  let userPrompt = '';
-  if (supplementaryNotes && supplementaryNotes.trim()) {
-    userPrompt += `【补充说明】\n${supplementaryNotes.trim()}\n\n`;
-  }
-
-  userPrompt += `【语音转文字原文】\n${rawInput}\n`;
+  let userPrompt = `【语音转文字原文】\n${rawInput}\n`;
   userPrompt += `\n请按照系统提示中的格式要求，整理输出。`;
 
   const messages = [
@@ -240,14 +234,13 @@ export async function submitAndProcessEntry(
   studentName: string,
   rawInput: string,
   aiModel?: string,
-  supplementaryNotes?: string
 ): Promise<{ id: number; status: string }> {
   // Create entry first
   const { id } = await createEntry(studentName, rawInput, aiModel);
 
   // 后台异步处理 — 立即返回，不阻塞用户继续提交其他条目
   // 前端通过 5 秒轮询 listPendingEntries 获取最新状态
-  processEntryInBackground(id, studentName, rawInput, aiModel, supplementaryNotes);
+  processEntryInBackground(id, studentName, rawInput, aiModel);
 
   return { id, status: "pending" };
 }
@@ -258,7 +251,6 @@ async function processEntryInBackground(
   studentName: string,
   rawInput: string,
   aiModel?: string,
-  supplementaryNotes?: string,
 ): Promise<void> {
   const db = await getDb();
   if (!db) return;
@@ -270,7 +262,7 @@ async function processEntryInBackground(
 
   try {
     // Process with AI
-    const { parsedContent } = await processEntry(studentName, rawInput, aiModel, supplementaryNotes);
+    const { parsedContent } = await processEntry(studentName, rawInput, aiModel);
 
     // Validate: check for empty fields
     const hasEmptyFields = parsedContent.includes("【】") || /【[^】]+】\s*\n\s*\n/.test(parsedContent);
@@ -349,7 +341,7 @@ export async function listStudentEntries(studentName: string, limit: number = 50
   return { entries: rows, total: Number(countResult[0]?.count ?? 0) };
 }
 
-export async function retryEntry(id: number, supplementaryNotes?: string) {
+export async function retryEntry(id: number) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
@@ -371,7 +363,6 @@ export async function retryEntry(id: number, supplementaryNotes?: string) {
       entry.studentName,
       entry.rawInput,
       entry.aiModel || undefined,
-      supplementaryNotes
     );
 
     await db.update(hwEntries)
