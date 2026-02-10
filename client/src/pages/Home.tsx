@@ -35,9 +35,11 @@ import {
   Copy,
   ArrowUp,
   ArrowDown,
+  BookOpen,
 } from "lucide-react";
 import { VERSION_DISPLAY } from "../version.generated";
 import { TaskHistory } from "@/components/TaskHistory";
+import { HomeworkManagement } from "@/components/HomeworkManagement";
 
 // 步骤状态类型
 interface StepStatus {
@@ -2912,10 +2914,14 @@ export default function Home() {
 
         {/* 大分页 Tab 切换 */}
         <Tabs defaultValue="classroom" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
             <TabsTrigger value="classroom" className="text-base py-2">
               <FileText className="w-4 h-4 mr-2" />
               课堂反馈
+            </TabsTrigger>
+            <TabsTrigger value="homework" className="text-base py-2">
+              <BookOpen className="w-4 h-4 mr-2" />
+              作业管理
             </TabsTrigger>
             <TabsTrigger value="batch" className="text-base py-2">
               <Users className="w-4 h-4 mr-2" />
@@ -4008,6 +4014,24 @@ export default function Home() {
         <div className="mt-2 text-center text-xs text-gray-400">
           <p>提交后台生成，关屏/断网不影响 · 在「任务记录」查看进度</p>
         </div>
+          </TabsContent>
+
+          {/* 作业管理 Tab 内容 */}
+          <TabsContent value="homework">
+            <Card className="shadow-xl">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-green-600" />
+                  作业管理
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm">
+                  选择学生 → 输入语音转文字 → AI结构化处理 → 确认入库
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <HomeworkManagement />
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* 批量处理 Tab 内容 */}

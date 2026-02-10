@@ -68,3 +68,35 @@ export const backgroundTasks = mysqlTable("background_tasks", {
 
 export type BackgroundTask = typeof backgroundTasks.$inferSelect;
 export type InsertBackgroundTask = typeof backgroundTasks.$inferInsert;
+
+// 作业管理系统 - 学生名册
+export const hwStudents = mysqlTable("hw_students", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 64 }).notNull().unique(),
+  planType: varchar("plan_type", { length: 10 }).notNull().default("weekly"), // 'daily' | 'weekly'
+  nextClassDate: varchar("next_class_date", { length: 20 }),
+  examTarget: varchar("exam_target", { length: 255 }),
+  examDate: varchar("exam_date", { length: 20 }),
+  status: varchar("status", { length: 10 }).notNull().default("active"), // 'active' | 'inactive'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type HwStudent = typeof hwStudents.$inferSelect;
+export type InsertHwStudent = typeof hwStudents.$inferInsert;
+
+// 作业管理系统 - 语音输入条目（预入库队列）
+export const hwEntries = mysqlTable("hw_entries", {
+  id: int("id").autoincrement().primaryKey(),
+  studentName: varchar("student_name", { length: 64 }).notNull(),
+  rawInput: text("raw_input").notNull(),
+  parsedContent: mediumtext("parsed_content"),
+  aiModel: varchar("ai_model", { length: 128 }),
+  entryStatus: varchar("entry_status", { length: 20 }).notNull().default("pending"), // pending | processing | pre_staged | confirmed | failed
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type HwEntry = typeof hwEntries.$inferSelect;
+export type InsertHwEntry = typeof hwEntries.$inferInsert;

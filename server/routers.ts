@@ -46,6 +46,19 @@ import {
 import { storeContent } from "./contentStore";
 import { DEFAULT_CONFIG, getConfigValue as getConfig } from "./core/aiClient";
 import { addWeekdayToDate } from "./utils";
+import {
+  listStudents,
+  addStudent,
+  updateStudent,
+  removeStudent,
+  submitAndProcessEntry,
+  listPendingEntries,
+  listEntries,
+  retryEntry,
+  deleteEntry,
+  confirmEntries,
+  confirmAllPreStaged,
+} from "./homeworkManager";
 
 // 设置配置值
 async function setConfig(key: string, value: string, description?: string): Promise<void> {
@@ -2129,6 +2142,128 @@ export const appRouter = router({
             error: "文件上传失败，但计算成功",
           };
         }
+      }),
+  }),
+
+  // ==================== 作业管理系统 ====================
+  homework: router({
+    // 学生名册
+    listStudents: protectedProcedure
+      .input(z.object({ status: z.string().optional() }).optional())
+      .query(async ({ input }) => {
+        return listStudents(input?.status);
+      }),
+
+    addStudent: protectedProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        planType: z.enum(["daily", "weekly"]).default("weekly"),
+      }))
+      .mutation(async ({ input }) => {
+        return addStudent(input.name, input.planType);
+      }),
+
+    updateStudent: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        planType: z.string().optional(),
+        nextClassDate: z.string().nullable().optional(),
+        examTarget: z.string().nullable().optional(),
+        examDate: z.string().nullable().optional(),
+        status: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        return updateStudent(id, data);
+      }),
+
+    removeStudent: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return removeStudent(input.id);
+      }),
+
+    // 语音输入处理（预入库队列）
+    submitEntry: protectedProcedure
+      .input(z.object({
+        studentName: z.string().min(1),
+        rawInput: z.string().min(1),
+        aiModel: z.string().optional(),
+        supplementaryNotes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return submitAndProcessEntry(
+          input.studentName,
+          input.rawInput,
+          input.aiModel,
+          input.supplementaryNotes
+        );
+      }),
+
+    listPendingEntries: protectedProcedure
+      .query(async () => {
+        return listPendingEntries();
+      }),
+
+    listEntries: protectedProcedure
+      .input(z.object({ status: z.string().optional() }).optional())
+      .query(async ({ input }) => {
+        return listEntries(input?.status);
+      }),
+
+    retryEntry: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        supplementaryNotes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return retryEntry(input.id, input.supplementaryNotes);
+      }),
+
+    deleteEntry: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return deleteEntry(input.id);
+      }),
+
+    confirmEntries: protectedProcedure
+      .input(z.object({ ids: z.array(z.number()) }))
+      .mutation(async ({ input }) => {
+        return confirmEntries(input.ids);
+      }),
+
+    confirmAll: protectedProcedure
+      .mutation(async () => {
+        return confirmAllPreStaged();
+      }),
+
+    // 作业管理专用配置（AI模型、补充说明）
+    getConfig: protectedProcedure
+      .query(async () => {
+        const hwAiModel = await getConfig("hwAiModel");
+        const hwSupplementaryNotes = await getConfig("hwSupplementaryNotes");
+        const modelPresets = await getConfig("modelPresets");
+        return {
+          hwAiModel: hwAiModel || "",
+          hwSupplementaryNotes: hwSupplementaryNotes || "",
+          modelPresets: modelPresets || "",
+        };
+      }),
+
+    updateConfig: protectedProcedure
+      .input(z.object({
+        hwAiModel: z.string().optional(),
+        hwSupplementaryNotes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        if (input.hwAiModel !== undefined) {
+          await setConfig("hwAiModel", input.hwAiModel, "作业管理AI模型");
+        }
+        if (input.hwSupplementaryNotes !== undefined) {
+          await setConfig("hwSupplementaryNotes", input.hwSupplementaryNotes, "作业管理补充说明");
+        }
+        return { success: true };
       }),
   }),
 });
