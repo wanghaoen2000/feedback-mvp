@@ -67,6 +67,20 @@ export async function addStudent(name: string, planType: string = "weekly") {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
+  // 检查是否存在同名的 inactive 学生，有则重新激活
+  const existing = await db.select().from(hwStudents)
+    .where(eq(hwStudents.name, name.trim()))
+    .limit(1);
+  if (existing.length > 0) {
+    if (existing[0].status === "inactive") {
+      await db.update(hwStudents)
+        .set({ status: "active", planType })
+        .where(eq(hwStudents.id, existing[0].id));
+      console.log(`[作业管理] 重新激活学生: ${name}`);
+      return { success: true };
+    }
+    throw new Error(`学生「${name.trim()}」已存在`);
+  }
   await db.insert(hwStudents).values({ name: name.trim(), planType });
   return { success: true };
 }
@@ -84,10 +98,10 @@ export async function updateStudent(id: number, data: {
   if (!db) throw new Error("数据库不可用");
   const updateObj: Record<string, any> = {};
   if (data.name !== undefined) updateObj.name = data.name.trim();
-  if (data.planType !== undefined) updateObj.plan_type = data.planType;
-  if (data.nextClassDate !== undefined) updateObj.next_class_date = data.nextClassDate;
-  if (data.examTarget !== undefined) updateObj.exam_target = data.examTarget;
-  if (data.examDate !== undefined) updateObj.exam_date = data.examDate;
+  if (data.planType !== undefined) updateObj.planType = data.planType;
+  if (data.nextClassDate !== undefined) updateObj.nextClassDate = data.nextClassDate;
+  if (data.examTarget !== undefined) updateObj.examTarget = data.examTarget;
+  if (data.examDate !== undefined) updateObj.examDate = data.examDate;
   if (data.status !== undefined) updateObj.status = data.status;
   if (Object.keys(updateObj).length === 0) return { success: true };
   await db.update(hwStudents).set(updateObj).where(eq(hwStudents.id, id));
@@ -345,7 +359,7 @@ export async function importFromExtraction(
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
 
-  // 自动创建学生（如不存在）
+  // 自动创建学生（如不存在）或重新激活（如已删除）
   let studentCreated = false;
   const existing = await db.select().from(hwStudents)
     .where(eq(hwStudents.name, studentName.trim()))
@@ -358,6 +372,11 @@ export async function importFromExtraction(
     });
     studentCreated = true;
     console.log(`[作业管理] 自动创建学生: ${studentName}`);
+  } else if (existing[0].status === "inactive") {
+    // 学生曾被删除，重新激活
+    await db.update(hwStudents).set({ status: "active" }).where(eq(hwStudents.id, existing[0].id));
+    studentCreated = true;
+    console.log(`[作业管理] 重新激活学生: ${studentName}`);
   }
 
   // 直接创建 pre_staged 条目（课后信息提取已是结构化内容，无需再过AI）
