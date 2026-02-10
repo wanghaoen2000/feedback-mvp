@@ -387,6 +387,7 @@ export default function Home() {
   // 多段录音：勾选后明确指定段数
   const [multiSegment, setMultiSegment] = useState(false);
   const [segmentCount, setSegmentCount] = useState(3);
+  const transcriptSegmentsRef = useRef<{ count: number; chars: number[] } | null>(null);
 
   // 自动从 Downloads 文件夹加载课堂笔记
   const [autoLoadCurrentNotes, setAutoLoadCurrentNotes] = useState(true);
@@ -2281,6 +2282,7 @@ export default function Home() {
             : { fileName: expectedFileName, allowSplit: true };
           const result = await readFromDownloadsMutation.mutateAsync(loadParams);
           autoLoadedTranscriptRef.current = result.content;
+          transcriptSegmentsRef.current = result.segments || null;
           setTranscript(result.content);
           setTranscriptFile({ name: result.fileName, content: result.content });
         } catch (err: unknown) {
@@ -2324,6 +2326,7 @@ export default function Home() {
           specialRequirements: undefined,
           classNumber: classNumber.trim() || undefined,
           attendanceStudents: courseType === 'class' ? attendanceStudents.filter((s: string) => s.trim()) : undefined,
+          transcriptSegments: transcriptSegmentsRef.current || undefined,
           apiModel: apiModel.trim() || undefined,
           apiKey: apiKey.trim() || undefined,
           apiUrl: apiUrl.trim() || undefined,
@@ -2331,6 +2334,7 @@ export default function Home() {
           roadmapClass: roadmapClass || undefined,
           driveBasePath: driveBasePath.trim() || undefined,
         });
+        transcriptSegmentsRef.current = null; // 提交后清除
         setActiveTaskId(result.taskId);
 
         // 保存学生/班级课次到历史（用于下次自动填充课次+1）

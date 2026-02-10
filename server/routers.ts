@@ -1587,7 +1587,7 @@ export const appRouter = router({
               if (!content.trim()) {
                 throw new TRPCError({ code: 'BAD_REQUEST', message: '文件内容为空' });
               }
-              return { content: content.trim(), fileName: mainResult.resolvedName };
+              return { content: content.trim(), fileName: mainResult.resolvedName, segments: { count: 1, chars: [content.trim().length] } };
             }
             throw new TRPCError({
               code: 'NOT_FOUND',
@@ -1627,6 +1627,7 @@ export const appRouter = router({
           return {
             content: merged,
             fileName: `${baseName}-${segLabel}${ext}`,
+            segments: { count: segmentCount, chars: parts.map(p => p.length) },
           };
         }
 
@@ -1639,7 +1640,7 @@ export const appRouter = router({
           if (!content.trim()) {
             throw new TRPCError({ code: 'BAD_REQUEST', message: '文件内容为空' });
           }
-          return { content: content.trim(), fileName: mainResult.resolvedName };
+          return { content: content.trim(), fileName: mainResult.resolvedName, segments: { count: 1, chars: [content.trim().length] } };
         }
 
         // 第二优先级：分段文件（如 孙浩然0206-1.docx + 孙浩然0206-2.docx）
@@ -1664,6 +1665,7 @@ export const appRouter = router({
               return {
                 content: merged,
                 fileName: `${baseName}-1+2${ext}`,
+                segments: { count: 2, chars: [part1Content.trim().length, part2Content.trim().length] },
               };
             } else {
               throw new TRPCError({
@@ -1820,6 +1822,11 @@ export const appRouter = router({
         // 小班课字段
         classNumber: z.string().optional(),
         attendanceStudents: z.array(z.string()).optional(),
+        // 素材元信息（用于前端查看发送素材摘要）
+        transcriptSegments: z.object({
+          count: z.number(),
+          chars: z.array(z.number()),
+        }).optional(),
         // 配置快照
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
@@ -1930,11 +1937,20 @@ export const appRouter = router({
           if (stepResults?.feedback?.content) {
             delete stepResults.feedback.content;
           }
-          // 从 inputParams 中提取使用的模型名称
+          // 从 inputParams 中提取使用的模型名称和素材摘要
           let model: string | null = null;
+          let materialsSummary: { transcriptChars: number; notesChars: number; lastFeedbackChars: number; transcriptSegments?: { count: number; chars: number[] } } | null = null;
           try {
             const params = t.inputParams ? JSON.parse(t.inputParams) : null;
-            model = params?.apiModel || null;
+            if (params) {
+              model = params.apiModel || null;
+              materialsSummary = {
+                transcriptChars: params.transcript?.length || 0,
+                notesChars: params.currentNotes?.length || 0,
+                lastFeedbackChars: params.lastFeedback?.length || 0,
+                transcriptSegments: params.transcriptSegments || undefined,
+              };
+            }
           } catch { /* ignore */ }
           return {
             id: t.id,
@@ -1946,6 +1962,7 @@ export const appRouter = router({
             stepResults,
             errorMessage: t.errorMessage,
             model,
+            materialsSummary,
             createdAt: t.createdAt.toISOString(),
             completedAt: t.completedAt?.toISOString() || null,
           };
@@ -2000,6 +2017,36 @@ export const appRouter = router({
         const content = stepResults?.extraction?.content || null;
         if (!content) throw new TRPCError({ code: "NOT_FOUND", message: "提取内容不可用（可能是旧任务）" });
         return { content };
+      }),
+
+    // 获取发送素材（按需加载，用于用户验证发送内容）
+    inputMaterials: protectedProcedure
+      .input(z.object({ taskId: z.string() }))
+      .query(async ({ input }) => {
+        const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        const tasks = await db.select({ inputParams: bgTasksTable.inputParams })
+          .from(bgTasksTable)
+          .where(eq(bgTasksTable.id, input.taskId))
+          .limit(1);
+        if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
+
+        let params: any = null;
+        try {
+          params = tasks[0].inputParams ? JSON.parse(tasks[0].inputParams) : null;
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "任务数据损坏，无法解析" });
+        }
+        if (!params) throw new TRPCError({ code: "NOT_FOUND", message: "任务参数不可用" });
+
+        return {
+          transcript: params.transcript || null,
+          currentNotes: params.currentNotes || null,
+          lastFeedback: params.lastFeedback || null,
+          transcriptSegments: params.transcriptSegments || null,
+        };
       }),
 
     // 取消运行中的任务

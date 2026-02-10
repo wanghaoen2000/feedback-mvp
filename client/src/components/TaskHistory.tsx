@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X, ArrowUp, ArrowDown, Download, ExternalLink } from "lucide-react";
+import { Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, Check, X, ArrowUp, ArrowDown, Download, ExternalLink, FileText, ChevronDown, ChevronRight } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 interface TaskHistoryProps {
@@ -300,10 +300,115 @@ function ContentViewer({ taskId, onClose, title, queryFn }: {
   );
 }
 
+/** 发送素材查看器：展示录音转文字、课堂笔记、上次反馈的实际内容 */
+function MaterialsViewer({ taskId, materialsSummary, onClose }: {
+  taskId: string;
+  materialsSummary: { transcriptChars: number; notesChars: number; lastFeedbackChars: number; transcriptSegments?: { count: number; chars: number[] } } | null;
+  onClose: () => void;
+}) {
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const materialsQuery = trpc.bgTask.inputMaterials.useQuery({ taskId });
+
+  const sections = [
+    {
+      key: "transcript",
+      label: "录音转文字",
+      chars: materialsSummary?.transcriptChars || 0,
+      segments: materialsSummary?.transcriptSegments,
+      getContent: () => materialsQuery.data?.transcript,
+    },
+    {
+      key: "notes",
+      label: "课堂笔记",
+      chars: materialsSummary?.notesChars || 0,
+      getContent: () => materialsQuery.data?.currentNotes,
+    },
+    {
+      key: "lastFeedback",
+      label: "上次反馈",
+      chars: materialsSummary?.lastFeedbackChars || 0,
+      getContent: () => materialsQuery.data?.lastFeedback,
+    },
+  ];
+
+  return (
+    <div className="mt-2 border rounded bg-white">
+      <div className="flex items-center justify-between px-2 py-1.5 border-b bg-gray-50">
+        <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
+          <FileText className="h-3 w-3" />
+          发送素材
+        </span>
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
+          <X className="h-3 w-3" />
+        </Button>
+      </div>
+      <div className="divide-y">
+        {sections.map((sec) => {
+          const isOpen = expandedSection === sec.key;
+          const content = sec.getContent();
+          const hasContent = sec.chars > 0;
+          if (!hasContent) {
+            return (
+              <div key={sec.key} className="px-2 py-1.5 flex items-center gap-2 text-xs text-gray-400">
+                <span>{sec.label}</span>
+                <span className="ml-auto">（无）</span>
+              </div>
+            );
+          }
+          return (
+            <div key={sec.key}>
+              <button
+                className="w-full px-2 py-1.5 flex items-center gap-1 text-xs hover:bg-gray-50 text-left"
+                onClick={() => setExpandedSection(isOpen ? null : sec.key)}
+              >
+                {isOpen ? <ChevronDown className="h-3 w-3 text-gray-400 shrink-0" /> : <ChevronRight className="h-3 w-3 text-gray-400 shrink-0" />}
+                <span className="text-gray-700 font-medium">{sec.label}</span>
+                <span className="text-gray-400 ml-auto shrink-0">
+                  {sec.segments && sec.segments.count > 1 && (
+                    <span className="text-blue-500 mr-1">
+                      {sec.segments.count}段合并（{sec.segments.chars.map(c => `${c}字`).join(' + ')}）
+                    </span>
+                  )}
+                  {sec.chars}字
+                </span>
+              </button>
+              {isOpen && (
+                <div className="px-2 pb-2 max-h-[25vh] overflow-y-auto">
+                  {materialsQuery.isLoading ? (
+                    <div className="flex items-center justify-center py-3 text-xs text-gray-400">
+                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      加载中...
+                    </div>
+                  ) : materialsQuery.error ? (
+                    <div className="flex flex-col items-center gap-1 py-2">
+                      <p className="text-xs text-red-500">{materialsQuery.error.message}</p>
+                      <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => materialsQuery.refetch()}>
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        重试
+                      </Button>
+                    </div>
+                  ) : content ? (
+                    <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words font-sans leading-relaxed border rounded p-2 bg-gray-50">
+                      {content}
+                    </pre>
+                  ) : (
+                    <p className="text-xs text-gray-400 py-2">内容不可用</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [viewingFeedbackTaskId, setViewingFeedbackTaskId] = useState<string | null>(null);
   const [viewingExtractionTaskId, setViewingExtractionTaskId] = useState<string | null>(null);
+  const [viewingMaterialsTaskId, setViewingMaterialsTaskId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now()); // 用于心跳计时
 
   // 查询任务历史（始终3秒刷新）
@@ -329,10 +434,13 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
     if (viewingExtractionTaskId && !tasks.find((t) => t.id === viewingExtractionTaskId)) {
       setViewingExtractionTaskId(null);
     }
+    if (viewingMaterialsTaskId && !tasks.find((t) => t.id === viewingMaterialsTaskId)) {
+      setViewingMaterialsTaskId(null);
+    }
     if (expandedTaskId && !tasks.find((t) => t.id === expandedTaskId)) {
       setExpandedTaskId(null);
     }
-  }, [tasks, viewingFeedbackTaskId, viewingExtractionTaskId, expandedTaskId]);
+  }, [tasks, viewingFeedbackTaskId, viewingExtractionTaskId, viewingMaterialsTaskId, expandedTaskId]);
 
   // 心跳计时器：运行中任务每秒更新
   const hasRunning = tasks.some((t) => t.status === "running" || t.status === "pending");
@@ -479,6 +587,10 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                           {/* 完成后显示反馈字数 */}
                           {!isRunning && feedbackChars > 0 && (
                             <span>· 反馈{feedbackChars}字</span>
+                          )}
+                          {/* 多段录音标记 */}
+                          {task.materialsSummary?.transcriptSegments && task.materialsSummary.transcriptSegments.count > 1 && (
+                            <span className="text-blue-500">· {task.materialsSummary.transcriptSegments.count}段录音</span>
                           )}
                         </div>
                       </div>
@@ -640,6 +752,27 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                             </div>
                           );
                         })()}
+                        {/* 查看发送素材 */}
+                        {task.materialsSummary && (
+                          viewingMaterialsTaskId === task.id ? (
+                            <MaterialsViewer
+                              taskId={task.id}
+                              materialsSummary={task.materialsSummary}
+                              onClose={() => setViewingMaterialsTaskId(null)}
+                            />
+                          ) : (
+                            <button
+                              className="mt-2 w-full text-xs text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded py-1.5 flex items-center justify-center gap-1 transition-colors"
+                              onClick={(e) => { e.stopPropagation(); setViewingMaterialsTaskId(task.id); }}
+                            >
+                              <FileText className="h-3 w-3" />
+                              查看发送素材
+                              {task.materialsSummary.transcriptSegments && task.materialsSummary.transcriptSegments.count > 1 && (
+                                <span className="text-blue-400">（{task.materialsSummary.transcriptSegments.count}段录音已合并）</span>
+                              )}
+                            </button>
+                          )
+                        )}
                       </div>
                     )}
                   </div>
