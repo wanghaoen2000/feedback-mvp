@@ -131,7 +131,8 @@ export async function removeStudent(id: number) {
 
 // ============= AI 处理 =============
 
-const HW_SYSTEM_PROMPT = `你是一个教学助手的作业管理助手。你的任务是将教师的语音转文字记录整理为结构化的作业管理数据。
+// 默认系统提示词（用户未配置自定义提示词时的兜底）
+const HW_DEFAULT_SYSTEM_PROMPT = `你是一个教学助手的作业管理助手。你的任务是将教师的语音转文字记录整理为结构化的作业管理数据。
 
 输出格式要求（严格遵守，所有字段必须填写）：
 
@@ -150,6 +151,17 @@ const HW_SYSTEM_PROMPT = `你是一个教学助手的作业管理助手。你的
 3. 学生姓名以我提供的为准，语音中可能识别错误
 4. 只输出上述格式的结构化数据，不要添加任何额外解释或问候语`;
 
+// 系统提示词（固定部分，不管有没有自定义提示词都会发送）
+function buildSystemContext(): string {
+  const now = new Date();
+  const bjTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
+  const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+  const dateStr = `${bjTime.getUTCFullYear()}年${bjTime.getUTCMonth() + 1}月${bjTime.getUTCDate()}日`;
+  const timeStr = `${String(bjTime.getUTCHours()).padStart(2, "0")}:${String(bjTime.getUTCMinutes()).padStart(2, "0")}`;
+  const weekday = weekdays[bjTime.getUTCDay()];
+  return `当前时间：北京时间 ${dateStr} ${timeStr} ${weekday}`;
+}
+
 export async function processEntry(
   studentName: string,
   rawInput: string,
@@ -161,6 +173,17 @@ export async function processEntry(
   const apiUrl = await getConfigValue("apiUrl");
   const modelToUse = aiModel || await getConfigValue("apiModel") || "claude-sonnet-4-5-20250929";
 
+  // 读取用户自定义提示词
+  const hwPromptTemplate = await getConfigValue("hwPromptTemplate");
+
+  // 构建系统提示词：如果用户配置了自定义提示词，用自定义的；否则用默认的
+  let systemPrompt: string;
+  if (hwPromptTemplate && hwPromptTemplate.trim()) {
+    systemPrompt = `${buildSystemContext()}\n\n${hwPromptTemplate.trim()}`;
+  } else {
+    systemPrompt = `${buildSystemContext()}\n\n${HW_DEFAULT_SYSTEM_PROMPT}`;
+  }
+
   let userPrompt = `当前学生姓名：${studentName}\n`;
   userPrompt += `\n⚠️ 重要：以下内容为语音转文字，学生姓名可能识别不准确，请以上方「${studentName}」为准。对于内容中看起来像学生姓名但与「${studentName}」对不上的文字，都应当理解为指代该学生。\n`;
 
@@ -169,10 +192,10 @@ export async function processEntry(
   }
 
   userPrompt += `\n【语音转文字原文】\n${rawInput}\n`;
-  userPrompt += `\n请按照系统提示中的格式要求，整理为结构化数据。`;
+  userPrompt += `\n请按照系统提示中的格式要求，整理输出。`;
 
   const messages = [
-    { role: "system" as const, content: HW_SYSTEM_PROMPT },
+    { role: "system" as const, content: systemPrompt },
     { role: "user" as const, content: userPrompt },
   ];
 

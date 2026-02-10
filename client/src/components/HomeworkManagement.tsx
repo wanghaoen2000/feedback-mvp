@@ -23,8 +23,8 @@ import {
   BookOpen,
   X,
   History,
-  Eye,
-  EyeOff,
+  Save,
+  FileText,
 } from "lucide-react";
 
 // ============= 学生名片按钮组件 =============
@@ -133,16 +133,16 @@ export function HomeworkManagement() {
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentPlan, setNewStudentPlan] = useState<"daily" | "weekly">("weekly");
   const [showSettings, setShowSettings] = useState(false);
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [localNotes, setLocalNotes] = useState("");
   const [localModel, setLocalModel] = useState("");
+  const [localPrompt, setLocalPrompt] = useState("");
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
-  const [showRecords, setShowRecords] = useState(false);
-  const [expandedRecord, setExpandedRecord] = useState<number | null>(null);
 
   // --- 已入库记录 ---
   const studentEntriesQuery = trpc.homework.listStudentEntries.useQuery(
     { studentName: selectedStudent, limit: 50 },
-    { enabled: !!selectedStudent && showRecords }
+    { enabled: !!selectedStudent }
   );
 
   // 从服务器加载配置
@@ -150,6 +150,7 @@ export function HomeworkManagement() {
     if (hwConfigQuery.data) {
       setLocalNotes(hwConfigQuery.data.hwSupplementaryNotes || "");
       setLocalModel(hwConfigQuery.data.hwAiModel || "");
+      setLocalPrompt(hwConfigQuery.data.hwPromptTemplate || "");
     }
   }, [hwConfigQuery.data]);
 
@@ -223,6 +224,15 @@ export function HomeworkManagement() {
           <Button
             variant="ghost"
             size="sm"
+            onClick={() => setShowPromptEditor(!showPromptEditor)}
+            className="h-8"
+          >
+            <FileText className="w-4 h-4" />
+            <span className="hidden sm:inline ml-1">提示词</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setShowSettings(!showSettings)}
             className="h-8"
           >
@@ -240,6 +250,58 @@ export function HomeworkManagement() {
           </Button>
         </div>
       </div>
+
+      {/* ===== 提示词管理面板 ===== */}
+      {showPromptEditor && (
+        <Card className="border-dashed border-blue-200">
+          <CardContent className="pt-4 space-y-3">
+            <div>
+              <Label className="text-sm font-medium flex items-center gap-2">
+                <FileText className="w-4 h-4 text-blue-600" />
+                作业管理提示词
+              </Label>
+              <p className="text-xs text-gray-500 mb-1">
+                定义学生状态文档的格式要求和AI处理规则。类似学情反馈的路书，每次AI处理时会使用此提示词。
+              </p>
+              <Textarea
+                value={localPrompt}
+                onChange={(e) => setLocalPrompt(e.target.value)}
+                placeholder={"在这里编写作业管理提示词...\n\n例如：\n- 学生状态文档的格式模板\n- 各模块（作业布置、完成情况、成绩轨迹、词汇进展等）的具体要求\n- 作业标准名称列表\n- 更新规则（哪些字段原封不动保留，哪些需要更新）"}
+                rows={12}
+                className="text-sm font-mono"
+              />
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-xs text-gray-400">
+                  {localPrompt ? `${localPrompt.length} 字符` : "未配置"}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      if (!localPrompt || confirm("确定要清空提示词吗？")) {
+                        setLocalPrompt("");
+                        updateHwConfigMut.mutate({ hwPromptTemplate: "" });
+                      }
+                    }}
+                    disabled={updateHwConfigMut.isPending || !localPrompt}
+                  >
+                    清空
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => updateHwConfigMut.mutate({ hwPromptTemplate: localPrompt })}
+                    disabled={updateHwConfigMut.isPending}
+                  >
+                    {updateHwConfigMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Save className="w-3 h-3 mr-1" />}
+                    保存提示词
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ===== 设置面板（折叠） ===== */}
       {showSettings && (
@@ -418,90 +480,57 @@ export function HomeworkManagement() {
         )}
       </div>
 
-      {/* ===== 已入库记录 ===== */}
+      {/* ===== 已入库记录（直接展开显示） ===== */}
       {selectedStudent && (
         <div>
-          <button
-            type="button"
-            onClick={() => setShowRecords(!showRecords)}
-            className="flex items-center gap-2 text-sm text-gray-600 hover:text-blue-600 transition-colors py-1"
-          >
-            {showRecords ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          <div className="flex items-center gap-2 text-sm text-gray-600 py-1">
             <History className="w-4 h-4" />
             <span>{selectedStudent} 的已入库记录</span>
             {studentEntriesQuery.data && (
               <span className="text-xs text-gray-400">（{studentEntriesQuery.data.total}条）</span>
             )}
-          </button>
+          </div>
 
-          {showRecords && (
-            <Card className="mt-2">
-              <CardContent className="px-4 py-3">
-                {studentEntriesQuery.isLoading ? (
-                  <div className="flex items-center justify-center py-4 text-sm text-gray-400">
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    加载中...
-                  </div>
-                ) : !studentEntriesQuery.data || studentEntriesQuery.data.entries.length === 0 ? (
-                  <p className="text-center py-4 text-sm text-gray-400">暂无已入库记录</p>
-                ) : (
-                  <div className="space-y-2">
-                    {studentEntriesQuery.data.entries.map((record) => (
-                      <div
-                        key={record.id}
-                        className="border rounded-lg p-3 border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <span className="text-xs text-gray-500">
-                              {new Date(record.createdAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
-                              {" "}
-                              {new Date(record.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
-                            </span>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-2 text-xs shrink-0"
-                            onClick={() => setExpandedRecord(expandedRecord === record.id ? null : record.id)}
-                          >
-                            {expandedRecord === record.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                          </Button>
-                        </div>
-
-                        {/* 折叠时显示解析结果摘要 */}
-                        {expandedRecord !== record.id && (
-                          <p className="text-xs text-gray-600 mt-1 line-clamp-2 whitespace-pre-wrap">
-                            {record.parsedContent || record.rawInput}
-                          </p>
-                        )}
-
-                        {/* 展开详情 */}
-                        {expandedRecord === record.id && (
-                          <div className="mt-2 space-y-2">
-                            {record.parsedContent && (
-                              <div>
-                                <p className="text-xs font-medium text-gray-500 mb-1">AI解析结果：</p>
-                                <pre className="text-xs text-gray-700 bg-white rounded p-2 whitespace-pre-wrap font-sans">{record.parsedContent}</pre>
-                              </div>
-                            )}
-                            <div>
-                              <p className="text-xs font-medium text-gray-500 mb-1">原文：</p>
-                              <p className="text-xs text-gray-500 bg-white rounded p-2 whitespace-pre-wrap">{record.rawInput}</p>
-                            </div>
-                            {record.aiModel && (
-                              <p className="text-xs text-gray-400">模型：{record.aiModel}</p>
-                            )}
-                          </div>
+          <Card className="mt-2">
+            <CardContent className="px-4 py-3">
+              {studentEntriesQuery.isLoading ? (
+                <div className="flex items-center justify-center py-4 text-sm text-gray-400">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  加载中...
+                </div>
+              ) : !studentEntriesQuery.data || studentEntriesQuery.data.entries.length === 0 ? (
+                <p className="text-center py-4 text-sm text-gray-400">暂无已入库记录</p>
+              ) : (
+                <div className="space-y-2">
+                  {studentEntriesQuery.data.entries.map((record) => (
+                    <div
+                      key={record.id}
+                      className="border rounded-lg p-3 border-gray-200 bg-gray-50"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span className="text-xs text-gray-500">
+                          {new Date(record.createdAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
+                          {" "}
+                          {new Date(record.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        {record.aiModel && (
+                          <span className="text-xs text-gray-400">({record.aiModel})</span>
                         )}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+                      {record.parsedContent && (
+                        <pre className="text-xs text-gray-700 bg-white rounded p-2 whitespace-pre-wrap font-sans">{record.parsedContent}</pre>
+                      )}
+                      <div className="mt-2">
+                        <p className="text-xs font-medium text-gray-400 mb-1">原文：</p>
+                        <p className="text-xs text-gray-500 bg-white rounded p-2 whitespace-pre-wrap">{record.rawInput}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 

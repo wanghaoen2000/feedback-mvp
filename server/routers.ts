@@ -2252,15 +2252,17 @@ export const appRouter = router({
         return confirmAllPreStaged();
       }),
 
-    // 作业管理专用配置（AI模型、补充说明）
+    // 作业管理专用配置（AI模型、补充说明、提示词）
     getConfig: protectedProcedure
       .query(async () => {
         const hwAiModel = await getConfig("hwAiModel");
         const hwSupplementaryNotes = await getConfig("hwSupplementaryNotes");
+        const hwPromptTemplate = await getConfig("hwPromptTemplate");
         const modelPresets = await getConfig("modelPresets");
         return {
           hwAiModel: hwAiModel || "",
           hwSupplementaryNotes: hwSupplementaryNotes || "",
+          hwPromptTemplate: hwPromptTemplate || "",
           modelPresets: modelPresets || "",
         };
       }),
@@ -2269,6 +2271,7 @@ export const appRouter = router({
       .input(z.object({
         hwAiModel: z.string().optional(),
         hwSupplementaryNotes: z.string().optional(),
+        hwPromptTemplate: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         if (input.hwAiModel !== undefined) {
@@ -2276,6 +2279,9 @@ export const appRouter = router({
         }
         if (input.hwSupplementaryNotes !== undefined) {
           await setConfig("hwSupplementaryNotes", input.hwSupplementaryNotes, "作业管理补充说明");
+        }
+        if (input.hwPromptTemplate !== undefined) {
+          await setConfig("hwPromptTemplate", input.hwPromptTemplate, "作业管理提示词");
         }
         return { success: true };
       }),
