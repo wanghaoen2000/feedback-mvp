@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List } from "lucide-react";
+import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List, Plus, Trash2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
@@ -33,6 +33,15 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
   const [modelPresets, setModelPresets] = useState("");
   const [showPresetEditor, setShowPresetEditor] = useState(false);
   const [forceCustomInput, setForceCustomInput] = useState(false);
+
+  // API 供应商预设
+  type ProviderDisplay = { name: string; maskedKey: string; apiUrl: string };
+  type ProviderEdit = { name: string; apiKey: string; apiUrl: string };
+  const [providerDisplayList, setProviderDisplayList] = useState<ProviderDisplay[]>([]);
+  const [providerEditList, setProviderEditList] = useState<ProviderEdit[]>([]);
+  const [showProviderEditor, setShowProviderEditor] = useState(false);
+  const [providerEditorDirty, setProviderEditorDirty] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<string>(""); // 选中的供应商名称
 
   // 存储路径状态
   const [driveBasePath, setDriveBasePath] = useState("");
@@ -87,6 +96,13 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
       setGdriveDownloadsPath(configQuery.data.gdriveDownloadsPath || "");
       setModelPresets(configQuery.data.modelPresets || "");
       setForceCustomInput(false);
+      // 加载供应商预设
+      const presets = configQuery.data.apiProviderPresets || [];
+      setProviderDisplayList(presets);
+      setProviderEditList(presets.map((p: ProviderDisplay) => ({ name: p.name, apiKey: "", apiUrl: p.apiUrl })));
+      setSelectedProvider("");
+      setShowProviderEditor(false);
+      setProviderEditorDirty(false);
       // 不加载 apiKey，保持为空（安全考虑）
     }
   }, [open, configQuery.data]);
@@ -122,6 +138,8 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         gdriveLocalBasePath: gdriveLocalBasePath.trim() || undefined,
         gdriveDownloadsPath: gdriveDownloadsPath.trim() || undefined,
         modelPresets,
+        ...(providerEditorDirty ? { apiProviderPresets: JSON.stringify(providerEditList) } : {}),
+        ...(selectedProvider ? { applyProviderKey: selectedProvider } : {}),
       });
       await configQuery.refetch();
       alert("全局设置已保存！");
@@ -326,19 +344,155 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
               );
             })()}
 
+            {/* API 供应商选择 */}
+            {providerDisplayList.length > 0 && (
+              <div className="space-y-2">
+                <Label>API 供应商</Label>
+                <Select
+                  value={selectedProvider || "__manual__"}
+                  onValueChange={(val) => {
+                    if (val === "__manual__") {
+                      setSelectedProvider("");
+                    } else {
+                      setSelectedProvider(val);
+                      // 自动填充该供应商的 URL
+                      const provider = providerDisplayList.find(p => p.name === val);
+                      if (provider) {
+                        setApiUrl(provider.apiUrl);
+                      }
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__manual__">手动输入</SelectItem>
+                    <SelectSeparator />
+                    {providerDisplayList.map((p) => (
+                      <SelectItem key={p.name} value={p.name}>
+                        {p.name}{p.maskedKey ? ` (${p.maskedKey})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {selectedProvider
+                    ? `将使用「${selectedProvider}」的密钥和地址`
+                    : "选择供应商快速切换，或手动输入密钥和地址"}
+                </p>
+              </div>
+            )}
+
+            {/* 编辑供应商列表 */}
+            <div className="space-y-2">
+              <button
+                type="button"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setShowProviderEditor(!showProviderEditor)}
+              >
+                <List className="h-3 w-3" />
+                编辑供应商列表{providerDisplayList.length > 0 ? `（${providerDisplayList.length} 个）` : ''}
+              </button>
+              {showProviderEditor && (
+                <div className="space-y-3 border rounded-lg p-3 bg-gray-50">
+                  {providerEditList.map((provider, index) => (
+                    <div key={index} className="space-y-2 border rounded p-2 bg-white relative">
+                      <button
+                        type="button"
+                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors"
+                        onClick={() => {
+                          const newList = providerEditList.filter((_, i) => i !== index);
+                          setProviderEditList(newList);
+                          setProviderEditorDirty(true);
+                        }}
+                        title="删除此供应商"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                      <Input
+                        value={provider.name}
+                        onChange={(e) => {
+                          const newList = [...providerEditList];
+                          newList[index] = { ...newList[index], name: e.target.value };
+                          setProviderEditList(newList);
+                          setProviderEditorDirty(true);
+                        }}
+                        placeholder="供应商名称（如：DMXapi）"
+                        className="text-sm"
+                      />
+                      <Input
+                        type="password"
+                        value={provider.apiKey}
+                        onChange={(e) => {
+                          const newList = [...providerEditList];
+                          newList[index] = { ...newList[index], apiKey: e.target.value };
+                          setProviderEditList(newList);
+                          setProviderEditorDirty(true);
+                        }}
+                        placeholder={providerDisplayList[index]?.maskedKey
+                          ? `已配置 (${providerDisplayList[index].maskedKey})，留空保持不变`
+                          : "API 密钥（sk-xxxxxxxx）"}
+                        className="text-sm"
+                      />
+                      <Input
+                        value={provider.apiUrl}
+                        onChange={(e) => {
+                          const newList = [...providerEditList];
+                          newList[index] = { ...newList[index], apiUrl: e.target.value };
+                          setProviderEditList(newList);
+                          setProviderEditorDirty(true);
+                        }}
+                        placeholder="API 地址（如：https://www.DMXapi.com/v1）"
+                        className="text-sm"
+                      />
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => {
+                      setProviderEditList([...providerEditList, { name: "", apiKey: "", apiUrl: "" }]);
+                      setProviderEditorDirty(true);
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    添加供应商
+                  </Button>
+                  {providerEditorDirty && (
+                    <p className="text-xs text-orange-600">供应商列表已修改，请点击「保存设置」生效</p>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="global-apiKey">API 密钥</Label>
               <Input
                 id="global-apiKey"
                 type="password"
                 value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={configQuery.data?.hasApiKey ? "已配置（输入新值可更新）" : "sk-xxxxxxxx"}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  if (e.target.value) setSelectedProvider(""); // 手动输入密钥时取消供应商选择
+                }}
+                placeholder={
+                  selectedProvider
+                    ? `将使用「${selectedProvider}」的密钥`
+                    : configQuery.data?.hasApiKey
+                      ? "已配置（输入新值可更新）"
+                      : "sk-xxxxxxxx"
+                }
+                disabled={!!selectedProvider}
               />
               <p className="text-xs text-muted-foreground">
-                {configQuery.data?.hasApiKey
-                  ? "已配置密钥。输入新值可更新，留空则保持不变。"
-                  : "请输入您的 API 密钥"}
+                {selectedProvider
+                  ? `密钥将从供应商「${selectedProvider}」自动获取`
+                  : configQuery.data?.hasApiKey
+                    ? "已配置密钥。输入新值可更新，留空则保持不变。"
+                    : "请输入您的 API 密钥"}
               </p>
             </div>
 
@@ -351,7 +505,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                 placeholder="例如：https://api.whatai.cc/v1"
               />
               <p className="text-xs text-muted-foreground">
-                留空则使用系统默认地址
+                {selectedProvider ? `已从「${selectedProvider}」填入地址` : "留空则使用系统默认地址"}
               </p>
             </div>
 

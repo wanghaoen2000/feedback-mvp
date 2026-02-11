@@ -155,6 +155,22 @@ export const appRouter = router({
       const gdriveLocalBasePath = await getConfig("gdriveLocalBasePath");
       const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath");
       const modelPresets = await getConfig("modelPresets");
+      const apiProviderPresets = await getConfig("apiProviderPresets");
+
+      // 解析供应商预设，遮蔽密钥
+      let providerPresetsForClient: { name: string; maskedKey: string; apiUrl: string }[] = [];
+      if (apiProviderPresets) {
+        try {
+          const parsed = JSON.parse(apiProviderPresets) as { name: string; apiKey: string; apiUrl: string }[];
+          providerPresetsForClient = parsed.map(p => ({
+            name: p.name,
+            maskedKey: p.apiKey ? `****${p.apiKey.slice(-4)}` : "",
+            apiUrl: p.apiUrl || "",
+          }));
+        } catch (e) {
+          console.error("解析供应商预设失败:", e);
+        }
+      }
 
       return {
         apiModel: apiModel || DEFAULT_CONFIG.apiModel,
@@ -175,6 +191,7 @@ export const appRouter = router({
         gdriveLocalBasePath: gdriveLocalBasePath || "",
         gdriveDownloadsPath: gdriveDownloadsPath || "",
         modelPresets: modelPresets || "",
+        apiProviderPresets: providerPresetsForClient,
         // 返回是否使用默认值（apiKey 特殊处理：表示是否已配置）
         hasApiKey: !!apiKey,
         isDefault: {
@@ -209,6 +226,8 @@ export const appRouter = router({
         gdriveLocalBasePath: z.string().optional(),
         gdriveDownloadsPath: z.string().optional(),
         modelPresets: z.string().optional(),
+        apiProviderPresets: z.string().optional(), // JSON 格式的供应商预设列表
+        applyProviderKey: z.string().optional(), // 选中的供应商名称，应用其密钥
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -337,6 +356,55 @@ export const appRouter = router({
         if (input.modelPresets !== undefined) {
           await setConfig("modelPresets", input.modelPresets, "常用模型预设列表");
           updates.push("modelPresets");
+        }
+
+        if (input.apiProviderPresets !== undefined) {
+          // 合并密钥：如果新条目的 apiKey 为空，保留已有同名供应商的密钥
+          try {
+            const newPresets = JSON.parse(input.apiProviderPresets) as { name: string; apiKey: string; apiUrl: string }[];
+            const existingRaw = await getConfig("apiProviderPresets");
+            let existingPresets: { name: string; apiKey: string; apiUrl: string }[] = [];
+            if (existingRaw) {
+              try { existingPresets = JSON.parse(existingRaw); } catch {}
+            }
+            const merged = newPresets.map(p => {
+              if (!p.apiKey) {
+                const existing = existingPresets.find(e => e.name === p.name);
+                if (existing) {
+                  return { ...p, apiKey: existing.apiKey };
+                }
+              }
+              return p;
+            }).filter(p => p.name.trim()); // 过滤掉没有名称的条目
+            await setConfig("apiProviderPresets", JSON.stringify(merged), "API供应商预设列表");
+          } catch (e) {
+            // 如果解析失败，直接保存原始值
+            await setConfig("apiProviderPresets", input.apiProviderPresets, "API供应商预设列表");
+          }
+          updates.push("apiProviderPresets");
+        }
+
+        // 应用选中供应商的密钥和地址
+        if (input.applyProviderKey) {
+          const presetsRaw = input.apiProviderPresets || await getConfig("apiProviderPresets");
+          if (presetsRaw) {
+            try {
+              const presets = JSON.parse(presetsRaw) as { name: string; apiKey: string; apiUrl: string }[];
+              const provider = presets.find(p => p.name === input.applyProviderKey);
+              if (provider) {
+                if (provider.apiKey) {
+                  await setConfig("apiKey", provider.apiKey, "API密钥");
+                  updates.push("apiKey(fromProvider)");
+                }
+                if (provider.apiUrl) {
+                  await setConfig("apiUrl", provider.apiUrl, "API地址");
+                  updates.push("apiUrl(fromProvider)");
+                }
+              }
+            } catch (e) {
+              console.error("应用供应商密钥失败:", e);
+            }
+          }
         }
 
         return {
