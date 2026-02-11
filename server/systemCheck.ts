@@ -5,6 +5,7 @@ import * as path from "path";
 import { getDb } from "./db";
 import { systemConfig, googleTokens } from "../drizzle/schema";
 import { isAuthorized as isOAuthAuthorized, getValidToken } from "./googleAuth";
+import { DEFAULT_CONFIG } from "./core/aiClient";
 
 const execAsync = promisify(exec);
 
@@ -59,10 +60,10 @@ async function checkAPIConfig(): Promise<CheckResult> {
     const configMap: Record<string, string> = {};
     configs.forEach((c: { key: string; value: string | null }) => { configMap[c.key] = c.value || ''; });
     
-    const apiKey = configMap['apiKey'] || '';
-    const apiUrl = configMap['apiUrl'] || '';
-    const apiModel = configMap['apiModel'] || '';
-    
+    const apiKey = configMap['apiKey'] || DEFAULT_CONFIG.apiKey || '';
+    const apiUrl = configMap['apiUrl'] || DEFAULT_CONFIG.apiUrl || '';
+    const apiModel = configMap['apiModel'] || DEFAULT_CONFIG.apiModel || '';
+
     const missing: string[] = [];
     if (!apiKey) missing.push('API密钥');
     if (!apiUrl) missing.push('API地址');
@@ -538,9 +539,9 @@ export async function runSystemCheck(): Promise<SystemCheckResults> {
   const configMap: Record<string, string> = {};
   configs.forEach((c: { key: string; value: string | null }) => { configMap[c.key] = c.value || ''; });
   
-  const apiKey = configMap['apiKey'] || '';
-  const apiUrl = configMap['apiUrl'] || 'https://www.DMXapi.com/v1';
-  const apiModel = configMap['apiModel'] || '';
+  const apiKey = configMap['apiKey'] || DEFAULT_CONFIG.apiKey || '';
+  const apiUrl = configMap['apiUrl'] || DEFAULT_CONFIG.apiUrl || '';
+  const apiModel = configMap['apiModel'] || DEFAULT_CONFIG.apiModel || '';
   
   // 2. API配置完整性
   const apiConfigResult = await checkAPIConfig();

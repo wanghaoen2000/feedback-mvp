@@ -130,7 +130,7 @@ export function registerClassStreamRoutes(app: Express): void {
       // 创建日志会话（小班课用班号作为学生名）
       log = createLogSession(
         `班级${input.classNumber}`,
-        { apiUrl, apiModel, maxTokens: 32000 },
+        { apiUrl, apiModel, maxTokens: 64000 },
         {
           notesLength: input.currentNotes.length,
           transcriptLength: input.transcript.length,
@@ -346,7 +346,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       // 创建日志会话
       log = createLogSession(
         input.studentName,
-        { apiUrl, apiModel, maxTokens: 32000 },
+        { apiUrl, apiModel, maxTokens: 64000 },
         {
           notesLength: input.currentNotes.length,
           transcriptLength: input.transcript.length,
@@ -612,7 +612,7 @@ ${input.transcript}
       // 创建日志会话
       log = createLogSession(
         input.studentName,
-        { apiUrl, apiModel, maxTokens: 32000 },
+        { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
         undefined,
         input.dateStr
@@ -796,7 +796,7 @@ ${input.feedbackContent}
 
       log = createLogSession(
         input.studentName,
-        { apiUrl, apiModel, maxTokens: 32000 },
+        { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
         undefined,
         input.dateStr
@@ -947,7 +947,7 @@ ${input.feedbackContent}
 
       log = createLogSession(
         input.studentName,
-        { apiUrl, apiModel, maxTokens: 32000 },
+        { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
         undefined,
         input.dateStr
@@ -1134,7 +1134,7 @@ ${input.feedbackContent}
       // 创建日志会话
       log = createLogSession(
         `班级${input.classNumber}`,
-        { apiUrl, apiModel, maxTokens: 32000 },
+        { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: input.currentNotes?.length || 0, transcriptLength: 0, lastFeedbackLength: input.combinedFeedback.length },
         input.lessonNumber,
         input.lessonDate

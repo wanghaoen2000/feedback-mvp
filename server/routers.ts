@@ -138,24 +138,20 @@ export const appRouter = router({
   config: router({
     // 获取所有配置
     getAll: protectedProcedure.query(async () => {
-      const apiModel = await getConfig("apiModel");
-      const apiKey = await getConfig("apiKey");
-      const apiUrl = await getConfig("apiUrl");
-      const currentYear = await getConfig("currentYear");
-      const roadmap = await getConfig("roadmap");
-      const roadmapClass = await getConfig("roadmapClass");
-      const firstLessonTemplate = await getConfig("firstLessonTemplate");
-      const classFirstLessonTemplate = await getConfig("classFirstLessonTemplate");
-      const driveBasePath = await getConfig("driveBasePath");
-      const classStoragePath = await getConfig("classStoragePath");
-      const batchFilePrefix = await getConfig("batchFilePrefix");
-      const batchStoragePath = await getConfig("batchStoragePath");
-      const batchConcurrency = await getConfig("batchConcurrency");
-      const maxTokens = await getConfig("maxTokens");
-      const gdriveLocalBasePath = await getConfig("gdriveLocalBasePath");
-      const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath");
-      const modelPresets = await getConfig("modelPresets");
-      const apiProviderPresets = await getConfig("apiProviderPresets");
+      // 并行查询所有配置值（18个独立DB查询 → 1次并行）
+      const [
+        apiModel, apiKey, apiUrl, currentYear,
+        roadmap, roadmapClass, firstLessonTemplate, classFirstLessonTemplate,
+        driveBasePath, classStoragePath, batchFilePrefix, batchStoragePath,
+        batchConcurrency, maxTokens, gdriveLocalBasePath, gdriveDownloadsPath,
+        modelPresets, apiProviderPresets,
+      ] = await Promise.all([
+        getConfig("apiModel"), getConfig("apiKey"), getConfig("apiUrl"), getConfig("currentYear"),
+        getConfig("roadmap"), getConfig("roadmapClass"), getConfig("firstLessonTemplate"), getConfig("classFirstLessonTemplate"),
+        getConfig("driveBasePath"), getConfig("classStoragePath"), getConfig("batchFilePrefix"), getConfig("batchStoragePath"),
+        getConfig("batchConcurrency"), getConfig("maxTokens"), getConfig("gdriveLocalBasePath"), getConfig("gdriveDownloadsPath"),
+        getConfig("modelPresets"), getConfig("apiProviderPresets"),
+      ]);
 
       // 解析供应商预设，遮蔽密钥
       let providerPresetsForClient: { name: string; maskedKey: string; apiUrl: string }[] = [];
@@ -385,8 +381,9 @@ export const appRouter = router({
         }
 
         // 应用选中供应商的密钥和地址
+        // 注意：必须从数据库读取已合并的预设（不能用 input.apiProviderPresets，那是客户端发来的原始数据，密钥为空）
         if (input.applyProviderKey) {
-          const presetsRaw = input.apiProviderPresets || await getConfig("apiProviderPresets");
+          const presetsRaw = await getConfig("apiProviderPresets");
           if (presetsRaw) {
             try {
               const presets = JSON.parse(presetsRaw) as { name: string; apiKey: string; apiUrl: string }[];
@@ -484,7 +481,7 @@ export const appRouter = router({
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
           input.studentName,
-          { apiUrl, apiModel, maxTokens: 32000 },
+          { apiUrl, apiModel, maxTokens: 64000 },
           {
             notesLength: input.currentNotes.length,
             transcriptLength: input.transcript.length,
@@ -604,7 +601,7 @@ export const appRouter = router({
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
           input.studentName,
-          { apiUrl, apiModel, maxTokens: 32000 },
+          { apiUrl, apiModel, maxTokens: 64000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           undefined,
           input.dateStr
@@ -709,7 +706,7 @@ export const appRouter = router({
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
           input.studentName,
-          { apiUrl, apiModel, maxTokens: 32000 },
+          { apiUrl, apiModel, maxTokens: 64000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           undefined,
           input.dateStr
@@ -813,7 +810,7 @@ export const appRouter = router({
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
           input.studentName,
-          { apiUrl, apiModel, maxTokens: 32000 },
+          { apiUrl, apiModel, maxTokens: 64000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           undefined,
           input.dateStr
@@ -915,7 +912,7 @@ export const appRouter = router({
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
           input.studentName,
-          { apiUrl, apiModel, maxTokens: 32000 },
+          { apiUrl, apiModel, maxTokens: 64000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           input.lessonNumber,
           input.dateStr
@@ -1190,7 +1187,7 @@ export const appRouter = router({
         // 创建小班课日志会话（用班号作为标识符）
         const log = createLogSession(
           `${input.classNumber}班`,
-          { apiUrl, apiModel, maxTokens: 32000 },
+          { apiUrl, apiModel, maxTokens: 64000 },
           {
             notesLength: input.currentNotes.length,
             transcriptLength: input.transcript.length,
