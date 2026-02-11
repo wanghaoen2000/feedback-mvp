@@ -24,6 +24,8 @@ import {
   History,
   Save,
   FileText,
+  Copy,
+  Check,
 } from "lucide-react";
 
 // ============= 学生名片按钮组件 =============
@@ -135,6 +137,7 @@ export function HomeworkManagement() {
   const [localModel, setLocalModel] = useState("");
   const [localPrompt, setLocalPrompt] = useState("");
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
+  const [statusCopied, setStatusCopied] = useState(false);
   const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   // --- 学生当前状态 ---
@@ -150,6 +153,38 @@ export function HomeworkManagement() {
       setLocalPrompt(hwConfigQuery.data.hwPromptTemplate || "");
     }
   }, [hwConfigQuery.data]);
+
+  // 复制状态自动重置
+  useEffect(() => {
+    if (!statusCopied) return;
+    const timer = setTimeout(() => setStatusCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [statusCopied]);
+
+  // 复制学生当前状态
+  const handleCopyStatus = useCallback(async () => {
+    const text = studentStatusQuery.data?.currentStatus;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatusCopied(true);
+    } catch {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (ok) setStatusCopied(true);
+        else alert("复制失败，请手动选中文本复制");
+      } catch {
+        alert("复制失败，请手动选中文本复制");
+      }
+    }
+  }, [studentStatusQuery.data?.currentStatus]);
 
   // 模型预设列表
   const presetList = (hwConfigQuery.data?.modelPresets || "").split("\n").map(s => s.trim()).filter(Boolean);
@@ -460,9 +495,31 @@ export function HomeworkManagement() {
       {/* ===== 学生当前状态文档 ===== */}
       {selectedStudent && (
         <div>
-          <div className="flex items-center gap-2 text-sm text-gray-600 py-1">
-            <History className="w-4 h-4" />
-            <span>{selectedStudent} 的当前状态</span>
+          <div className="flex items-center justify-between text-sm text-gray-600 py-1">
+            <div className="flex items-center gap-2">
+              <History className="w-4 h-4" />
+              <span>{selectedStudent} 的当前状态</span>
+            </div>
+            {studentStatusQuery.data?.currentStatus && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-7 px-2 text-xs ${statusCopied ? "text-green-600" : ""}`}
+                onClick={handleCopyStatus}
+              >
+                {statusCopied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 mr-1" />
+                    已复制
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 mr-1" />
+                    复制
+                  </>
+                )}
+              </Button>
+            )}
           </div>
 
           <Card className="mt-2">
