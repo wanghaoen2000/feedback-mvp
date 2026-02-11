@@ -762,21 +762,20 @@ ${input.feedbackContent}
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
-    let clientDisconnected = false;
+    const clientAbort = new AbortController();
     req.on('close', () => {
       if (!res.writableEnded) {
-        console.log('[SSE] 一对一测试本：客户端断开');
-        clientDisconnected = true;
+        console.log('[SSE] 一对一测试本：客户端断开，中止AI流');
+        clientAbort.abort();
       }
     });
 
     const sendEvent = (event: string, data: any) => {
-      if (clientDisconnected) return;
+      if (clientAbort.signal.aborted) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    let keepAlive: ReturnType<typeof setInterval> | null = null;
     let log: GenerationLog | null = null;
 
     try {
@@ -805,10 +804,8 @@ ${input.feedbackContent}
 
       sendEvent("start", { message: `开始为 ${input.studentName} 生成测试本` });
 
-      // 每15秒发送keep-alive，防止平台代理超时
-      keepAlive = setInterval(() => {
-        sendEvent("progress", { message: "正在生成测试本..." });
-      }, 15000);
+      let charCount = 0;
+      let lastProgressTime = Date.now();
 
       const testFeedbackInput: FeedbackInput = {
         studentName: input.studentName,
@@ -826,23 +823,30 @@ ${input.feedbackContent}
         testFeedbackInput,
         input.feedbackContent,
         input.dateStr,
-        { apiModel, apiKey, apiUrl, roadmap }
+        { apiModel, apiKey, apiUrl, roadmap },
+        (chunk: string) => {
+          charCount += chunk.length;
+          const now = Date.now();
+          if (now - lastProgressTime >= 1000) {
+            sendEvent("progress", { chars: charCount });
+            lastProgressTime = now;
+          }
+        },
+        clientAbort.signal
       );
-
-      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
 
       if (!testResult.buffer || testResult.buffer.length === 0) {
         throw new Error('测试本生成失败：AI 返回内容为空，请重试');
       }
 
       // 上传到 Google Drive
-      sendEvent("progress", { message: "正在上传到 Google Drive..." });
+      sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
       const basePath = `${driveBasePath}/${input.studentName}`;
       const fileName = `${input.studentName}${input.lessonNumber || ''}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
 
       const uploadKeepAlive = setInterval(() => {
-        sendEvent("progress", { message: "正在上传到 Google Drive..." });
+        sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
       }, 15000);
 
       let uploadResult;
@@ -878,14 +882,12 @@ ${input.feedbackContent}
 
     } catch (error: any) {
       console.error("[SSE] 一对一测试本生成失败:", error);
-      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
       if (log) {
         stepFailed(log, '测试本', parseError(error, 'test'));
         endLogSession(log);
       }
       sendEvent("error", { message: error.message || "生成失败" });
     } finally {
-      if (keepAlive) clearInterval(keepAlive);
       res.end();
     }
   });
@@ -913,21 +915,20 @@ ${input.feedbackContent}
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
-    let clientDisconnected = false;
+    const clientAbort = new AbortController();
     req.on('close', () => {
       if (!res.writableEnded) {
-        console.log('[SSE] 一对一课后信息提取：客户端断开');
-        clientDisconnected = true;
+        console.log('[SSE] 一对一课后信息提取：客户端断开，中止AI流');
+        clientAbort.abort();
       }
     });
 
     const sendEvent = (event: string, data: any) => {
-      if (clientDisconnected) return;
+      if (clientAbort.signal.aborted) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    let keepAlive: ReturnType<typeof setInterval> | null = null;
     let log: GenerationLog | null = null;
 
     try {
@@ -956,10 +957,8 @@ ${input.feedbackContent}
 
       sendEvent("start", { message: `开始为 ${input.studentName} 生成课后信息提取` });
 
-      // 每15秒发送keep-alive，防止平台代理超时
-      keepAlive = setInterval(() => {
-        sendEvent("progress", { message: "正在生成课后信息提取..." });
-      }, 15000);
+      let charCount = 0;
+      let lastProgressTime = Date.now();
 
       const extractionFeedbackInput: FeedbackInput = {
         studentName: input.studentName,
@@ -976,23 +975,30 @@ ${input.feedbackContent}
         'oneToOne',
         extractionFeedbackInput,
         input.feedbackContent,
-        { apiModel, apiKey, apiUrl, roadmap }
+        { apiModel, apiKey, apiUrl, roadmap },
+        (chunk: string) => {
+          charCount += chunk.length;
+          const now = Date.now();
+          if (now - lastProgressTime >= 1000) {
+            sendEvent("progress", { chars: charCount });
+            lastProgressTime = now;
+          }
+        },
+        clientAbort.signal
       );
-
-      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
 
       if (!extractionContent || extractionContent.length === 0) {
         throw new Error('课后信息提取生成失败：AI 返回内容为空，请重试');
       }
 
       // 上传到 Google Drive
-      sendEvent("progress", { message: "正在上传到 Google Drive..." });
+      sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
       const basePath = `${driveBasePath}/${input.studentName}`;
       const fileName = `${input.studentName}${input.lessonNumber || ''}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
 
       const uploadKeepAlive = setInterval(() => {
-        sendEvent("progress", { message: "正在上传到 Google Drive..." });
+        sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
       }, 15000);
 
       let uploadResult;
@@ -1028,14 +1034,12 @@ ${input.feedbackContent}
 
     } catch (error: any) {
       console.error("[SSE] 一对一课后信息提取生成失败:", error);
-      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
       if (log) {
         stepFailed(log, '课后信息提取', parseError(error, 'extraction'));
         endLogSession(log);
       }
       sendEvent("error", { message: error.message || "生成失败" });
     } finally {
-      if (keepAlive) clearInterval(keepAlive);
       res.end();
     }
   });
@@ -1291,21 +1295,19 @@ ${input.currentNotes}
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
-    let clientDisconnected = false;
+    const clientAbort = new AbortController();
     req.on('close', () => {
       if (!res.writableEnded) {
-        console.log('[SSE] 小班课测试本：客户端断开');
-        clientDisconnected = true;
+        console.log('[SSE] 小班课测试本：客户端断开，中止AI流');
+        clientAbort.abort();
       }
     });
 
     const sendEvent = (event: string, data: any) => {
-      if (clientDisconnected) return;
+      if (clientAbort.signal.aborted) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
-
-    let keepAlive: ReturnType<typeof setInterval> | null = null;
 
     try {
       const parseResult = classTestInputSchema.safeParse(req.body);
@@ -1326,10 +1328,8 @@ ${input.currentNotes}
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成测试本` });
 
-      // 每15秒发送keep-alive，防止平台代理超时（AI 开始输出前的兜底）
-      keepAlive = setInterval(() => {
-        sendEvent("progress", { message: "正在生成测试本..." });
-      }, 15000);
+      let charCount = 0;
+      let lastProgressTime = Date.now();
 
       const classInput: ClassFeedbackInput = {
         classNumber: input.classNumber,
@@ -1347,10 +1347,17 @@ ${input.currentNotes}
         classInput,
         input.combinedFeedback,
         roadmapClass,
-        { apiModel, apiKey, apiUrl }
+        { apiModel, apiKey, apiUrl },
+        (chunk: string) => {
+          charCount += chunk.length;
+          const now = Date.now();
+          if (now - lastProgressTime >= 1000) {
+            sendEvent("progress", { chars: charCount });
+            lastProgressTime = now;
+          }
+        },
+        clientAbort.signal
       );
-
-      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
 
       // 校验内容非空
       if (!testResult.buffer || testResult.buffer.length === 0) {
@@ -1358,14 +1365,14 @@ ${input.currentNotes}
       }
 
       // 上传到 Google Drive
-      sendEvent("progress", { message: "正在上传到 Google Drive..." });
+      sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
       const basePath = `${driveBasePath}/${input.classNumber}班`;
       const fileName = `${input.classNumber}班${input.lessonNumber || ''}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
 
       // 上传期间发送 keep-alive，防止代理超时
       const uploadKeepAliveTest = setInterval(() => {
-        sendEvent("progress", { message: "正在上传到 Google Drive..." });
+        sendEvent("progress", { chars: charCount, message: "正在上传到 Google Drive..." });
       }, 15000);
 
       let uploadResult;
@@ -1396,10 +1403,8 @@ ${input.currentNotes}
       });
     } catch (error: any) {
       console.error("[SSE] 小班课测试本生成失败:", error);
-      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
       sendEvent("error", { message: error.message || "生成失败" });
     } finally {
-      if (keepAlive) clearInterval(keepAlive);
       res.end();
     }
   });
@@ -1426,21 +1431,19 @@ ${input.currentNotes}
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
-    let clientDisconnected = false;
+    const clientAbort = new AbortController();
     req.on('close', () => {
       if (!res.writableEnded) {
-        console.log('[SSE] 小班课课后信息提取：客户端断开');
-        clientDisconnected = true;
+        console.log('[SSE] 小班课课后信息提取：客户端断开，中止AI流');
+        clientAbort.abort();
       }
     });
 
     const sendEvent = (event: string, data: any) => {
-      if (clientDisconnected) return;
+      if (clientAbort.signal.aborted) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
-
-    let keepAlive: ReturnType<typeof setInterval> | null = null;
 
     try {
       const parseResult = classExtractionInputSchema.safeParse(req.body);
@@ -1461,10 +1464,8 @@ ${input.currentNotes}
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成课后信息提取` });
 
-      // 每15秒发送keep-alive，防止平台代理超时（AI 开始输出前的兜底）
-      keepAlive = setInterval(() => {
-        sendEvent("progress", { message: "正在生成课后信息提取..." });
-      }, 15000);
+      let charCount = 0;
+      let lastProgressTime = Date.now();
 
       const classInput: ClassFeedbackInput = {
         classNumber: input.classNumber,
@@ -1482,10 +1483,17 @@ ${input.currentNotes}
         classInput,
         input.combinedFeedback,
         roadmapClass,
-        { apiModel, apiKey, apiUrl }
+        { apiModel, apiKey, apiUrl },
+        (chunk: string) => {
+          charCount += chunk.length;
+          const now = Date.now();
+          if (now - lastProgressTime >= 1000) {
+            sendEvent("progress", { chars: charCount });
+            lastProgressTime = now;
+          }
+        },
+        clientAbort.signal
       );
-
-      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
 
       // 校验内容非空
       if (!extractionContent || !extractionContent.trim()) {
@@ -1494,14 +1502,14 @@ ${input.currentNotes}
       }
 
       // 上传到 Google Drive
-      sendEvent("progress", { message: "正在上传到 Google Drive...", chars: extractionContent.length });
+      sendEvent("progress", { message: "正在上传到 Google Drive...", chars: charCount });
       const basePath = `${driveBasePath}/${input.classNumber}班`;
       const fileName = `${input.classNumber}班${input.lessonNumber || ''}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
 
       // 上传期间发送 keep-alive，防止代理超时
       const uploadKeepAliveExt = setInterval(() => {
-        sendEvent("progress", { message: "正在上传到 Google Drive...", chars: extractionContent.length });
+        sendEvent("progress", { message: "正在上传到 Google Drive...", chars: charCount });
       }, 15000);
 
       let uploadResult;
@@ -1532,10 +1540,8 @@ ${input.currentNotes}
       });
     } catch (error: any) {
       console.error("[SSE] 小班课课后信息提取生成失败:", error);
-      if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
       sendEvent("error", { message: error.message || "生成失败" });
     } finally {
-      if (keepAlive) clearInterval(keepAlive);
       res.end();
     }
   });

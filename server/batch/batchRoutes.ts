@@ -340,7 +340,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
 
   const start = Number(startNumber);
   const end = Number(endNumber);
-  const concurrencyNum = Math.max(1, Math.min(40, Number(concurrency) || 5));
+  const concurrencyNum = Math.max(1, Math.min(100, Number(concurrency) || 5));
 
   if (isNaN(start) || isNaN(end) || start > end) {
     res.status(400).json({ error: "任务编号范围无效" });

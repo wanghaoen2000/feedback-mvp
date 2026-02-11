@@ -1177,9 +1177,14 @@ export default function Home() {
                       if (line.startsWith('data: ')) {
                         try {
                           const data = JSON.parse(line.slice(6));
-                          if (evt === 'progress' && data.message) {
-                            if (data.chars) testCharCount = data.chars;
-                            updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
+                          if (evt === 'progress') {
+                            if (data.chars) {
+                              testCharCount = data.chars;
+                              updateStep(2, { status: 'running', message: data.message || `已生成 ${data.chars} 字符`, detail: '测试本' });
+                              setParallelTasks(prev => ({ ...prev, test: { ...prev.test, charCount: data.chars } }));
+                            } else if (data.message) {
+                              updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
+                            }
                           }
                           else if (evt === 'complete') {
                             if (data.uploadResult) testUploadResult = data.uploadResult;
@@ -1274,9 +1279,14 @@ export default function Home() {
                       if (line.startsWith('data: ')) {
                         try {
                           const data = JSON.parse(line.slice(6));
-                          if (evt === 'progress' && data.message) {
-                            if (data.chars) extractionCharCount = data.chars;
-                            updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
+                          if (evt === 'progress') {
+                            if (data.chars) {
+                              extractionCharCount = data.chars;
+                              updateStep(3, { status: 'running', message: data.message || `已生成 ${data.chars} 字符`, detail: '课后信息提取' });
+                              setParallelTasks(prev => ({ ...prev, extraction: { ...prev.extraction, charCount: data.chars } }));
+                            } else if (data.message) {
+                              updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
+                            }
                           }
                           else if (evt === 'complete') {
                             if (data.uploadResult) extractionUploadResult = data.uploadResult;
@@ -1874,9 +1884,14 @@ export default function Home() {
                       if (line.startsWith('data: ')) {
                         try {
                           const data = JSON.parse(line.slice(6));
-                          if (evt === 'progress' && data.message) {
-                            if (data.chars) testCharCount = data.chars;
-                            updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
+                          if (evt === 'progress') {
+                            if (data.chars) {
+                              testCharCount = data.chars;
+                              updateStep(2, { status: 'running', message: data.message || `已生成 ${data.chars} 字符`, detail: '测试本' });
+                              setParallelTasks(prev => ({ ...prev, test: { ...prev.test, charCount: data.chars } }));
+                            } else if (data.message) {
+                              updateStep(2, { status: 'running', message: data.message, detail: '测试本' });
+                            }
                           }
                           else if (evt === 'complete') {
                             if (data.uploadResult) testUploadResult = data.uploadResult;
@@ -1971,9 +1986,14 @@ export default function Home() {
                       if (line.startsWith('data: ')) {
                         try {
                           const data = JSON.parse(line.slice(6));
-                          if (evt === 'progress' && data.message) {
-                            if (data.chars) extractionCharCount = data.chars;
-                            updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
+                          if (evt === 'progress') {
+                            if (data.chars) {
+                              extractionCharCount = data.chars;
+                              updateStep(3, { status: 'running', message: data.message || `已生成 ${data.chars} 字符`, detail: '课后信息提取' });
+                              setParallelTasks(prev => ({ ...prev, extraction: { ...prev.extraction, charCount: data.chars } }));
+                            } else if (data.message) {
+                              updateStep(3, { status: 'running', message: data.message, detail: '课后信息提取' });
+                            }
                           }
                           else if (evt === 'complete') {
                             if (data.uploadResult) extractionUploadResult = data.uploadResult;
@@ -2566,7 +2586,7 @@ export default function Home() {
                 const dec = new TextDecoder(); let buf = '', evt = '';
                 try {
                   while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(2, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) tUpload = d.uploadResult; else if (evt === 'error' && d.message) tErr = d.message; } catch(e){ /* SSE parse ignore */ } } } }
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress') { if (d.chars) updateStep(2, { status: 'running', message: d.message || `已生成 ${d.chars} 字符` }); else if (d.message) updateStep(2, { status: 'running', message: d.message }); } else if (evt === 'complete' && d.uploadResult) tUpload = d.uploadResult; else if (evt === 'error' && d.message) tErr = d.message; } catch(e){ /* SSE parse ignore */ } } } }
                 } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Test retry] SSE断开:', e); }
@@ -2595,7 +2615,7 @@ export default function Home() {
                 const dec = new TextDecoder(); let buf = '', evt = '';
                 try {
                   while (true) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); const ls = buf.split('\n'); buf = ls.pop() || '';
-                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress' && d.message) updateStep(3, { status: 'running', message: d.message }); else if (evt === 'complete' && d.uploadResult) eUpload = d.uploadResult; else if (evt === 'error' && d.message) eErr = d.message; } catch(e){ /* SSE parse ignore */ } } } }
+                    for (const l of ls) { if (l.startsWith('event: ')) { evt = l.slice(7).trim(); continue; } if (l.startsWith('data: ')) { try { const d = JSON.parse(l.slice(6)); if (evt === 'progress') { if (d.chars) updateStep(3, { status: 'running', message: d.message || `已生成 ${d.chars} 字符` }); else if (d.message) updateStep(3, { status: 'running', message: d.message }); } else if (evt === 'complete' && d.uploadResult) eUpload = d.uploadResult; else if (evt === 'error' && d.message) eErr = d.message; } catch(e){ /* SSE parse ignore */ } } } }
                 } finally { reader.cancel().catch(() => {}); }
               }
             } catch(e) { console.log('[Extraction retry] SSE断开:', e); }
