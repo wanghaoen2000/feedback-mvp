@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { sortByPinyin } from "@/lib/pinyinSort";
 import {
   Loader2,
   CheckCircle2,
@@ -81,7 +82,7 @@ export function HomeworkCorrection() {
   // ============= tRPC 查询 =============
 
   const studentsQuery = trpc.homework.listStudents.useQuery({ status: "active" });
-  const students = studentsQuery.data || [];
+  const students = useMemo(() => sortByPinyin(studentsQuery.data || []), [studentsQuery.data]);
   const addStudentMut = trpc.homework.addStudent.useMutation({
     onSuccess: () => { studentsQuery.refetch(); setNewStudentName(""); },
   });

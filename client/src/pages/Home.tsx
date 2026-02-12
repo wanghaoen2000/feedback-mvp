@@ -2980,7 +2980,7 @@ export default function Home() {
 
         {/* 大分页 Tab 切换 */}
         <Tabs defaultValue="classroom" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-6">
+          <TabsList className="grid w-full grid-cols-2 grid-rows-2 h-auto mb-6">
             <TabsTrigger value="classroom" className="text-base py-2">
               <FileText className="w-4 h-4 mr-2" />
               课堂反馈
