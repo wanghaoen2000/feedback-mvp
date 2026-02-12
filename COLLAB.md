@@ -196,6 +196,40 @@
   ```
   **背景：** V134 代码将气泡图字体优先级改为 Noto Sans CJK SC（思源黑体），比 WenQuanYi Zen Hei 更美观。代码已做兜底处理——如果 Noto 字体不存在，仍然使用 WenQuanYi Zen Hei。字体文件约 20MB。
 
+- [ ] **【部署任务】V171：作业批改系统（新功能模块）**
+
+  **分支：** `claude/setup-feedback-mvp-6wqxE`
+  **版本跨度：** V170 → V171
+  **新增依赖：** 无（mammoth、pdf-parse 已在 package.json 中）
+  **数据库迁移：** 有（新增 `drizzle/0011_correction_tasks.sql`，CREATE TABLE IF NOT EXISTS，安全幂等，服务启动时自动创建）
+
+  **V171 变更（作业批改系统）：**
+  - 新增「作业批改」Tab 页面（顶部导航栏第四个标签，位于作业管理和批量处理之间）
+  - 新增文件：
+    - `server/correctionRunner.ts` — 批改后台运行器（复用 invokeAIStream + importFromExtraction）
+    - `client/src/components/HomeworkCorrection.tsx` — 批改前端页面
+    - `drizzle/0011_correction_tasks.sql` — 批改任务表迁移文件
+  - 修改文件：
+    - `drizzle/schema.ts` — 新增 correctionTasks 表定义
+    - `server/routers.ts` — 新增 correction 命名空间路由
+    - `client/src/pages/Home.tsx` — Tab 从3列改为4列，新增作业批改入口
+  - 功能特性：
+    - 从作业管理学生库选择学生
+    - 4种可配置的批改类型（豆包翻译/学术文章/日常文章/词汇填空），每个带专属提示词
+    - 富输入区：文字 + 拖拽/粘贴图片（多模态AI识别）+ 拖拽/粘贴文件（docx/pdf/txt 服务端提取文字）
+    - 服务端后台执行，关闭浏览器不影响
+    - AI输出分两部分：批改内容（一键复制）+ 状态更新（自动推送到作业管理系统）
+    - 批改类型和通用提示词可在页面内设置面板中管理
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/setup-feedback-mvp-6wqxE
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）

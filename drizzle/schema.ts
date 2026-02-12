@@ -138,3 +138,28 @@ export const batchTaskItems = mysqlTable("batch_task_items", {
 
 export type BatchTaskItem = typeof batchTaskItems.$inferSelect;
 export type InsertBatchTaskItem = typeof batchTaskItems.$inferInsert;
+
+// 作业批改任务表
+export const correctionTasks = mysqlTable("correction_tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  studentName: varchar("student_name", { length: 64 }).notNull(),
+  correctionType: varchar("correction_type", { length: 64 }).notNull(),
+  rawText: mediumtext("raw_text"),                    // 用户输入的文本内容
+  images: mediumtext("images"),                       // JSON: base64图片数组
+  files: mediumtext("files"),                         // JSON: [{name, extractedText}]
+  studentStatus: mediumtext("student_status"),        // 提交时的学生状态快照
+  systemPrompt: mediumtext("system_prompt"),          // 使用的完整系统提示词
+  resultCorrection: mediumtext("result_correction"),  // AI批改结果（给学生的）
+  resultStatusUpdate: mediumtext("result_status_update"), // AI状态更新（给作业管理的）
+  aiModel: varchar("ai_model", { length: 128 }),
+  taskStatus: varchar("task_status", { length: 20 }).notNull().default("pending"), // pending | processing | completed | failed
+  errorMessage: text("error_message"),
+  autoImported: int("auto_imported").default(0),      // 是否已自动推送到作业管理
+  importEntryId: int("import_entry_id"),              // 推送后的条目ID
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type CorrectionTask = typeof correctionTasks.$inferSelect;
+export type InsertCorrectionTask = typeof correctionTasks.$inferInsert;

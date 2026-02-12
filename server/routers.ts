@@ -2604,6 +2604,82 @@ export const appRouter = router({
         return importFromTaskExtraction(input.taskId, input.studentName);
       }),
   }),
+
+  // ==================== 作业批改系统 ====================
+  correction: router({
+    // 提交批改任务
+    submit: protectedProcedure
+      .input(z.object({
+        studentName: z.string().min(1, "请选择学生"),
+        correctionType: z.string().min(1, "请选择批改类型"),
+        rawText: z.string().optional(),
+        images: z.array(z.string()).optional(),
+        files: z.array(z.object({
+          name: z.string(),
+          content: z.string(),  // base64
+          mimeType: z.string(),
+        })).optional(),
+        aiModel: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { submitCorrection } = await import("./correctionRunner");
+        return submitCorrection(input);
+      }),
+
+    // 查询单个任务
+    getTask: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const { getCorrectionTask } = await import("./correctionRunner");
+        return getCorrectionTask(input.id);
+      }),
+
+    // 列出批改任务
+    listTasks: protectedProcedure
+      .input(z.object({
+        studentName: z.string().optional(),
+        limit: z.number().min(1).max(100).default(20),
+      }).optional())
+      .query(async ({ input }) => {
+        const { listCorrectionTasks } = await import("./correctionRunner");
+        return listCorrectionTasks(input?.studentName, input?.limit);
+      }),
+
+    // 获取批改类型列表
+    getTypes: protectedProcedure
+      .query(async () => {
+        const { getCorrectionTypes } = await import("./correctionRunner");
+        return getCorrectionTypes();
+      }),
+
+    // 更新批改类型配置
+    updateTypes: protectedProcedure
+      .input(z.array(z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        description: z.string(),
+        prompt: z.string(),
+      })))
+      .mutation(async ({ input }) => {
+        await setConfig("correctionTypes", JSON.stringify(input), "作业批改类型配置");
+        return { success: true };
+      }),
+
+    // 获取通用批改提示词
+    getPrompt: protectedProcedure
+      .query(async () => {
+        const { getCorrectionPrompt } = await import("./correctionRunner");
+        return { prompt: await getCorrectionPrompt() };
+      }),
+
+    // 更新通用批改提示词
+    updatePrompt: protectedProcedure
+      .input(z.object({ prompt: z.string() }))
+      .mutation(async ({ input }) => {
+        await setConfig("correctionPrompt", input.prompt, "作业批改通用提示词");
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
