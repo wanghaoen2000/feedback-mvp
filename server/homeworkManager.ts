@@ -691,13 +691,11 @@ export async function importClassFromTaskExtraction(
 const BACKUP_SEPARATOR = "═══════════════════════════════════════";
 const STUDENT_HEADER_RE = /^## ═+ 学生[:：]\s*(.+?)\s*═+$/;
 const FIELD_PLAN_TYPE = "### 计划类型";
-const FIELD_NEXT_CLASS = "### 下次上课日期";
-const FIELD_EXAM_TARGET = "### 考试目标";
-const FIELD_EXAM_DATE = "### 考试日期";
 const FIELD_STATUS = "### 状态记录";
 
 /**
  * 导出所有活跃学生数据为 Markdown 格式
+ * 每个学生只存三项：姓名、计划类型、完整状态记录
  */
 export async function exportStudentBackup(): Promise<{ content: string; studentCount: number; timestamp: string }> {
   await ensureHwTables();
@@ -725,15 +723,6 @@ export async function exportStudentBackup(): Promise<{ content: string; studentC
     lines.push(FIELD_PLAN_TYPE);
     lines.push(student.planType || "weekly");
     lines.push("");
-    lines.push(FIELD_NEXT_CLASS);
-    lines.push(student.nextClassDate || "");
-    lines.push("");
-    lines.push(FIELD_EXAM_TARGET);
-    lines.push(student.examTarget || "");
-    lines.push("");
-    lines.push(FIELD_EXAM_DATE);
-    lines.push(student.examDate || "");
-    lines.push("");
     lines.push(FIELD_STATUS);
     lines.push(student.currentStatus || "(无状态记录)");
     lines.push("");
@@ -751,9 +740,6 @@ export async function exportStudentBackup(): Promise<{ content: string; studentC
 interface ParsedStudent {
   name: string;
   planType: string;
-  nextClassDate: string;
-  examTarget: string;
-  examDate: string;
   currentStatus: string;
 }
 
@@ -772,9 +758,6 @@ export function parseBackupContent(content: string): ParsedStudent[] {
     if (!current || !currentField) return;
     const value = fieldLines.join("\n").trim();
     if (currentField === FIELD_PLAN_TYPE) current.planType = value === "daily" ? "daily" : "weekly";
-    else if (currentField === FIELD_NEXT_CLASS) current.nextClassDate = value;
-    else if (currentField === FIELD_EXAM_TARGET) current.examTarget = value;
-    else if (currentField === FIELD_EXAM_DATE) current.examDate = value;
     else if (currentField === FIELD_STATUS) current.currentStatus = value === "(无状态记录)" ? "" : value;
     currentField = "";
     fieldLines = [];
@@ -787,7 +770,7 @@ export function parseBackupContent(content: string): ParsedStudent[] {
         flushField();
         students.push(current);
       }
-      current = { name: headerMatch[1].trim(), planType: "weekly", nextClassDate: "", examTarget: "", examDate: "", currentStatus: "" };
+      current = { name: headerMatch[1].trim(), planType: "weekly", currentStatus: "" };
       currentField = "";
       fieldLines = [];
       continue;
@@ -802,7 +785,7 @@ export function parseBackupContent(content: string): ParsedStudent[] {
       continue;
     }
 
-    if ([FIELD_PLAN_TYPE, FIELD_NEXT_CLASS, FIELD_EXAM_TARGET, FIELD_EXAM_DATE, FIELD_STATUS].includes(line)) {
+    if (line === FIELD_PLAN_TYPE || line === FIELD_STATUS) {
       flushField();
       currentField = line;
       fieldLines = [];
@@ -814,7 +797,6 @@ export function parseBackupContent(content: string): ParsedStudent[] {
     }
   }
 
-  // 尾部没有 --- 的情况
   if (current) {
     flushField();
     students.push(current);
@@ -880,12 +862,9 @@ export async function importStudentBackup(content: string): Promise<{
       .limit(1);
 
     if (existing.length > 0) {
-      // 更新已有学生
+      // 更新已有学生（只覆盖计划类型和状态记录）
       await db.update(hwStudents).set({
         planType: s.planType,
-        nextClassDate: s.nextClassDate || null,
-        examTarget: s.examTarget || null,
-        examDate: s.examDate || null,
         currentStatus: s.currentStatus || null,
         status: "active",
       }).where(eq(hwStudents.id, existing[0].id));
@@ -895,9 +874,6 @@ export async function importStudentBackup(content: string): Promise<{
       await db.insert(hwStudents).values({
         name: s.name,
         planType: s.planType,
-        nextClassDate: s.nextClassDate || null,
-        examTarget: s.examTarget || null,
-        examDate: s.examDate || null,
         currentStatus: s.currentStatus || null,
       });
       created++;
