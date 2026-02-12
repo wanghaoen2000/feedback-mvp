@@ -261,7 +261,29 @@ git push -u origin claude/feature-name
 
 ---
 
-## 九、新对话开始时的检查清单
+## 九、文档维护规范
+
+docs/ 目录下的文档需要**阶段性维护**，不能只写一次就不管了。
+
+### 每次推送功能分支前（最低要求）
+- `docs/迭代记录.md` — 追加新版本的变更记录
+- `COLLAB.md` — 更新部署任务区域
+
+### 按需更新
+- 新增功能/架构变更 → 更新 `docs/项目概述.md`
+- 修复重大 Bug → 更新 `docs/问题追踪.md`
+- 踩到新坑 → 追加到 `docs/技术备忘.md`
+- 环境配置变更 → 更新 `docs/环境变量配置模板.md`
+
+### 批量更新（每 10-20 个版本）
+- 文档末尾的版本号和日期
+- HANDOFF.md 中的文档大小、章节数等描述信息
+
+详见 `docs/deployment-collaboration.md` 的「文档维护规范」章节。
+
+---
+
+## 十、新对话开始时的检查清单
 
 1. ✅ 读取本文档（`docs/HANDOFF.md`）了解项目全貌
 2. ✅ 读取 `COLLAB.md` 看 Manus 是否有新反馈或请求
@@ -270,4 +292,5 @@ git push -u origin claude/feature-name
 5. ✅ 如果要开新功能，基于 `origin/main` 创建新分支
 6. ✅ 开发完成后更新 COLLAB.md 的部署任务
 7. ✅ 推送前 rebase + 版本号 +1
-8. ✅ 遇到技术问题时，查阅 `docs/技术备忘.md` 或 `docs/问题追踪.md`
+8. ✅ 推送前更新 `docs/迭代记录.md`（追加版本变更）
+9. ✅ 遇到技术问题时，查阅 `docs/技术备忘.md` 或 `docs/问题追踪.md`
