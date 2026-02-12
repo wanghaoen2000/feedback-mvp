@@ -65,7 +65,13 @@ feedback-mvp/
 ├── fonts/                # 字体文件（供 resvg 渲染中文）
 ├── docs/                 # 项目文档
 │   ├── HANDOFF.md        # 本文档（知识交接）
-│   └── deployment-collaboration.md  # 部署协作规范
+│   ├── deployment-collaboration.md  # 部署协作规范
+│   ├── 项目概述.md        # 项目功能、架构、设计决策（V1-V152）
+│   ├── 迭代记录.md        # 完整版本历史（V1-V152）
+│   ├── 技术备忘.md        # 技术细节、踩坑经验（39章）
+│   ├── 问题追踪.md        # Bug追踪（83个已解决+4个待处理）
+│   ├── Manus协作指南.md   # Manus平台操作指南（35章）
+│   └── 环境变量配置模板.md  # 环境变量和部署配置
 ├── COLLAB.md             # 协作看板（每次开始工作先读！）
 └── package.json
 ```
@@ -185,9 +191,21 @@ git push -u origin claude/feature-name
 
 ## 六、关键文件快速索引
 
+### 文档索引
+| 要了解什么 | 看哪个文档 |
+|-----------|-----------|
+| 项目功能、架构、设计决策全貌 | `docs/项目概述.md` |
+| 每个版本改了什么（V1-V152） | `docs/迭代记录.md` |
+| 技术细节、踩坑经验、实现方案 | `docs/技术备忘.md` |
+| Bug 追踪和解决方案 | `docs/问题追踪.md` |
+| Manus 平台操作和部署指南 | `docs/Manus协作指南.md` |
+| 环境变量和部署配置 | `docs/环境变量配置模板.md` |
+| 部署协作规范（Claude↔Manus） | `docs/deployment-collaboration.md` |
+| 协作状态和 Manus 反馈 | `COLLAB.md` |
+
+### 代码索引
 | 要做什么 | 看哪个文件 |
 |---------|-----------|
-| 了解协作状态和 Manus 反馈 | `COLLAB.md` |
 | 修改版本号 | `scripts/generate-version.cjs` |
 | 前端主页面 | `client/src/pages/Home.tsx` |
 | 设置页面 | `client/src/pages/Settings.tsx` |
@@ -202,7 +220,6 @@ git push -u origin claude/feature-name
 | AI 客户端和配置 | `server/core/aiClient.ts` |
 | 数据库连接 | `server/db.ts` |
 | 数据库迁移 | `drizzle/` 目录 |
-| 部署协作规范 | `docs/deployment-collaboration.md` |
 
 ---
 
@@ -226,13 +243,31 @@ git push -u origin claude/feature-name
 
 ---
 
-## 八、新对话开始时的检查清单
+## 八、详细文档导航
+
+本文档（HANDOFF.md）是入口级概览。项目还有以下详细文档：
+
+| 文档 | 内容概述 | 大小 |
+|------|---------|------|
+| `docs/项目概述.md` | 功能说明、技术架构图、设计决策表、高级设置、容错机制、版本历程 | ~27KB |
+| `docs/迭代记录.md` | V1到V152每个版本的详细变更记录 | ~64KB |
+| `docs/技术备忘.md` | 39章技术细节：踩坑经验、数据库设计、SSE实现、AI提示词、Git工作流等 | ~75KB |
+| `docs/问题追踪.md` | 83个已解决Bug的详细记录 + 4个待处理问题 + 踩坑经验总结 | ~17KB |
+| `docs/Manus协作指南.md` | 35章Manus平台操作指南：任务管理、构建部署、安全备份、协作流程 | ~42KB |
+| `docs/环境变量配置模板.md` | 完整的环境变量配置说明、OAuth设置步骤、部署检查清单 | ~14KB |
+| `docs/deployment-collaboration.md` | Claude↔Manus部署协作规范（Git流程、版本号规则、操作顺序） | ~5KB |
+
+**按需查阅：** 日常开发只需读本文档 + COLLAB.md。遇到具体技术问题时再查阅对应详细文档。
+
+---
+
+## 九、新对话开始时的检查清单
 
 1. ✅ 读取本文档（`docs/HANDOFF.md`）了解项目全貌
-2. ✅ 读取 `docs/deployment-collaboration.md` 了解部署协作规范
-3. ✅ 读取 `COLLAB.md` 看 Manus 是否有新反馈或请求
-4. ✅ 读取 `scripts/generate-version.cjs` 确认当前版本号
-5. ✅ 确认当前在哪个分支（`git branch`）
-6. ✅ 如果要开新功能，基于 `origin/main` 创建新分支
-7. ✅ 开发完成后更新 COLLAB.md 的部署任务
-8. ✅ 推送前 rebase + 版本号 +1
+2. ✅ 读取 `COLLAB.md` 看 Manus 是否有新反馈或请求
+3. ✅ 读取 `scripts/generate-version.cjs` 确认当前版本号
+4. ✅ 确认当前在哪个分支（`git branch`）
+5. ✅ 如果要开新功能，基于 `origin/main` 创建新分支
+6. ✅ 开发完成后更新 COLLAB.md 的部署任务
+7. ✅ 推送前 rebase + 版本号 +1
+8. ✅ 遇到技术问题时，查阅 `docs/技术备忘.md` 或 `docs/问题追踪.md`
