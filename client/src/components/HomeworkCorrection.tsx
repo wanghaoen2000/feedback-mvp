@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import {
   Loader2,
@@ -16,6 +17,8 @@ import {
   Settings2,
   Trash2,
   Plus,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 // ============= 类型定义 =============
@@ -23,14 +26,14 @@ import {
 interface AttachedImage {
   id: string;
   name: string;
-  dataUri: string;     // data:image/xxx;base64,...
-  preview: string;     // 缩略图URL
+  dataUri: string;
+  preview: string;
 }
 
 interface AttachedFile {
   id: string;
   name: string;
-  content: string;     // base64 (不含前缀)
+  content: string;
   mimeType: string;
   size: number;
 }
@@ -50,18 +53,19 @@ export function HomeworkCorrection() {
   // 批改类型
   const [selectedType, setSelectedType] = useState("");
 
+  // AI 模型（独立记忆）
+  const [localModel, setLocalModel] = useState("");
+
   // 输入
   const [textContent, setTextContent] = useState("");
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [files, setFiles] = useState<AttachedFile[]>([]);
 
-  // 任务状态
-  const [currentTaskId, setCurrentTaskId] = useState<number | null>(null);
+  // UI 状态
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
-
-  // 设置面板
   const [showSettings, setShowSettings] = useState(false);
+  const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Refs
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -76,25 +80,46 @@ export function HomeworkCorrection() {
   const typesQuery = trpc.correction.getTypes.useQuery();
   const correctionTypes: CorrectionType[] = typesQuery.data || [];
 
-  const taskQuery = trpc.correction.getTask.useQuery(
-    { id: currentTaskId! },
+  const configQuery = trpc.correction.getConfig.useQuery();
+  const updateConfigMut = trpc.correction.updateConfig.useMutation();
+
+  // 模型预设列表
+  const presetList = (configQuery.data?.modelPresets || "").split("\n").map(s => s.trim()).filter(Boolean);
+
+  // 从服务器加载配置
+  useEffect(() => {
+    if (configQuery.data) {
+      setLocalModel(configQuery.data.corrAiModel || "");
+    }
+  }, [configQuery.data]);
+
+  // 任务列表（始终加载，自动刷新进行中的任务）
+  const historyQuery = trpc.correction.listTasks.useQuery(
+    { limit: 20 },
     {
-      enabled: currentTaskId !== null,
       refetchInterval: (query) => {
         const data = query.state.data;
-        if (!data) return 2000;
-        if (data.taskStatus === "pending" || data.taskStatus === "processing") return 2000;
-        return false;
+        if (!data) return false;
+        const hasPending = data.some((t: any) => t.taskStatus === "pending" || t.taskStatus === "processing");
+        return hasPending ? 3000 : false;
       },
     },
   );
 
-  const historyQuery = trpc.correction.listTasks.useQuery({ limit: 10 });
+  // 展开的任务详情
+  const expandedTaskQuery = trpc.correction.getTask.useQuery(
+    { id: expandedTaskId! },
+    { enabled: expandedTaskId !== null },
+  );
 
   const submitMut = trpc.correction.submit.useMutation({
-    onSuccess: (data) => {
-      setCurrentTaskId(data.id);
+    onSuccess: () => {
+      // 提交成功：清空表单，刷新任务列表
+      setTextContent("");
+      setImages([]);
+      setFiles([]);
       setIsSubmitting(false);
+      historyQuery.refetch();
     },
     onError: (err) => {
       setIsSubmitting(false);
@@ -112,7 +137,6 @@ export function HomeworkCorrection() {
     }
 
     setIsSubmitting(true);
-    setCurrentTaskId(null);
 
     submitMut.mutate({
       studentName: selectedStudent,
@@ -122,8 +146,9 @@ export function HomeworkCorrection() {
       files: files.length > 0
         ? files.map((f) => ({ name: f.name, content: f.content, mimeType: f.mimeType }))
         : undefined,
+      aiModel: localModel || undefined,
     });
-  }, [selectedStudent, selectedType, textContent, images, files, submitMut]);
+  }, [selectedStudent, selectedType, textContent, images, files, localModel, submitMut]);
 
   const handleCopy = useCallback(async (text: string) => {
     try {
@@ -131,7 +156,6 @@ export function HomeworkCorrection() {
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
     } catch {
-      // fallback
       const ta = document.createElement("textarea");
       ta.value = text;
       document.body.appendChild(ta);
@@ -197,7 +221,6 @@ export function HomeworkCorrection() {
     [processImageFile, processDocFile],
   );
 
-  // 拖拽处理
   const [isDragOver, setIsDragOver] = useState(false);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -221,12 +244,10 @@ export function HomeworkCorrection() {
     [handleFilesDrop],
   );
 
-  // 粘贴处理
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
       const items = e.clipboardData?.items;
       if (!items) return;
-
       for (const item of Array.from(items)) {
         if (item.type.startsWith("image/")) {
           e.preventDefault();
@@ -249,25 +270,50 @@ export function HomeworkCorrection() {
     setFiles((prev) => prev.filter((f) => f.id !== id));
   }, []);
 
-  // ============= 任务结果 =============
-
-  const task = taskQuery.data;
-  const isProcessing = task?.taskStatus === "pending" || task?.taskStatus === "processing";
-  const isCompleted = task?.taskStatus === "completed";
-  const isFailed = task?.taskStatus === "failed";
-
-  // 新批改（重置表单）
-  const handleNewCorrection = useCallback(() => {
-    setCurrentTaskId(null);
-    setTextContent("");
-    setImages([]);
-    setFiles([]);
-  }, []);
-
   // ============= 渲染 =============
 
   return (
     <div className="space-y-4">
+      {/* 头部：AI模型选择 */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {presetList.length > 0 && (
+            <>
+              <span className="text-sm text-gray-500 shrink-0">模型</span>
+              <Select
+                value={localModel || "__default__"}
+                onValueChange={(val) => {
+                  const newModel = val === "__default__" ? "" : val;
+                  setLocalModel(newModel);
+                  updateConfigMut.mutate({ corrAiModel: newModel });
+                }}
+              >
+                <SelectTrigger className="h-8 text-sm max-w-[200px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default__">默认模型</SelectItem>
+                  {presetList.map((model) => (
+                    <SelectItem key={model} value={model}>{model}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowSettings(!showSettings)}
+          className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+        >
+          <Settings2 className="w-3 h-3" />
+          设置
+        </button>
+      </div>
+
+      {/* 设置面板 */}
+      {showSettings && <CorrectionSettings onClose={() => setShowSettings(false)} />}
+
       {/* 学生选择 */}
       <div className="space-y-2">
         <Label className="text-sm font-medium">选择学生</Label>
@@ -294,17 +340,7 @@ export function HomeworkCorrection() {
 
       {/* 批改类型选择 */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label className="text-sm font-medium">批改类型</Label>
-          <button
-            type="button"
-            onClick={() => setShowSettings(!showSettings)}
-            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
-          >
-            <Settings2 className="w-3 h-3" />
-            管理类型
-          </button>
-        </div>
+        <Label className="text-sm font-medium">批改类型</Label>
         <div className="flex flex-wrap gap-2">
           {correctionTypes.map((ct) => (
             <button
@@ -323,9 +359,6 @@ export function HomeworkCorrection() {
         </div>
       </div>
 
-      {/* 设置面板（可折叠） */}
-      {showSettings && <CorrectionSettings onClose={() => setShowSettings(false)} />}
-
       {/* 输入区 */}
       <div
         className={`relative border-2 rounded-lg transition-colors ${
@@ -342,13 +375,12 @@ export function HomeworkCorrection() {
           onChange={(e) => setTextContent(e.target.value)}
           onPaste={handlePaste}
           className="min-h-[160px] max-h-[50vh] border-0 focus-visible:ring-0 resize-y"
-          disabled={isSubmitting || isProcessing}
+          disabled={isSubmitting}
         />
 
         {/* 附件预览区 */}
         {(images.length > 0 || files.length > 0) && (
           <div className="border-t px-3 py-2 space-y-2">
-            {/* 图片预览 */}
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {images.map((img) => (
@@ -372,7 +404,6 @@ export function HomeworkCorrection() {
                 ))}
               </div>
             )}
-            {/* 文件列表 */}
             {files.length > 0 && (
               <div className="space-y-1">
                 {files.map((f) => (
@@ -423,14 +454,14 @@ export function HomeworkCorrection() {
           <Button
             type="button"
             onClick={handleSubmit}
-            disabled={isSubmitting || isProcessing || !selectedStudent || !selectedType}
+            disabled={isSubmitting || !selectedStudent || !selectedType}
             size="sm"
             className="bg-purple-600 hover:bg-purple-700"
           >
-            {isSubmitting || isProcessing ? (
+            {isSubmitting ? (
               <>
                 <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                批改中...
+                提交中...
               </>
             ) : (
               <>
@@ -441,7 +472,6 @@ export function HomeworkCorrection() {
           </Button>
         </div>
 
-        {/* 隐藏的 file input */}
         <input
           ref={imageInputRef}
           type="file"
@@ -459,7 +489,6 @@ export function HomeworkCorrection() {
           onChange={(e) => e.target.files && handleFilesDrop(e.target.files)}
         />
 
-        {/* 拖拽遮罩 */}
         {isDragOver && (
           <div className="absolute inset-0 bg-purple-50/80 flex items-center justify-center rounded-lg pointer-events-none">
             <p className="text-purple-600 font-medium">松开即可添加文件</p>
@@ -467,138 +496,139 @@ export function HomeworkCorrection() {
         )}
       </div>
 
-      {/* 输出区：批改结果 */}
-      {(isProcessing || isCompleted || isFailed) && (
-        <div className="space-y-3">
-          {/* 处理中 */}
-          {isProcessing && (
-            <div className="flex items-center gap-2 text-blue-600 py-4 justify-center">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>AI 正在批改中，请稍候...</span>
-            </div>
-          )}
+      {/* 批改任务列表 */}
+      <div className="pt-2 border-t">
+        <p className="text-xs text-gray-400 mb-2">批改任务</p>
+        {historyQuery.data && historyQuery.data.length === 0 && (
+          <p className="text-xs text-gray-400 py-2">暂无任务</p>
+        )}
+        <div className="space-y-2">
+          {historyQuery.data?.map((t: any) => (
+            <TaskCard
+              key={t.id}
+              task={t}
+              isExpanded={expandedTaskId === t.id}
+              expandedData={expandedTaskId === t.id ? expandedTaskQuery.data : null}
+              onToggle={() => setExpandedTaskId(expandedTaskId === t.id ? null : t.id)}
+              onCopy={handleCopy}
+              copySuccess={copySuccess}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-          {/* 失败 */}
-          {isFailed && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 text-red-600 mb-2">
-                <XCircle className="w-5 h-5" />
-                <span className="font-medium">批改失败</span>
-              </div>
-              <p className="text-sm text-red-500">{task?.errorMessage || "未知错误"}</p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={handleNewCorrection}
-              >
-                重新批改
-              </Button>
-            </div>
-          )}
+// ============= 任务卡片子组件 =============
 
-          {/* 成功：批改内容 */}
-          {isCompleted && task?.resultCorrection && (
+function TaskCard({
+  task,
+  isExpanded,
+  expandedData,
+  onToggle,
+  onCopy,
+  copySuccess,
+}: {
+  task: any;
+  isExpanded: boolean;
+  expandedData: any;
+  onToggle: () => void;
+  onCopy: (text: string) => void;
+  copySuccess: boolean;
+}) {
+  const isPending = task.taskStatus === "pending" || task.taskStatus === "processing";
+  const isCompleted = task.taskStatus === "completed";
+  const isFailed = task.taskStatus === "failed";
+
+  return (
+    <div className={`border rounded-lg overflow-hidden transition-colors ${
+      isPending ? "border-blue-200 bg-blue-50/30" :
+      isCompleted ? "border-green-200" :
+      "border-red-200"
+    }`}>
+      {/* 卡片头部（始终可见） */}
+      <div
+        className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50/50"
+        onClick={onToggle}
+      >
+        {isCompleted ? (
+          <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+        ) : isFailed ? (
+          <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+        ) : (
+          <Loader2 className="w-4 h-4 text-blue-500 animate-spin flex-shrink-0" />
+        )}
+        <span className="font-medium text-sm">{task.studentName}</span>
+        <span className="text-xs text-gray-400">{task.correctionType}</span>
+        {task.autoImported === 1 && (
+          <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded">已入库</span>
+        )}
+        {isPending && (
+          <span className="text-xs text-blue-500">批改中...</span>
+        )}
+        {isFailed && (
+          <span className="text-xs text-red-500 truncate max-w-[150px]">{task.errorMessage}</span>
+        )}
+        <span className="text-[10px] text-gray-300 ml-auto shrink-0">
+          {new Date(task.createdAt).toLocaleString("zh-CN", {
+            month: "numeric",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </span>
+        {isCompleted && (
+          isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+        )}
+      </div>
+
+      {/* 展开详情（仅已完成的任务） */}
+      {isExpanded && isCompleted && expandedData && (
+        <div className="border-t px-3 py-3 space-y-3">
+          {/* 批改内容 */}
+          {expandedData.resultCorrection && (
             <div className="bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center justify-between px-4 py-2 border-b border-green-200">
-                <div className="flex items-center gap-2 text-green-700">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span className="font-medium text-sm">批改内容</span>
-                  <span className="text-xs text-green-500">（发给学生）</span>
-                </div>
+              <div className="flex items-center justify-between px-3 py-1.5 border-b border-green-200">
+                <span className="text-xs font-medium text-green-700">批改内容（发给学生）</span>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => handleCopy(task.resultCorrection!)}
-                  className="text-green-600 hover:text-green-800 h-7"
+                  onClick={(e) => { e.stopPropagation(); onCopy(expandedData.resultCorrection); }}
+                  className="text-green-600 hover:text-green-800 h-6 text-xs"
                 >
                   {copySuccess ? (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                      已复制
-                    </>
+                    <><CheckCircle2 className="w-3 h-3 mr-1" />已复制</>
                   ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 mr-1" />
-                      一键复制
-                    </>
+                    <><Copy className="w-3 h-3 mr-1" />一键复制</>
                   )}
                 </Button>
               </div>
-              <div className="p-4 text-sm text-gray-800 whitespace-pre-wrap max-h-[400px] overflow-y-auto">
-                {task.resultCorrection}
+              <div className="p-3 text-sm text-gray-800 whitespace-pre-wrap max-h-[50vh] overflow-y-auto">
+                {expandedData.resultCorrection}
               </div>
             </div>
           )}
 
-          {/* 成功：状态更新 */}
-          {isCompleted && task?.resultStatusUpdate && (
+          {/* 状态更新 */}
+          {expandedData.resultStatusUpdate && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex items-center justify-between px-4 py-2 border-b border-blue-200">
-                <div className="flex items-center gap-2 text-blue-700">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span className="font-medium text-sm">状态更新</span>
-                  <span className="text-xs text-blue-500">
-                    {task.autoImported ? "已自动推送到作业管理" : "（推送到作业管理系统）"}
-                  </span>
-                </div>
+              <div className="px-3 py-1.5 border-b border-blue-200 flex items-center gap-2">
+                <span className="text-xs font-medium text-blue-700">状态更新</span>
+                {expandedData.autoImported ? (
+                  <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded">已自动推送到作业管理</span>
+                ) : (
+                  <span className="text-[10px] text-blue-400">等待推送</span>
+                )}
               </div>
-              <div className="p-4 text-sm text-gray-700 whitespace-pre-wrap max-h-[200px] overflow-y-auto">
-                {task.resultStatusUpdate}
+              <div className="p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-[200px] overflow-y-auto">
+                {expandedData.resultStatusUpdate}
               </div>
-            </div>
-          )}
-
-          {/* 新建批改按钮 */}
-          {(isCompleted || isFailed) && (
-            <div className="text-center">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleNewCorrection}
-              >
-                开始新的批改
-              </Button>
             </div>
           )}
         </div>
       )}
-
-      {/* 最近批改记录 */}
-      <div className="pt-2 border-t">
-        <p className="text-xs text-gray-400 mb-2">最近批改记录</p>
-        {historyQuery.data && historyQuery.data.length === 0 && (
-          <p className="text-xs text-gray-400 py-2">暂无记录</p>
-        )}
-        {historyQuery.data?.map((t: any) => (
-          <div
-            key={t.id}
-            className="flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer"
-            onClick={() => setCurrentTaskId(t.id)}
-          >
-            {t.taskStatus === "completed" ? (
-              <CheckCircle2 className="w-3 h-3 text-green-500 flex-shrink-0" />
-            ) : t.taskStatus === "failed" ? (
-              <XCircle className="w-3 h-3 text-red-500 flex-shrink-0" />
-            ) : (
-              <Loader2 className="w-3 h-3 text-blue-500 animate-spin flex-shrink-0" />
-            )}
-            <span className="font-medium">{t.studentName}</span>
-            <span className="text-gray-400">{t.correctionType}</span>
-            <span className="text-gray-300 ml-auto">
-              {new Date(t.createdAt).toLocaleString("zh-CN", {
-                month: "numeric",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -656,7 +686,7 @@ function CorrectionSettings({ onClose }: { onClose: () => void }) {
     <Card className="border-purple-200 bg-purple-50/50">
       <CardHeader className="py-3 px-4">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium text-purple-700">批改类型管理</CardTitle>
+          <CardTitle className="text-sm font-medium text-purple-700">批改设置</CardTitle>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-4 h-4" />
           </button>

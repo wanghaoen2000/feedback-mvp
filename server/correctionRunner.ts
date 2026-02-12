@@ -333,24 +333,25 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
 
     console.log(`[作业批改] 任务${taskId}完成, 批改${correction.length}字, 状态更新${statusUpdate.length}字`);
 
-    // 自动推送到作业管理系统
-    if (statusUpdate.trim()) {
-      try {
-        const importResult = await importFromExtraction(
-          task.studentName,
-          `[从作业批改导入]\n批改类型：${typeConfig.name}\n${statusUpdate}`,
-        );
-        await db.update(correctionTasks)
-          .set({
-            autoImported: 1,
-            importEntryId: importResult.id,
-          })
-          .where(eq(correctionTasks.id, taskId));
-        console.log(`[作业批改] 已自动推送到作业管理: 条目ID=${importResult.id}`);
-      } catch (importErr: any) {
-        console.error(`[作业批改] 自动推送失败:`, importErr?.message);
-        // 推送失败不影响批改结果
-      }
+    // 自动推送到作业管理系统（始终尝试，即使AI未按格式分割）
+    try {
+      const importContent = statusUpdate.trim()
+        ? statusUpdate
+        : `作业批改完成摘要：\n批改类型：${typeConfig.name}\n批改时间：${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}\n\n${correction.slice(0, 500)}`;
+      const importResult = await importFromExtraction(
+        task.studentName,
+        `[从作业批改导入]\n批改类型：${typeConfig.name}\n${importContent}`,
+      );
+      await db.update(correctionTasks)
+        .set({
+          autoImported: 1,
+          importEntryId: importResult.id,
+        })
+        .where(eq(correctionTasks.id, taskId));
+      console.log(`[作业批改] 已自动推送到作业管理: 条目ID=${importResult.id}`);
+    } catch (importErr: any) {
+      console.error(`[作业批改] 自动推送失败:`, importErr?.message);
+      // 推送失败不影响批改结果
     }
   } catch (err: any) {
     console.error(`[作业批改] 任务${taskId}失败:`, err?.message);

@@ -2678,6 +2678,29 @@ export const appRouter = router({
         await setConfig("correctionPrompt", input.prompt, "作业批改通用提示词");
         return { success: true };
       }),
+
+    // 获取批改配置（AI模型）
+    getConfig: protectedProcedure
+      .query(async () => {
+        const corrAiModel = await getConfig("corrAiModel");
+        const modelPresets = await getConfig("modelPresets");
+        return {
+          corrAiModel: corrAiModel || "",
+          modelPresets: modelPresets || "",
+        };
+      }),
+
+    // 更新批改配置（AI模型）
+    updateConfig: protectedProcedure
+      .input(z.object({
+        corrAiModel: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        if (input.corrAiModel !== undefined) {
+          await setConfig("corrAiModel", input.corrAiModel, "作业批改AI模型");
+        }
+        return { success: true };
+      }),
   }),
 });
 
