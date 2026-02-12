@@ -15,7 +15,6 @@ import { getBeijingTimeContext } from "./utils";
 export interface CorrectionType {
   id: string;
   name: string;
-  description: string;
   prompt: string;
 }
 
@@ -24,25 +23,21 @@ const DEFAULT_CORRECTION_TYPES: CorrectionType[] = [
   {
     id: "translation",
     name: "豆包翻译",
-    description: "批改学生的翻译练习作业",
     prompt: "这是一份翻译练习作业。请检查翻译的准确性、流畅性和用词是否恰当。指出翻译错误并给出正确翻译，同时点评翻译技巧。",
   },
   {
     id: "academic",
     name: "学术文章",
-    description: "批改学术写作类文章",
     prompt: "这是一篇学术写作文章。请从论点逻辑、论据充分性、学术用语规范性、语法准确性等方面进行批改。",
   },
   {
     id: "daily",
     name: "日常文章",
-    description: "批改日常生活话题类文章",
     prompt: "这是一篇日常话题文章。请检查语法、用词、表达是否地道，指出需要改进的地方并给出建议。",
   },
   {
     id: "vocabulary",
     name: "词汇填空",
-    description: "批改词汇填空练习",
     prompt: "这是一份词汇填空练习。请检查每个填空的答案是否正确，解释错误选项的原因，并巩固相关词汇知识点。",
   },
 ];
@@ -100,8 +95,28 @@ export async function ensureCorrectionTable(): Promise<void> {
     )`);
     tableEnsured = true;
     console.log("[作业批改] 表已就绪");
+
+    // 启动时清理超过3天的旧任务
+    cleanupOldTasks();
   } catch (err: any) {
     console.error("[作业批改] 建表失败:", err?.message);
+  }
+}
+
+// 清理超过3天的旧批改任务
+async function cleanupOldTasks(): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const result = await db.delete(correctionTasks)
+      .where(sql`${correctionTasks.createdAt} < ${threeDaysAgo}`);
+    const deleted = (result as any)[0]?.affectedRows || 0;
+    if (deleted > 0) {
+      console.log(`[作业批改] 已清理 ${deleted} 条超过3天的旧任务`);
+    }
+  } catch (err: any) {
+    console.error("[作业批改] 清理旧任务失败:", err?.message);
   }
 }
 

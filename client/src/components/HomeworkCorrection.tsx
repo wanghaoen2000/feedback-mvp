@@ -13,8 +13,6 @@ import {
   ImagePlus,
   FileUp,
   X,
-  ChevronDown,
-  ChevronUp,
   Settings2,
   Trash2,
   Plus,
@@ -40,7 +38,6 @@ interface AttachedFile {
 interface CorrectionType {
   id: string;
   name: string;
-  description: string;
   prompt: string;
 }
 
@@ -65,7 +62,6 @@ export function HomeworkCorrection() {
 
   // 设置面板
   const [showSettings, setShowSettings] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
 
   // Refs
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -93,10 +89,7 @@ export function HomeworkCorrection() {
     },
   );
 
-  const historyQuery = trpc.correction.listTasks.useQuery(
-    { limit: 10 },
-    { enabled: showHistory },
-  );
+  const historyQuery = trpc.correction.listTasks.useQuery({ limit: 10 });
 
   const submitMut = trpc.correction.submit.useMutation({
     onSuccess: (data) => {
@@ -318,22 +311,13 @@ export function HomeworkCorrection() {
               key={ct.id}
               type="button"
               onClick={() => setSelectedType(selectedType === ct.id ? "" : ct.id)}
-              className={`group relative px-3 py-1.5 rounded-lg text-sm transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 selectedType === ct.id
                   ? "bg-purple-600 text-white shadow-md"
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
-              <span className="font-medium">{ct.name}</span>
-              {ct.description && (
-                <span
-                  className={`ml-1.5 text-xs ${
-                    selectedType === ct.id ? "text-purple-200" : "text-gray-400"
-                  }`}
-                >
-                  {ct.description}
-                </span>
-              )}
+              {ct.name}
             </button>
           ))}
         </div>
@@ -357,7 +341,7 @@ export function HomeworkCorrection() {
           value={textContent}
           onChange={(e) => setTextContent(e.target.value)}
           onPaste={handlePaste}
-          className="min-h-[160px] border-0 focus-visible:ring-0 resize-y"
+          className="min-h-[160px] max-h-[50vh] border-0 focus-visible:ring-0 resize-y"
           disabled={isSubmitting || isProcessing}
         />
 
@@ -583,48 +567,37 @@ export function HomeworkCorrection() {
         </div>
       )}
 
-      {/* 历史记录（可折叠） */}
+      {/* 最近批改记录 */}
       <div className="pt-2 border-t">
-        <button
-          type="button"
-          onClick={() => setShowHistory(!showHistory)}
-          className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
-        >
-          {showHistory ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          最近批改记录
-        </button>
-        {showHistory && historyQuery.data && (
-          <div className="mt-2 space-y-1">
-            {historyQuery.data.length === 0 && (
-              <p className="text-xs text-gray-400 py-2">暂无记录</p>
-            )}
-            {historyQuery.data.map((t: any) => (
-              <div
-                key={t.id}
-                className="flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer"
-                onClick={() => setCurrentTaskId(t.id)}
-              >
-                {t.taskStatus === "completed" ? (
-                  <CheckCircle2 className="w-3 h-3 text-green-500 flex-shrink-0" />
-                ) : t.taskStatus === "failed" ? (
-                  <XCircle className="w-3 h-3 text-red-500 flex-shrink-0" />
-                ) : (
-                  <Loader2 className="w-3 h-3 text-blue-500 animate-spin flex-shrink-0" />
-                )}
-                <span className="font-medium">{t.studentName}</span>
-                <span className="text-gray-400">{t.correctionType}</span>
-                <span className="text-gray-300 ml-auto">
-                  {new Date(t.createdAt).toLocaleString("zh-CN", {
-                    month: "numeric",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              </div>
-            ))}
-          </div>
+        <p className="text-xs text-gray-400 mb-2">最近批改记录</p>
+        {historyQuery.data && historyQuery.data.length === 0 && (
+          <p className="text-xs text-gray-400 py-2">暂无记录</p>
         )}
+        {historyQuery.data?.map((t: any) => (
+          <div
+            key={t.id}
+            className="flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer"
+            onClick={() => setCurrentTaskId(t.id)}
+          >
+            {t.taskStatus === "completed" ? (
+              <CheckCircle2 className="w-3 h-3 text-green-500 flex-shrink-0" />
+            ) : t.taskStatus === "failed" ? (
+              <XCircle className="w-3 h-3 text-red-500 flex-shrink-0" />
+            ) : (
+              <Loader2 className="w-3 h-3 text-blue-500 animate-spin flex-shrink-0" />
+            )}
+            <span className="font-medium">{t.studentName}</span>
+            <span className="text-gray-400">{t.correctionType}</span>
+            <span className="text-gray-300 ml-auto">
+              {new Date(t.createdAt).toLocaleString("zh-CN", {
+                month: "numeric",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -667,7 +640,7 @@ function CorrectionSettings({ onClose }: { onClose: () => void }) {
 
   const handleAddType = () => {
     const newId = `type-${Date.now()}`;
-    setTypes([...types, { id: newId, name: "新类型", description: "", prompt: "" }]);
+    setTypes([...types, { id: newId, name: "新类型", prompt: "" }]);
     setEditingType(newId);
   };
 
@@ -697,7 +670,7 @@ function CorrectionSettings({ onClose }: { onClose: () => void }) {
             value={generalPrompt}
             onChange={(e) => setGeneralPrompt(e.target.value)}
             rows={4}
-            className="text-xs"
+            className="text-xs max-h-[50vh] overflow-y-auto"
             placeholder="所有批改类型共用的系统提示词..."
           />
           <Button
@@ -740,26 +713,15 @@ function CorrectionSettings({ onClose }: { onClose: () => void }) {
                 </button>
               </div>
               {editingType === ct.id && (
-                <div className="space-y-2">
-                  <div>
-                    <label className="text-[10px] text-gray-400">说明</label>
-                    <input
-                      className="w-full text-xs border rounded px-2 py-1"
-                      value={ct.description}
-                      onChange={(e) => handleUpdateType(ct.id, "description", e.target.value)}
-                      placeholder="简短说明，显示在按钮旁边"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-gray-400">专属提示词</label>
-                    <Textarea
-                      value={ct.prompt}
-                      onChange={(e) => handleUpdateType(ct.id, "prompt", e.target.value)}
-                      rows={3}
-                      className="text-xs"
-                      placeholder="该批改类型的专属提示词，会附加到通用提示词后面"
-                    />
-                  </div>
+                <div>
+                  <label className="text-[10px] text-gray-400">专属提示词</label>
+                  <Textarea
+                    value={ct.prompt}
+                    onChange={(e) => handleUpdateType(ct.id, "prompt", e.target.value)}
+                    rows={3}
+                    className="text-xs max-h-[50vh] overflow-y-auto"
+                    placeholder="该批改类型的专属提示词，会附加到通用提示词后面"
+                  />
                 </div>
               )}
             </div>

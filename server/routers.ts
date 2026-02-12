@@ -2657,7 +2657,6 @@ export const appRouter = router({
       .input(z.array(z.object({
         id: z.string().min(1),
         name: z.string().min(1),
-        description: z.string(),
         prompt: z.string(),
       })))
       .mutation(async ({ input }) => {
