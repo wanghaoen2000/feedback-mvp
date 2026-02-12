@@ -236,9 +236,9 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
   if (!db) return;
 
   try {
-    // 更新状态为 processing
+    // 更新状态为 processing，重置进度字段
     await db.update(correctionTasks)
-      .set({ taskStatus: "processing" })
+      .set({ taskStatus: "processing", streamingChars: 0 })
       .where(eq(correctionTasks.id, taskId));
 
     // 读取任务数据

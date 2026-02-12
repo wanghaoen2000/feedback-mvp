@@ -428,16 +428,25 @@ export async function retryEntry(id: number) {
     throw new Error(`条目当前状态为「${entry.entryStatus}」，只能重试失败或待入库的条目`);
   }
 
-  // Reset to processing
+  // Reset to processing, clear old progress data
   await db.update(hwEntries)
-    .set({ entryStatus: "processing", errorMessage: null })
+    .set({ entryStatus: "processing", errorMessage: null, streamingChars: 0, startedAt: new Date(), completedAt: null })
     .where(eq(hwEntries.id, id));
 
   try {
-    const { parsedContent } = await processEntry(
+    // 流式进度回调（与 processEntryInBackground 一致）
+    const onProgress = (chars: number) => {
+      db.update(hwEntries)
+        .set({ streamingChars: chars })
+        .where(eq(hwEntries.id, id))
+        .catch(() => {});
+    };
+
+    const { parsedContent, model } = await processEntry(
       entry.studentName,
       entry.rawInput,
       entry.aiModel || undefined,
+      onProgress,
     );
 
     await db.update(hwEntries)
@@ -445,6 +454,9 @@ export async function retryEntry(id: number) {
         parsedContent,
         entryStatus: "pre_staged",
         errorMessage: null,
+        aiModel: model,
+        streamingChars: parsedContent.length,
+        completedAt: new Date(),
       })
       .where(eq(hwEntries.id, id));
 
@@ -452,7 +464,7 @@ export async function retryEntry(id: number) {
   } catch (err: any) {
     const errorMsg = err?.message || "AI处理失败";
     await db.update(hwEntries)
-      .set({ entryStatus: "failed", errorMessage: errorMsg })
+      .set({ entryStatus: "failed", errorMessage: errorMsg, completedAt: new Date() })
       .where(eq(hwEntries.id, id));
     return { id, status: "failed", error: errorMsg };
   }
@@ -653,15 +665,23 @@ export async function importClassFromTaskExtraction(
   results.push({ name: className, ...classResult });
   console.log(`[学生管理] 小班课导入: 班级 ${className}, 条目ID: ${classResult.id}`);
 
-  // 2. 逐个导入出勤学生
-  const validStudents = attendanceStudents.filter(s => s.trim());
-  for (const studentName of validStudents) {
-    const trimmed = studentName.trim();
-    const studentResult = await importFromExtraction(trimmed, content);
-    results.push({ name: trimmed, ...studentResult });
-    console.log(`[学生管理] 小班课导入: 学生 ${trimmed}, 条目ID: ${studentResult.id}`);
+  // 2. 逐个导入出勤学生（去重 + 容错：单个失败不影响其他）
+  const validStudents = [...new Set(attendanceStudents.map(s => s.trim()).filter(Boolean))];
+  let failCount = 0;
+  for (const trimmed of validStudents) {
+    try {
+      const studentResult = await importFromExtraction(trimmed, content);
+      results.push({ name: trimmed, ...studentResult });
+      console.log(`[学生管理] 小班课导入: 学生 ${trimmed}, 条目ID: ${studentResult.id}`);
+    } catch (err: any) {
+      failCount++;
+      console.error(`[学生管理] 小班课导入失败: 学生 ${trimmed}:`, err?.message);
+    }
   }
 
-  console.log(`[学生管理] 小班课一键导入完成: ${className}, 共${results.length}条 (1班级 + ${validStudents.length}学生)`);
+  if (failCount > 0) {
+    console.warn(`[学生管理] 小班课导入部分失败: ${failCount}/${validStudents.length} 个学生`);
+  }
+  console.log(`[学生管理] 小班课一键导入完成: ${className}, 共${results.length}条 (1班级 + ${results.length - 1}学生)`);
   return { total: results.length, className, results };
 }
