@@ -1,9 +1,0 @@
-{
-  "query": "INSERT INTO system_config (`key`, `value`, `description`) VALUES ('apiFormat', 'openai', 'API消息格式：openai 或 claude');",
-  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2MZtV6wEbn7VDxk.root --database i28QGEfQiub7RkxMVRZYkr --execute INSERT INTO system_config (`key`, `value`, `description`) VALUES ('apiFormat', 'openai', 'API消息格式：openai 或 claude');",
-  "rows": [],
-  "messages": [],
-  "stdout": "",
-  "stderr": "",
-  "execution_time_ms": 77
-}
