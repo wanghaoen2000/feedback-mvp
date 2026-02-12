@@ -39,8 +39,6 @@ export function BatchProcess() {
   const [endNumber, setEndNumber] = useState("");
   const [concurrency, setConcurrency] = useState("50");
   const [isConcurrencySaving, setIsConcurrencySaving] = useState(false);
-  const [storagePath, setStoragePath] = useState("Mac(online)/Documents/XDF/批量任务");
-  const [isPathSaving, setIsPathSaving] = useState(false);
   const [filePrefix, setFilePrefix] = useState("任务");
   const [isPrefixSaving, setIsPrefixSaving] = useState(false);
 
@@ -60,12 +58,6 @@ export function BatchProcess() {
       setFilePrefix(config.batchFilePrefix);
     }
   }, [config?.batchFilePrefix]);
-
-  useEffect(() => {
-    if (config?.batchStoragePath) {
-      setStoragePath(config.batchStoragePath);
-    }
-  }, [config?.batchStoragePath]);
 
   useEffect(() => {
     if (config?.batchConcurrency) {
@@ -251,7 +243,7 @@ export function BatchProcess() {
         endNumber: end,
         concurrency: concurrencyNum,
         roadmap: roadmap.trim(),
-        storagePath: storagePath.trim() || undefined,
+        storagePath: config?.batchStoragePath?.trim() || undefined,
         filePrefix: filePrefix.trim() || '任务',
         templateType,
         namingMethod,
@@ -272,7 +264,7 @@ export function BatchProcess() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [startNumber, endNumber, concurrency, roadmap, storagePath, filePrefix, templateType, namingMethod, parsedNames, uploadedFiles, sharedFiles, config, submitMutation]);
+  }, [startNumber, endNumber, concurrency, roadmap, filePrefix, templateType, namingMethod, parsedNames, uploadedFiles, sharedFiles, config, submitMutation]);
 
   return (
     <div className="space-y-6">
@@ -708,37 +700,6 @@ export function BatchProcess() {
                 </div>
               )}
             </div>
-          </div>
-
-          {/* 存储路径 */}
-          <div className="space-y-2">
-            <Label htmlFor="storagePath" className="flex items-center gap-2">
-              <FolderOpen className="w-4 h-4" />
-              Google Drive 存储路径
-            </Label>
-            <Input
-              id="storagePath"
-              type="text"
-              placeholder="Mac(online)/Documents/XDF/批量任务"
-              value={storagePath}
-              onChange={(e) => setStoragePath(e.target.value)}
-              onBlur={async () => {
-                if (storagePath !== config?.batchStoragePath) {
-                  setIsPathSaving(true);
-                  try {
-                    await updateConfig.mutateAsync({ batchStoragePath: storagePath });
-                  } catch (e) {
-                    console.error('保存路径失败:', e);
-                  } finally {
-                    setIsPathSaving(false);
-                  }
-                }
-              }}
-              disabled={isSubmitting}
-            />
-            <p className="text-xs text-gray-500">
-              {isPathSaving ? '保存中...' : '留空则不上传到 Google Drive，修改后自动保存'}
-            </p>
           </div>
 
           {/* 模型选择 */}
