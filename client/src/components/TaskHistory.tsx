@@ -221,6 +221,57 @@ function HwImportButton({ taskId, studentName }: { taskId: string; studentName: 
   );
 }
 
+/** 小班课作业管理导入按钮（N+1 模式：班级 + 每个出勤学生） */
+function HwClassImportButton({ taskId, classNumber, attendanceStudents }: {
+  taskId: string;
+  classNumber: string;
+  attendanceStudents: string[];
+}) {
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+  const importMutation = trpc.homework.importClassFromTask.useMutation();
+  const validStudents = attendanceStudents.filter(s => s.trim());
+
+  const handleImport = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (status === "loading" || status === "success") return;
+    setStatus("loading");
+    setErrorMsg("");
+    try {
+      const result = await importMutation.mutateAsync({ taskId, classNumber, attendanceStudents: validStudents });
+      console.log(`[作业管理导入] 小班课导入完成: ${result.className}, 共${result.total}条`);
+      setStatus("success");
+    } catch (err: any) {
+      setErrorMsg(err?.message || "导入失败");
+      setStatus("error");
+    }
+  };
+
+  return (
+    <button
+      className={`w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+        status === "idle" ? "bg-emerald-500 hover:bg-emerald-600 text-white active:bg-emerald-700" :
+        status === "loading" ? "bg-emerald-400 text-white/90 cursor-wait" :
+        status === "success" ? "bg-green-500 text-white" :
+        "bg-red-500 hover:bg-red-600 text-white"
+      }`}
+      onClick={handleImport}
+      disabled={status === "loading" || status === "success"}
+    >
+      {status === "loading" && <Loader2 className="h-4 w-4 animate-spin" />}
+      {status === "success" && <CheckCircle2 className="h-4 w-4" />}
+      {status === "error" && <XCircle className="h-4 w-4" />}
+      {status === "idle" && <BookOpen className="h-4 w-4" />}
+      <span>
+        {status === "idle" && `导入作业管理 (1+${validStudents.length})`}
+        {status === "loading" && "导入中..."}
+        {status === "success" && `已导入作业管理 (1+${validStudents.length})`}
+        {status === "error" && (errorMsg ? `导入失败: ${errorMsg}` : "导入失败，点击重试")}
+      </span>
+    </button>
+  );
+}
+
 /** 通用全文查看器 */
 function ContentViewer({ taskId, onClose, title, queryFn }: {
   taskId: string;
@@ -797,18 +848,32 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                             </div>
                           );
                         })()}
-                        {/* 导入作业管理按钮（1对1课程、提取步骤完成时显示） */}
+                        {/* 导入作业管理按钮（提取步骤完成时显示） */}
                         {(task.status === "completed" || task.status === "partial") &&
-                          task.courseType === "one-to-one" &&
                           task.stepResults?.extraction?.status === "completed" && (() => {
-                            const nameMatch = task.displayName?.match(/^(.+?)\s*第/);
-                            const studentName = nameMatch ? nameMatch[1] : "";
-                            if (!studentName) return null;
-                            return (
-                              <div className="mt-2">
-                                <HwImportButton taskId={task.id} studentName={studentName} />
-                              </div>
-                            );
+                            if (task.courseType === "class") {
+                              // 小班课：N+1模式
+                              if (!task.classNumber || !task.attendanceStudents) return null;
+                              return (
+                                <div className="mt-2">
+                                  <HwClassImportButton
+                                    taskId={task.id}
+                                    classNumber={task.classNumber}
+                                    attendanceStudents={task.attendanceStudents}
+                                  />
+                                </div>
+                              );
+                            } else {
+                              // 一对一
+                              const nameMatch = task.displayName?.match(/^(.+?)\s*第/);
+                              const studentName = nameMatch ? nameMatch[1] : "";
+                              if (!studentName) return null;
+                              return (
+                                <div className="mt-2">
+                                  <HwImportButton taskId={task.id} studentName={studentName} />
+                                </div>
+                              );
+                            }
                           })()}
                         {/* 查看发送素材 */}
                         {task.materialsSummary && (
