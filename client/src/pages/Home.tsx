@@ -36,10 +36,12 @@ import {
   ArrowUp,
   ArrowDown,
   BookOpen,
+  PenLine,
 } from "lucide-react";
 import { VERSION_DISPLAY } from "../version.generated";
 import { TaskHistory } from "@/components/TaskHistory";
 import { HomeworkManagement } from "@/components/HomeworkManagement";
+import { HomeworkCorrection } from "@/components/HomeworkCorrection";
 
 // 步骤状态类型
 interface StepStatus {
@@ -2978,7 +2980,7 @@ export default function Home() {
 
         {/* 大分页 Tab 切换 */}
         <Tabs defaultValue="classroom" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
+          <TabsList className="grid w-full grid-cols-4 mb-6">
             <TabsTrigger value="classroom" className="text-base py-2">
               <FileText className="w-4 h-4 mr-2" />
               课堂反馈
@@ -2986,6 +2988,10 @@ export default function Home() {
             <TabsTrigger value="homework" className="text-base py-2">
               <BookOpen className="w-4 h-4 mr-2" />
               作业管理
+            </TabsTrigger>
+            <TabsTrigger value="correction" className="text-base py-2">
+              <PenLine className="w-4 h-4 mr-2" />
+              作业批改
             </TabsTrigger>
             <TabsTrigger value="batch" className="text-base py-2">
               <Users className="w-4 h-4 mr-2" />
@@ -4113,6 +4119,24 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <HomeworkManagement />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* 作业批改 Tab 内容 */}
+          <TabsContent value="correction">
+            <Card className="shadow-xl">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <PenLine className="w-5 h-5 text-purple-600" />
+                  作业批改
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm">
+                  选择学生 → 选择批改类型 → 输入/上传作业 → AI批改 → 自动更新学生状态
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <HomeworkCorrection />
               </CardContent>
             </Card>
           </TabsContent>
