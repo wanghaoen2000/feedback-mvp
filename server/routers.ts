@@ -63,6 +63,10 @@ import {
   importClassFromTaskExtraction,
   listStudentEntries,
   getStudentLatestStatus,
+  exportStudentBackup,
+  previewBackup,
+  importStudentBackup,
+  autoBackupToGDrive,
 } from "./homeworkManager";
 
 // 设置配置值
@@ -2548,12 +2552,16 @@ export const appRouter = router({
     confirmEntries: protectedProcedure
       .input(z.object({ ids: z.array(z.number()) }))
       .mutation(async ({ input }) => {
-        return confirmEntries(input.ids);
+        const result = await confirmEntries(input.ids);
+        if (result.count > 0) autoBackupToGDrive(); // fire-and-forget
+        return result;
       }),
 
     confirmAll: protectedProcedure
       .mutation(async () => {
-        return confirmAllPreStaged();
+        const result = await confirmAllPreStaged();
+        if (result.updatedStudents.length > 0) autoBackupToGDrive(); // fire-and-forget
+        return result;
       }),
 
     // 学生管理专用配置（AI模型、提示词）
@@ -2599,7 +2607,9 @@ export const appRouter = router({
         extractionContent: z.string().min(1),
       }))
       .mutation(async ({ input }) => {
-        return importFromExtraction(input.studentName, input.extractionContent);
+        const result = await importFromExtraction(input.studentName, input.extractionContent);
+        autoBackupToGDrive(); // fire-and-forget
+        return result;
       }),
 
     // 从后台任务一键导入（自动获取课后信息提取内容）
@@ -2609,7 +2619,9 @@ export const appRouter = router({
         studentName: z.string().min(1),
       }))
       .mutation(async ({ input }) => {
-        return importFromTaskExtraction(input.taskId, input.studentName);
+        const result = await importFromTaskExtraction(input.taskId, input.studentName);
+        autoBackupToGDrive(); // fire-and-forget
+        return result;
       }),
 
     // 小班课一键导入：N+1模式（班级 + 每个出勤学生）
@@ -2620,7 +2632,30 @@ export const appRouter = router({
         attendanceStudents: z.array(z.string()),
       }))
       .mutation(async ({ input }) => {
-        return importClassFromTaskExtraction(input.taskId, input.classNumber, input.attendanceStudents);
+        const result = await importClassFromTaskExtraction(input.taskId, input.classNumber, input.attendanceStudents);
+        autoBackupToGDrive(); // fire-and-forget
+        return result;
+      }),
+
+    // ========== 数据备份与恢复 ==========
+    exportBackup: protectedProcedure
+      .mutation(async () => {
+        const result = await exportStudentBackup();
+        // 同时上传到 Google Drive
+        autoBackupToGDrive();
+        return result;
+      }),
+
+    previewBackup: protectedProcedure
+      .input(z.object({ content: z.string().min(1, "备份内容不能为空") }))
+      .mutation(async ({ input }) => {
+        return previewBackup(input.content);
+      }),
+
+    importBackup: protectedProcedure
+      .input(z.object({ content: z.string().min(1, "备份内容不能为空") }))
+      .mutation(async ({ input }) => {
+        return importStudentBackup(input.content);
       }),
   }),
 

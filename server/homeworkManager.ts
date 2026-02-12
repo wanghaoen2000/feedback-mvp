@@ -685,3 +685,252 @@ export async function importClassFromTaskExtraction(
   console.log(`[学生管理] 小班课一键导入完成: ${className}, 共${results.length}条 (1班级 + ${results.length - 1}学生)`);
   return { total: results.length, className, results };
 }
+
+// ============= 数据备份与恢复 =============
+
+const BACKUP_SEPARATOR = "═══════════════════════════════════════";
+const STUDENT_HEADER_RE = /^## ═+ 学生[:：]\s*(.+?)\s*═+$/;
+const FIELD_PLAN_TYPE = "### 计划类型";
+const FIELD_NEXT_CLASS = "### 下次上课日期";
+const FIELD_EXAM_TARGET = "### 考试目标";
+const FIELD_EXAM_DATE = "### 考试日期";
+const FIELD_STATUS = "### 状态记录";
+
+/**
+ * 导出所有活跃学生数据为 Markdown 格式
+ */
+export async function exportStudentBackup(): Promise<{ content: string; studentCount: number; timestamp: string }> {
+  await ensureHwTables();
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+
+  const students = await db.select().from(hwStudents)
+    .where(eq(hwStudents.status, "active"))
+    .orderBy(hwStudents.name);
+
+  const now = new Date();
+  const timestamp = now.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })
+    .replace(/\//g, "-");
+  const fileTimestamp = now.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+
+  const lines: string[] = [];
+  lines.push("# 学生管理数据备份");
+  lines.push(`> 导出时间: ${timestamp}`);
+  lines.push(`> 学生总数: ${students.length}`);
+  lines.push("");
+
+  for (const student of students) {
+    lines.push(`## ${BACKUP_SEPARATOR} 学生: ${student.name} ${BACKUP_SEPARATOR}`);
+    lines.push("");
+    lines.push(FIELD_PLAN_TYPE);
+    lines.push(student.planType || "weekly");
+    lines.push("");
+    lines.push(FIELD_NEXT_CLASS);
+    lines.push(student.nextClassDate || "");
+    lines.push("");
+    lines.push(FIELD_EXAM_TARGET);
+    lines.push(student.examTarget || "");
+    lines.push("");
+    lines.push(FIELD_EXAM_DATE);
+    lines.push(student.examDate || "");
+    lines.push("");
+    lines.push(FIELD_STATUS);
+    lines.push(student.currentStatus || "(无状态记录)");
+    lines.push("");
+    lines.push("---");
+    lines.push("");
+  }
+
+  return {
+    content: lines.join("\n"),
+    studentCount: students.length,
+    timestamp: fileTimestamp,
+  };
+}
+
+interface ParsedStudent {
+  name: string;
+  planType: string;
+  nextClassDate: string;
+  examTarget: string;
+  examDate: string;
+  currentStatus: string;
+}
+
+/**
+ * 解析备份 Markdown 文件内容
+ */
+export function parseBackupContent(content: string): ParsedStudent[] {
+  const students: ParsedStudent[] = [];
+  const lines = content.split("\n");
+
+  let current: ParsedStudent | null = null;
+  let currentField = "";
+  let fieldLines: string[] = [];
+
+  const flushField = () => {
+    if (!current || !currentField) return;
+    const value = fieldLines.join("\n").trim();
+    if (currentField === FIELD_PLAN_TYPE) current.planType = value === "daily" ? "daily" : "weekly";
+    else if (currentField === FIELD_NEXT_CLASS) current.nextClassDate = value;
+    else if (currentField === FIELD_EXAM_TARGET) current.examTarget = value;
+    else if (currentField === FIELD_EXAM_DATE) current.examDate = value;
+    else if (currentField === FIELD_STATUS) current.currentStatus = value === "(无状态记录)" ? "" : value;
+    currentField = "";
+    fieldLines = [];
+  };
+
+  for (const line of lines) {
+    const headerMatch = line.match(STUDENT_HEADER_RE);
+    if (headerMatch) {
+      if (current) {
+        flushField();
+        students.push(current);
+      }
+      current = { name: headerMatch[1].trim(), planType: "weekly", nextClassDate: "", examTarget: "", examDate: "", currentStatus: "" };
+      currentField = "";
+      fieldLines = [];
+      continue;
+    }
+
+    if (!current) continue;
+
+    if (line === "---") {
+      flushField();
+      students.push(current);
+      current = null;
+      continue;
+    }
+
+    if ([FIELD_PLAN_TYPE, FIELD_NEXT_CLASS, FIELD_EXAM_TARGET, FIELD_EXAM_DATE, FIELD_STATUS].includes(line)) {
+      flushField();
+      currentField = line;
+      fieldLines = [];
+      continue;
+    }
+
+    if (currentField) {
+      fieldLines.push(line);
+    }
+  }
+
+  // 尾部没有 --- 的情况
+  if (current) {
+    flushField();
+    students.push(current);
+  }
+
+  return students;
+}
+
+/**
+ * 预览备份文件（返回首/中/尾学生信息用于确认）
+ */
+export function previewBackup(content: string): {
+  total: number;
+  samples: Array<{ name: string; planType: string; statusPreview: string }>;
+  allNames: string[];
+} {
+  const students = parseBackupContent(content);
+  if (students.length === 0) return { total: 0, samples: [], allNames: [] };
+
+  const toSample = (s: ParsedStudent) => ({
+    name: s.name,
+    planType: s.planType,
+    statusPreview: s.currentStatus ? s.currentStatus.slice(0, 200) + (s.currentStatus.length > 200 ? "..." : "") : "(无)",
+  });
+
+  const samples = [];
+  samples.push(toSample(students[0]));
+  if (students.length > 2) {
+    samples.push(toSample(students[Math.floor(students.length / 2)]));
+  }
+  if (students.length > 1) {
+    samples.push(toSample(students[students.length - 1]));
+  }
+
+  return {
+    total: students.length,
+    samples,
+    allNames: students.map(s => s.name),
+  };
+}
+
+/**
+ * 从备份内容导入（覆盖/创建学生记录）
+ */
+export async function importStudentBackup(content: string): Promise<{
+  imported: number;
+  created: number;
+  updated: number;
+}> {
+  await ensureHwTables();
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+
+  const students = parseBackupContent(content);
+  if (students.length === 0) throw new Error("备份文件中未找到学生数据");
+
+  let created = 0;
+  let updated = 0;
+
+  for (const s of students) {
+    const existing = await db.select().from(hwStudents)
+      .where(eq(hwStudents.name, s.name))
+      .limit(1);
+
+    if (existing.length > 0) {
+      // 更新已有学生
+      await db.update(hwStudents).set({
+        planType: s.planType,
+        nextClassDate: s.nextClassDate || null,
+        examTarget: s.examTarget || null,
+        examDate: s.examDate || null,
+        currentStatus: s.currentStatus || null,
+        status: "active",
+      }).where(eq(hwStudents.id, existing[0].id));
+      updated++;
+    } else {
+      // 创建新学生
+      await db.insert(hwStudents).values({
+        name: s.name,
+        planType: s.planType,
+        nextClassDate: s.nextClassDate || null,
+        examTarget: s.examTarget || null,
+        examDate: s.examDate || null,
+        currentStatus: s.currentStatus || null,
+      });
+      created++;
+    }
+  }
+
+  console.log(`[学生管理] 备份导入完成: 共${students.length}个学生 (新建${created}, 更新${updated})`);
+  return { imported: students.length, created, updated };
+}
+
+/**
+ * 自动备份到 Google Drive（fire-and-forget）
+ */
+export async function autoBackupToGDrive(): Promise<void> {
+  try {
+    const { content, studentCount, timestamp } = await exportStudentBackup();
+    if (studentCount === 0) return;
+
+    const { getConfigValue: getConfig } = await import("./core/aiClient");
+    const { DEFAULT_CONFIG } = await import("./core/aiClient");
+    const { uploadToGoogleDrive } = await import("./gdrive");
+
+    const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+    const folderPath = `${driveBasePath}/学生管理信息备份`;
+    const fileName = `学生管理备份_${timestamp}.md`;
+
+    const result = await uploadToGoogleDrive(content, fileName, folderPath);
+    if (result.status === "success") {
+      console.log(`[学生管理] 自动备份成功: ${fileName} (${studentCount}个学生)`);
+    } else {
+      console.warn(`[学生管理] 自动备份上传失败: ${result.error || result.message}`);
+    }
+  } catch (err: any) {
+    console.error(`[学生管理] 自动备份异常:`, err?.message);
+  }
+}
