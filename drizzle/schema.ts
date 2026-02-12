@@ -101,3 +101,40 @@ export const hwEntries = mysqlTable("hw_entries", {
 
 export type HwEntry = typeof hwEntries.$inferSelect;
 export type InsertHwEntry = typeof hwEntries.$inferInsert;
+
+// 批量任务表（服务器端后台执行）
+export const batchTasks = mysqlTable("batch_tasks", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  displayName: varchar("display_name", { length: 200 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | running | completed | failed | stopped | cancelled
+  totalItems: int("total_items").notNull().default(0),
+  completedItems: int("completed_items").notNull().default(0),
+  failedItems: int("failed_items").notNull().default(0),
+  inputParams: mediumtext("input_params").notNull(), // JSON: 路书、模板类型、文件信息等
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type BatchTask = typeof batchTasks.$inferSelect;
+export type InsertBatchTask = typeof batchTasks.$inferInsert;
+
+// 批量任务子项表
+export const batchTaskItems = mysqlTable("batch_task_items", {
+  id: int("id").autoincrement().primaryKey(),
+  batchId: varchar("batch_id", { length: 36 }).notNull(),
+  taskNumber: int("task_number").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | running | completed | failed
+  chars: int("chars").default(0),
+  filename: varchar("filename", { length: 500 }),
+  url: text("url"),
+  error: text("error"),
+  truncated: int("truncated").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type BatchTaskItem = typeof batchTaskItems.$inferSelect;
+export type InsertBatchTaskItem = typeof batchTaskItems.$inferInsert;

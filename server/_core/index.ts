@@ -86,6 +86,14 @@ async function startServer() {
     } catch (e) {
       console.warn("[启动] 后台任务恢复/清理跳过:", e);
     }
+    // 恢复中断的批量任务 + 清理旧批量任务
+    try {
+      const { recoverInterruptedBatchTasks, cleanupOldBatchTasks } = await import("../batch/batchTaskRunner");
+      await recoverInterruptedBatchTasks();
+      await cleanupOldBatchTasks();
+    } catch (e) {
+      console.warn("[启动] 批量任务恢复/清理跳过:", e);
+    }
   });
 }
 

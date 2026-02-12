@@ -2398,7 +2398,7 @@ export default function Home() {
           }
         }
 
-        alert(`任务已提交到后台！\n${result.displayName}\n\n即使关闭手机屏幕或断网，服务器也会继续生成。\n请在下方「任务记录」中查看进度。`);
+        // 提交成功 - 不弹对话框，任务会自动出现在下方「任务记录」中
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '提交失败';
         alert(`任务提交失败: ${message}`);

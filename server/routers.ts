@@ -2163,6 +2163,239 @@ export const appRouter = router({
       }),
   }),
 
+  // 批量任务管理（后台执行）
+  batchTask: router({
+    // 提交批量任务
+    submit: protectedProcedure
+      .input(z.object({
+        startNumber: z.number().min(1),
+        endNumber: z.number().min(1),
+        concurrency: z.number().min(1).max(100).default(50),
+        roadmap: z.string().min(1),
+        storagePath: z.string().optional(),
+        filePrefix: z.string().optional(),
+        templateType: z.string().default("markdown_styled"),
+        namingMethod: z.string().default("prefix"),
+        customFileNames: z.record(z.number().or(z.string()), z.string()).optional(),
+        files: z.any().optional(), // FileInfo record by task number
+        sharedFiles: z.any().optional(), // FileInfo[]
+        apiModel: z.string().optional(),
+        apiKey: z.string().optional(),
+        apiUrl: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { startBatchBackgroundTask, cleanupOldBatchTasks } = await import("./batch/batchTaskRunner");
+        const { batchTasks: batchTasksTable, batchTaskItems: batchItemsTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        if (input.startNumber > input.endNumber) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "起始编号不能大于结束编号" });
+        }
+
+        // 先清理旧任务
+        await cleanupOldBatchTasks();
+
+        const batchId = crypto.randomUUID();
+        const totalItems = input.endNumber - input.startNumber + 1;
+        const displayName = `批量生成 ${input.startNumber}-${input.endNumber} (${totalItems}个)`;
+
+        // 标准化 customFileNames 的 key 为数字
+        let normalizedCustomFileNames: Record<number, string> | undefined;
+        if (input.customFileNames) {
+          normalizedCustomFileNames = {};
+          for (const [key, value] of Object.entries(input.customFileNames)) {
+            normalizedCustomFileNames[Number(key)] = value;
+          }
+        }
+
+        // 标准化 files 的 key 为数字
+        let normalizedFiles: Record<number, any> | undefined;
+        if (input.files) {
+          normalizedFiles = {};
+          for (const [key, value] of Object.entries(input.files)) {
+            normalizedFiles[Number(key)] = value;
+          }
+        }
+
+        const taskParams = {
+          startNumber: input.startNumber,
+          endNumber: input.endNumber,
+          concurrency: input.concurrency,
+          roadmap: input.roadmap,
+          storagePath: input.storagePath || "",
+          filePrefix: input.filePrefix || "任务",
+          templateType: input.templateType,
+          namingMethod: input.namingMethod,
+          customFileNames: normalizedCustomFileNames,
+          files: normalizedFiles,
+          sharedFiles: input.sharedFiles,
+          apiModel: input.apiModel,
+          apiKey: input.apiKey,
+          apiUrl: input.apiUrl,
+        };
+
+        // 插入批量任务记录
+        await db.insert(batchTasksTable).values({
+          id: batchId,
+          displayName,
+          status: "pending",
+          totalItems,
+          completedItems: 0,
+          failedItems: 0,
+          inputParams: JSON.stringify(taskParams),
+        });
+
+        // 插入所有子任务记录
+        const itemValues = [];
+        for (let i = input.startNumber; i <= input.endNumber; i++) {
+          itemValues.push({
+            batchId,
+            taskNumber: i,
+            status: "pending",
+          });
+        }
+        // 批量插入（每次100条防止 SQL 太长）
+        for (let i = 0; i < itemValues.length; i += 100) {
+          const chunk = itemValues.slice(i, i + 100);
+          await db.insert(batchItemsTable).values(chunk);
+        }
+
+        // 启动后台处理
+        startBatchBackgroundTask(batchId);
+
+        return { batchId, displayName, totalItems };
+      }),
+
+    // 查询最近3天的批量任务历史
+    history: protectedProcedure.query(async () => {
+      const { batchTasks: batchTasksTable } = await import("../drizzle/schema");
+      const db = await getDb();
+      if (!db) return [];
+
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const tasks = await db.select({
+        id: batchTasksTable.id,
+        displayName: batchTasksTable.displayName,
+        status: batchTasksTable.status,
+        totalItems: batchTasksTable.totalItems,
+        completedItems: batchTasksTable.completedItems,
+        failedItems: batchTasksTable.failedItems,
+        errorMessage: batchTasksTable.errorMessage,
+        createdAt: batchTasksTable.createdAt,
+        completedAt: batchTasksTable.completedAt,
+        inputParams: batchTasksTable.inputParams,
+      })
+        .from(batchTasksTable)
+        .where(gte(batchTasksTable.createdAt, threeDaysAgo))
+        .orderBy(desc(batchTasksTable.createdAt));
+
+      return tasks.map((t) => {
+        // 从 inputParams 中提取显示信息（不返回完整参数）
+        let templateType: string | null = null;
+        let storagePath: string | null = null;
+        try {
+          const params = t.inputParams ? JSON.parse(t.inputParams) : null;
+          if (params) {
+            templateType = params.templateType || null;
+            storagePath = params.storagePath || null;
+          }
+        } catch { /* ignore */ }
+        return {
+          id: t.id,
+          displayName: t.displayName,
+          status: t.status,
+          totalItems: t.totalItems,
+          completedItems: t.completedItems,
+          failedItems: t.failedItems,
+          errorMessage: t.errorMessage,
+          templateType,
+          storagePath,
+          createdAt: t.createdAt.toISOString(),
+          completedAt: t.completedAt?.toISOString() || null,
+        };
+      });
+    }),
+
+    // 获取批量任务的子项列表
+    items: protectedProcedure
+      .input(z.object({ batchId: z.string() }))
+      .query(async ({ input }) => {
+        const { batchTaskItems: batchItemsTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) return [];
+
+        const items = await db.select({
+          id: batchItemsTable.id,
+          taskNumber: batchItemsTable.taskNumber,
+          status: batchItemsTable.status,
+          chars: batchItemsTable.chars,
+          filename: batchItemsTable.filename,
+          url: batchItemsTable.url,
+          error: batchItemsTable.error,
+          truncated: batchItemsTable.truncated,
+        })
+          .from(batchItemsTable)
+          .where(eq(batchItemsTable.batchId, input.batchId))
+          .orderBy(batchItemsTable.taskNumber);
+
+        return items.map((item) => ({
+          id: item.id,
+          taskNumber: item.taskNumber,
+          status: item.status,
+          chars: item.chars || 0,
+          filename: item.filename || null,
+          url: item.url || null,
+          error: item.error || null,
+          truncated: item.truncated === 1,
+        }));
+      }),
+
+    // 重试单个子任务
+    retryItem: protectedProcedure
+      .input(z.object({
+        batchId: z.string(),
+        taskNumber: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const { retryBatchItem } = await import("./batch/batchTaskRunner");
+        // 异步执行，不等待结果
+        retryBatchItem(input.batchId, input.taskNumber).catch((err) => {
+          console.error(`[批量任务重试] ${input.batchId}/${input.taskNumber} 失败:`, err?.message);
+        });
+        return { success: true, message: "重试已开始" };
+      }),
+
+    // 取消/停止批量任务
+    cancel: protectedProcedure
+      .input(z.object({ batchId: z.string() }))
+      .mutation(async ({ input }) => {
+        const { cancelBatchTask } = await import("./batch/batchTaskRunner");
+        const { batchTasks: batchTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+
+        const tasks = await db.select({ status: batchTasksTable.status })
+          .from(batchTasksTable)
+          .where(eq(batchTasksTable.id, input.batchId))
+          .limit(1);
+        if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
+        if (tasks[0].status !== "running" && tasks[0].status !== "pending") {
+          return { success: false, message: "任务不在运行状态" };
+        }
+
+        const cancelled = cancelBatchTask(input.batchId);
+        if (!cancelled) {
+          await db.update(batchTasksTable).set({
+            status: "stopped",
+            errorMessage: "用户手动停止",
+            completedAt: new Date(),
+          }).where(eq(batchTasksTable.id, input.batchId));
+        }
+        return { success: true, message: "停止请求已发送" };
+      }),
+  }),
+
   // 简单计算功能（保留MVP验证）
   calculate: router({
     compute: protectedProcedure
