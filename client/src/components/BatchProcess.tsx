@@ -17,8 +17,6 @@ import {
   File,
   Image,
   Trash2,
-  Copy,
-  Check,
 } from "lucide-react";
 import { BatchTaskHistory } from "./BatchTaskHistory";
 
@@ -34,111 +32,6 @@ interface UploadedFile {
   error?: string;
 }
 
-// 模板格式说明
-const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
-  markdown_styled: `【适用场景】带紫色标题、表头背景色的教学文档
-
-【AI输出格式】普通Markdown文本
-
-【支持的语法】
-# 一级标题（紫色）  ## 二级标题  ### 三级标题
-**粗体**  *斜体*  ***粗斜体***
-- 无序列表   1. 有序列表
-> 引用块（橙色▸标记）
-| 表头1 | 表头2 |  ← 表头有浅紫背景
-| --- | --- |
-| 数据1 | 数据2 |
----（分页符）
-
-【输出文件】.docx`,
-
-  markdown_plain: `【适用场景】黑白简洁的通用文档
-
-【AI输出格式】普通Markdown文本
-
-【支持的语法】
-# 一级标题  ## 二级标题  ### 三级标题
-**粗体**  *斜体*  ***粗斜体***
-- 无序列表   1. 有序列表
-> 引用块
-| 表头1 | 表头2 |
-| --- | --- |
-| 数据1 | 数据2 |
----（分页符）
-
-【输出文件】.docx（无颜色样式）`,
-
-  markdown_file: `【适用场景】直接输出Markdown源文件，不转换为Word
-
-【AI输出格式】普通Markdown文本
-
-【支持的语法】所有标准Markdown语法
-# 标题  **粗体**  *斜体*
-- 列表   > 引用   \`代码\`
-[链接](url)   ![图片](url)
-
-【输出文件】.md
-
-【注意】文件内容即AI输出的原始文本，不做任何转换`,
-
-  word_card: `【适用场景】托福/雅思词汇表，双栏卡片布局，紫色主题
-
-【AI输出格式】⚠️ 纯JSON（禁止输出\`\`\`json标记！）
-
-【JSON结构】
-{
-  "listNumber": 1,
-  "sceneName": "场景名称",
-  "wordCount": 25,
-  "words": [{
-    "num": 1,
-    "word": "example",
-    "phonetic": "/ɪɡˈzæmpl/",
-    "pos": "n.",
-    "meaning": "例子",
-    "example": "This is an example.",
-    "translation": "这是一个例子。"
-  }]
-}
-
-【关键要求】
-⚠️ 只输出纯JSON，不要任何解释文字
-⚠️ 不要输出\`\`\`json代码块标记
-⚠️ JSON必须能被JSON.parse()直接解析
-
-【输出文件】.docx（双栏卡片布局）`,
-
-  writing_material: `【适用场景】托福写作邮件素材，分类层级结构
-
-【AI输出格式】⚠️ 纯JSON（禁止输出\`\`\`json标记！）
-
-【JSON结构】
-{
-  "partNum": 1,
-  "partTitle": "Part 标题",
-  "listNum": 1,
-  "listTitle": "List 标题",
-  "bookmarkId": "唯一书签ID",
-  "categories": [{
-    "categoryTitle": "分类标题",
-    "sections": [{
-      "sectionTitle": "小节标题",
-      "items": [{
-        "english": "English expression",
-        "chinese": "中文释义"
-      }]
-    }]
-  }]
-}
-
-【关键要求】
-⚠️ 只输出纯JSON，不要任何解释文字
-⚠️ 不要输出\`\`\`json代码块标记
-⚠️ JSON必须能被JSON.parse()直接解析
-
-【输出文件】.docx（层级结构文档）`,
-};
-
 export function BatchProcess() {
   // 基本设置
   const [templateType, setTemplateType] = useState<'markdown_plain' | 'markdown_styled' | 'markdown_file' | 'word_card' | 'writing_material'>('markdown_styled');
@@ -151,9 +44,6 @@ export function BatchProcess() {
   const [filePrefix, setFilePrefix] = useState("任务");
   const [isPrefixSaving, setIsPrefixSaving] = useState(false);
 
-  // 复制格式说明状态
-  const [copied, setCopied] = useState(false);
-
   // 文件命名方式
   const [namingMethod, setNamingMethod] = useState<'prefix' | 'custom'>('prefix');
   const [customNames, setCustomNames] = useState<string>('');
@@ -162,6 +52,7 @@ export function BatchProcess() {
   // 从数据库加载配置
   const { data: config } = trpc.config.getAll.useQuery();
   const updateConfig = trpc.config.update.useMutation();
+  const trpcUtils = trpc.useUtils();
 
   // 加载配置后更新前缀和存储路径
   useEffect(() => {
@@ -310,16 +201,6 @@ export function BatchProcess() {
     }
   }, []);
 
-  // 复制格式说明到剪贴板
-  const handleCopyDescription = async () => {
-    const text = TEMPLATE_DESCRIPTIONS[templateType];
-    if (text) {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
   // 提交任务到后台
   const handleSubmit = useCallback(async () => {
     const start = parseInt(startNumber);
@@ -327,15 +208,15 @@ export function BatchProcess() {
     const concurrencyNum = parseInt(concurrency) || 50;
 
     if (isNaN(start) || isNaN(end)) {
-      alert("请输入有效的任务编号范围");
+      setSubmitError("请输入有效的任务编号范围");
       return;
     }
     if (start > end) {
-      alert("起始编号不能大于结束编号");
+      setSubmitError("起始编号不能大于结束编号");
       return;
     }
     if (!roadmap.trim()) {
-      alert("请输入路书内容");
+      setSubmitError("请输入路书内容");
       return;
     }
 
@@ -382,7 +263,8 @@ export function BatchProcess() {
         apiUrl: config?.apiUrl || undefined,
       });
 
-      // 提交成功 - 不弹对话框，任务会自动出现在下面的历史列表中
+      // 提交成功 — 立即刷新历史列表，不用等3秒轮询
+      trpcUtils.batchTask.history.invalidate();
     } catch (error: any) {
       const message = error?.message || "提交失败";
       setSubmitError(message);

@@ -2319,7 +2319,7 @@ export const appRouter = router({
 
     // 获取批量任务的子项列表
     items: protectedProcedure
-      .input(z.object({ batchId: z.string() }))
+      .input(z.object({ batchId: z.string().uuid() }))
       .query(async ({ input }) => {
         const { batchTaskItems: batchItemsTable } = await import("../drizzle/schema");
         const db = await getDb();
@@ -2354,7 +2354,7 @@ export const appRouter = router({
     // 重试单个子任务
     retryItem: protectedProcedure
       .input(z.object({
-        batchId: z.string(),
+        batchId: z.string().uuid(),
         taskNumber: z.number(),
       }))
       .mutation(async ({ input }) => {
@@ -2368,7 +2368,7 @@ export const appRouter = router({
 
     // 取消/停止批量任务
     cancel: protectedProcedure
-      .input(z.object({ batchId: z.string() }))
+      .input(z.object({ batchId: z.string().uuid() }))
       .mutation(async ({ input }) => {
         const { cancelBatchTask } = await import("./batch/batchTaskRunner");
         const { batchTasks: batchTasksTable } = await import("../drizzle/schema");

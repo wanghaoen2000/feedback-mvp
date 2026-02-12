@@ -5,7 +5,7 @@
 
 import { getDb } from "../db";
 import { batchTasks, batchTaskItems } from "../../drizzle/schema";
-import { eq, lt, and, sql } from "drizzle-orm";
+import { eq, lt, and, sql, inArray } from "drizzle-orm";
 import { getConfigValue as getConfig, DEFAULT_CONFIG, FileInfo } from "../core/aiClient";
 import { ConcurrencyPool } from "../core/concurrencyPool";
 import { executeBatchItem, BatchItemParams } from "./batchExecutor";
@@ -259,10 +259,27 @@ async function runBatchTask(batchId: string) {
   console.log(`[批量任务] ${batchId} 完成，状态: ${finalStatus} (成功${completedCount}/${taskNumbers.length}，失败${failedCount})`);
 }
 
+/** 重试锁：防止同一子任务被并发重试 */
+const _retryLocks = new Set<string>();
+
 /**
  * 重试单个子任务
  */
 export async function retryBatchItem(batchId: string, taskNumber: number): Promise<void> {
+  const lockKey = `${batchId}:${taskNumber}`;
+  if (_retryLocks.has(lockKey)) {
+    throw new Error("该任务正在重试中，请稍候");
+  }
+  _retryLocks.add(lockKey);
+
+  try {
+    await _doRetryBatchItem(batchId, taskNumber);
+  } finally {
+    _retryLocks.delete(lockKey);
+  }
+}
+
+async function _doRetryBatchItem(batchId: string, taskNumber: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
 
@@ -325,19 +342,16 @@ export async function retryBatchItem(batchId: string, taskNumber: number): Promi
       completedAt: new Date(),
     });
 
-    // 更新批量任务的失败计数（减1）
-    const batchInfo = await db.select().from(batchTasks).where(eq(batchTasks.id, batchId)).limit(1);
-    if (batchInfo.length > 0) {
-      const currentFailed = batchInfo[0].failedItems;
-      const currentCompleted = batchInfo[0].completedItems;
-      const newFailed = Math.max(0, currentFailed - 1);
-      const newCompleted = currentCompleted + 1;
-      await updateBatchTask(batchId, {
-        completedItems: newCompleted,
-        failedItems: newFailed,
-        errorMessage: newFailed > 0 ? `${newFailed} 个任务失败` : null,
-        status: newFailed === 0 ? "completed" : batchInfo[0].status,
-      });
+    // 用 SQL 原子操作更新批量任务计数（避免读-改-写竞态）
+    try {
+      await db.execute(sql`UPDATE batch_tasks SET
+        completed_items = completed_items + 1,
+        failed_items = GREATEST(0, failed_items - 1),
+        error_message = CASE WHEN GREATEST(0, failed_items - 1) = 0 THEN NULL ELSE CONCAT(GREATEST(0, failed_items - 1), ' 个任务失败') END,
+        status = CASE WHEN GREATEST(0, failed_items - 1) = 0 THEN 'completed' ELSE status END
+        WHERE id = ${batchId}`);
+    } catch (e: any) {
+      console.error(`[批量任务] ${batchId} 更新计数失败:`, e?.message || e);
     }
 
     console.log(`[批量任务] ${batchId} 重试任务 ${taskNumber} 成功`);
@@ -368,12 +382,9 @@ export async function cleanupOldBatchTasks(): Promise<number> {
 
   if (oldTasks.length > 0) {
     const oldIds = oldTasks.map(t => t.id);
-    // 删除子项
-    for (const id of oldIds) {
-      await db.delete(batchTaskItems).where(eq(batchTaskItems.batchId, id));
-    }
-    // 删除批量任务
-    await db.delete(batchTasks).where(lt(batchTasks.createdAt, threeDaysAgo));
+    // 批量删除子项和批量任务（单条 SQL，避免循环）
+    await db.delete(batchTaskItems).where(inArray(batchTaskItems.batchId, oldIds));
+    await db.delete(batchTasks).where(inArray(batchTasks.id, oldIds));
     console.log(`[批量任务] 清理了 ${oldTasks.length} 条旧批量任务`);
   }
 

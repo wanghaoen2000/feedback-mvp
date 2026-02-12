@@ -36,7 +36,7 @@ export type ProgressCallback = (taskNumber: number, chars: number) => void;
  * @param taskNumber 任务编号
  * @param result 任务结果
  */
-export type CompleteCallback<T> = (taskNumber: number, result: TaskResult<T>) => void;
+export type CompleteCallback<T> = (taskNumber: number, result: TaskResult<T>) => void | Promise<void>;
 
 /**
  * 并发池类
@@ -163,9 +163,13 @@ export class ConcurrencyPool<T = any> {
         this.results.set(taskNumber, result);
         completedCount++;
 
-        // 调用完成回调
+        // 调用完成回调（支持异步）
         if (onComplete) {
-          onComplete(taskNumber, result);
+          try {
+            await onComplete(taskNumber, result);
+          } catch (e) {
+            console.error(`[ConcurrencyPool] onComplete 回调异常 (任务 ${taskNumber}):`, e);
+          }
         }
 
         // 如果没有停止，尝试启动下一个任务
