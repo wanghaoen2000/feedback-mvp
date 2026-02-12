@@ -756,6 +756,7 @@ export default function Home() {
   const diagnoseMutation = trpc.localFile.diagnose.useMutation();
   const bgTaskSubmitMutation = trpc.bgTask.submit.useMutation();
   const hwImportFromTaskMutation = trpc.homework.importFromTask.useMutation();
+  const hwImportClassFromTaskMutation = trpc.homework.importClassFromTask.useMutation();
   // 加载配置
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
@@ -2388,6 +2389,7 @@ export default function Home() {
         });
         transcriptSegmentsRef.current = null; // 提交后清除
         setActiveTaskId(result.taskId);
+        setHwImportStatus('idle'); // 新任务开始，重置导入状态
 
         // 保存学生/班级课次到历史（用于下次自动填充课次+1）
         const lessonNum = parseInt((lessonNumber || '').replace(/[^0-9]/g, ''), 10);
@@ -2907,19 +2909,35 @@ export default function Home() {
 
   // 一键导入作业管理（从课后信息提取）
   const handleHwImport = useCallback(async () => {
-    if (!activeTaskId || !studentName.trim()) return;
+    if (!activeTaskId) return;
+    // 先验证必填字段，避免设置loading后提前return导致按钮卡死
+    if (courseType === 'class' && !classNumber.trim()) return;
+    if (courseType !== 'class' && !studentName.trim()) return;
+
     setHwImportStatus('loading');
     try {
-      await hwImportFromTaskMutation.mutateAsync({
-        taskId: activeTaskId,
-        studentName: studentName.trim(),
-      });
+      if (courseType === 'class') {
+        // 小班课：N+1模式，导入班级 + 每个出勤学生
+        const validStudents = attendanceStudents.filter((s: string) => s.trim());
+        const result = await hwImportClassFromTaskMutation.mutateAsync({
+          taskId: activeTaskId,
+          classNumber: classNumber.trim(),
+          attendanceStudents: validStudents,
+        });
+        console.log(`[作业管理导入] 小班课导入完成: ${result.className}, 共${result.total}条`);
+      } else {
+        // 一对一：原有逻辑
+        await hwImportFromTaskMutation.mutateAsync({
+          taskId: activeTaskId,
+          studentName: studentName.trim(),
+        });
+      }
       setHwImportStatus('success');
     } catch (err: any) {
       console.error("[作业管理导入] 失败:", err);
       setHwImportStatus('error');
     }
-  }, [activeTaskId, studentName, hwImportFromTaskMutation]);
+  }, [activeTaskId, courseType, studentName, classNumber, attendanceStudents, hwImportFromTaskMutation, hwImportClassFromTaskMutation]);
 
   // 导出日志到Google Drive
   const handleExportLog = async () => {
@@ -3866,7 +3884,7 @@ export default function Home() {
                                         下载
                                       </a>
                                     )}
-                                    {step.name === '课后信息提取' && activeTaskId && courseType === 'oneToOne' && (
+                                    {step.name === '课后信息提取' && activeTaskId && (
                                       <button
                                         onClick={handleHwImport}
                                         disabled={hwImportStatus === 'loading' || hwImportStatus === 'success'}
@@ -3882,7 +3900,10 @@ export default function Home() {
                                         {hwImportStatus === 'success' && <CheckCircle2 className="w-3 h-3" />}
                                         {hwImportStatus === 'error' && <AlertCircle className="w-3 h-3" />}
                                         {hwImportStatus === 'idle' && <BookOpen className="w-3 h-3" />}
-                                        {hwImportStatus === 'success' ? '已导入' : hwImportStatus === 'error' ? '导入失败，点击重试' : '导入作业管理'}
+                                        {hwImportStatus === 'success'
+                                          ? (courseType === 'class' ? `已导入(1+${attendanceStudents.filter((s: string) => s.trim()).length})` : '已导入')
+                                          : hwImportStatus === 'error' ? '导入失败，点击重试'
+                                          : (courseType === 'class' ? '导入作业管理(班级+学生)' : '导入作业管理')}
                                       </button>
                                     )}
                                   </div>

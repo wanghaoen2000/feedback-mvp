@@ -60,6 +60,7 @@ import {
   confirmAllPreStaged,
   importFromExtraction,
   importFromTaskExtraction,
+  importClassFromTaskExtraction,
   listStudentEntries,
   getStudentLatestStatus,
 } from "./homeworkManager";
@@ -2602,6 +2603,17 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         return importFromTaskExtraction(input.taskId, input.studentName);
+      }),
+
+    // 小班课一键导入：N+1模式（班级 + 每个出勤学生）
+    importClassFromTask: protectedProcedure
+      .input(z.object({
+        taskId: z.string().min(1),
+        classNumber: z.string().min(1),
+        attendanceStudents: z.array(z.string()),
+      }))
+      .mutation(async ({ input }) => {
+        return importClassFromTaskExtraction(input.taskId, input.classNumber, input.attendanceStudents);
       }),
   }),
 

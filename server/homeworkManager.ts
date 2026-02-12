@@ -578,3 +578,59 @@ export async function importFromTaskExtraction(
 
   return importFromExtraction(studentName, content);
 }
+
+/**
+ * 小班课一键导入：N+1 模式
+ * 为班级整体 + 每个出勤学生各创建一条导入记录
+ */
+export async function importClassFromTaskExtraction(
+  taskId: string,
+  classNumber: string,
+  attendanceStudents: string[],
+): Promise<{
+  total: number;
+  className: string;
+  results: Array<{ name: string; id: number; studentCreated: boolean }>;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+
+  // 从后台任务中获取课后信息提取内容
+  const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
+  const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
+    .from(bgTasksTable)
+    .where(eq(bgTasksTable.id, taskId))
+    .limit(1);
+
+  if (tasks.length === 0) throw new Error("任务不存在");
+
+  let stepResults: any = null;
+  try {
+    stepResults = tasks[0].stepResults ? JSON.parse(tasks[0].stepResults) : null;
+  } catch {
+    throw new Error("任务数据损坏");
+  }
+
+  const content = stepResults?.extraction?.content;
+  if (!content) throw new Error("课后信息提取内容不可用（可能任务未完成或该步骤失败）");
+
+  const className = `${classNumber.trim()}班`;
+  const results: Array<{ name: string; id: number; studentCreated: boolean }> = [];
+
+  // 1. 导入班级整体记录
+  const classResult = await importFromExtraction(className, content);
+  results.push({ name: className, ...classResult });
+  console.log(`[作业管理] 小班课导入: 班级 ${className}, 条目ID: ${classResult.id}`);
+
+  // 2. 逐个导入出勤学生
+  const validStudents = attendanceStudents.filter(s => s.trim());
+  for (const studentName of validStudents) {
+    const trimmed = studentName.trim();
+    const studentResult = await importFromExtraction(trimmed, content);
+    results.push({ name: trimmed, ...studentResult });
+    console.log(`[作业管理] 小班课导入: 学生 ${trimmed}, 条目ID: ${studentResult.id}`);
+  }
+
+  console.log(`[作业管理] 小班课一键导入完成: ${className}, 共${results.length}条 (1班级 + ${validStudents.length}学生)`);
+  return { total: results.length, className, results };
+}
