@@ -69,7 +69,7 @@ export const backgroundTasks = mysqlTable("background_tasks", {
 export type BackgroundTask = typeof backgroundTasks.$inferSelect;
 export type InsertBackgroundTask = typeof backgroundTasks.$inferInsert;
 
-// 作业管理系统 - 学生名册
+// 学生管理系统 - 学生名册
 export const hwStudents = mysqlTable("hw_students", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 64 }).notNull().unique(),
@@ -86,7 +86,7 @@ export const hwStudents = mysqlTable("hw_students", {
 export type HwStudent = typeof hwStudents.$inferSelect;
 export type InsertHwStudent = typeof hwStudents.$inferInsert;
 
-// 作业管理系统 - 语音输入条目（预入库队列）
+// 学生管理系统 - 语音输入条目（预入库队列）
 export const hwEntries = mysqlTable("hw_entries", {
   id: int("id").autoincrement().primaryKey(),
   studentName: varchar("student_name", { length: 64 }).notNull(),
@@ -150,11 +150,11 @@ export const correctionTasks = mysqlTable("correction_tasks", {
   studentStatus: mediumtext("student_status"),        // 提交时的学生状态快照
   systemPrompt: mediumtext("system_prompt"),          // 使用的完整系统提示词
   resultCorrection: mediumtext("result_correction"),  // AI批改结果（给学生的）
-  resultStatusUpdate: mediumtext("result_status_update"), // AI状态更新（给作业管理的）
+  resultStatusUpdate: mediumtext("result_status_update"), // AI状态更新（给学生管理的）
   aiModel: varchar("ai_model", { length: 128 }),
   taskStatus: varchar("task_status", { length: 20 }).notNull().default("pending"), // pending | processing | completed | failed
   errorMessage: text("error_message"),
-  autoImported: int("auto_imported").default(0),      // 是否已自动推送到作业管理
+  autoImported: int("auto_imported").default(0),      // 是否已自动推送到学生管理
   importEntryId: int("import_entry_id"),              // 推送后的条目ID
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),

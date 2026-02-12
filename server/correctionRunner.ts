@@ -1,6 +1,6 @@
 /**
  * 作业批改系统 - 后端逻辑
- * 包含：表自动创建、任务提交、AI批改处理、结果解析、自动推送到作业管理
+ * 包含：表自动创建、任务提交、AI批改处理、结果解析、自动推送到学生管理
  */
 
 import { getDb } from "./db";
@@ -333,7 +333,7 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
 
     console.log(`[作业批改] 任务${taskId}完成, 批改${correction.length}字, 状态更新${statusUpdate.length}字`);
 
-    // 自动推送到作业管理系统（始终尝试，即使AI未按格式分割）
+    // 自动推送到学生管理系统（始终尝试，即使AI未按格式分割）
     try {
       const importContent = statusUpdate.trim()
         ? statusUpdate
@@ -348,7 +348,7 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
           importEntryId: importResult.id,
         })
         .where(eq(correctionTasks.id, taskId));
-      console.log(`[作业批改] 已自动推送到作业管理: 条目ID=${importResult.id}`);
+      console.log(`[作业批改] 已自动推送到学生管理: 条目ID=${importResult.id}`);
     } catch (importErr: any) {
       console.error(`[作业批改] 自动推送失败:`, importErr?.message);
       // 推送失败不影响批改结果

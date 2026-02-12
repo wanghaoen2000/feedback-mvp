@@ -2035,7 +2035,7 @@ export const appRouter = router({
                 lastFeedbackChars: params.lastFeedback?.length || 0,
                 transcriptSegments: params.transcriptSegments || undefined,
               };
-              // 小班课参数（用于历史任务的作业管理导入）
+              // 小班课参数（用于历史任务的学生管理导入）
               if (params.classNumber) classNumber = params.classNumber;
               if (params.attendanceStudents) attendanceStudents = params.attendanceStudents;
             }
@@ -2455,7 +2455,7 @@ export const appRouter = router({
       }),
   }),
 
-  // ==================== 作业管理系统 ====================
+  // ==================== 学生管理系统 ====================
   homework: router({
     // 学生名册
     listStudents: protectedProcedure
@@ -2556,7 +2556,7 @@ export const appRouter = router({
         return confirmAllPreStaged();
       }),
 
-    // 作业管理专用配置（AI模型、提示词）
+    // 学生管理专用配置（AI模型、提示词）
     getConfig: protectedProcedure
       .query(async () => {
         const hwAiModel = await getConfig("hwAiModel");
@@ -2576,10 +2576,10 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         if (input.hwAiModel !== undefined) {
-          await setConfig("hwAiModel", input.hwAiModel, "作业管理AI模型");
+          await setConfig("hwAiModel", input.hwAiModel, "学生管理AI模型");
         }
         if (input.hwPromptTemplate !== undefined) {
-          await setConfig("hwPromptTemplate", input.hwPromptTemplate, "作业管理提示词");
+          await setConfig("hwPromptTemplate", input.hwPromptTemplate, "学生管理提示词");
         }
         return { success: true };
       }),

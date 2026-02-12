@@ -176,7 +176,7 @@ function DownloadButton({ label, files }: {
   );
 }
 
-/** 一键导入作业管理按钮 */
+/** 一键导入学生管理按钮 */
 function HwImportButton({ taskId, studentName }: { taskId: string; studentName: string }) {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
@@ -212,16 +212,16 @@ function HwImportButton({ taskId, studentName }: { taskId: string; studentName: 
       {status === "error" && <XCircle className="h-4 w-4" />}
       {status === "idle" && <BookOpen className="h-4 w-4" />}
       <span>
-        {status === "idle" && "导入作业管理"}
+        {status === "idle" && "导入学生管理"}
         {status === "loading" && "导入中..."}
-        {status === "success" && "已导入作业管理"}
+        {status === "success" && "已导入学生管理"}
         {status === "error" && (errorMsg ? `导入失败: ${errorMsg}` : "导入失败，点击重试")}
       </span>
     </button>
   );
 }
 
-/** 小班课作业管理导入按钮（N+1 模式：班级 + 每个出勤学生） */
+/** 小班课学生管理导入按钮（N+1 模式：班级 + 每个出勤学生） */
 function HwClassImportButton({ taskId, classNumber, attendanceStudents }: {
   taskId: string;
   classNumber: string;
@@ -239,7 +239,7 @@ function HwClassImportButton({ taskId, classNumber, attendanceStudents }: {
     setErrorMsg("");
     try {
       const result = await importMutation.mutateAsync({ taskId, classNumber, attendanceStudents: validStudents });
-      console.log(`[作业管理导入] 小班课导入完成: ${result.className}, 共${result.total}条`);
+      console.log(`[学生管理导入] 小班课导入完成: ${result.className}, 共${result.total}条`);
       setStatus("success");
     } catch (err: any) {
       setErrorMsg(err?.message || "导入失败");
@@ -263,9 +263,9 @@ function HwClassImportButton({ taskId, classNumber, attendanceStudents }: {
       {status === "error" && <XCircle className="h-4 w-4" />}
       {status === "idle" && <BookOpen className="h-4 w-4" />}
       <span>
-        {status === "idle" && `导入作业管理 (1+${validStudents.length})`}
+        {status === "idle" && `导入学生管理 (1+${validStudents.length})`}
         {status === "loading" && "导入中..."}
-        {status === "success" && `已导入作业管理 (1+${validStudents.length})`}
+        {status === "success" && `已导入学生管理 (1+${validStudents.length})`}
         {status === "error" && (errorMsg ? `导入失败: ${errorMsg}` : "导入失败，点击重试")}
       </span>
     </button>
@@ -848,7 +848,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                             </div>
                           );
                         })()}
-                        {/* 导入作业管理按钮（提取步骤完成时显示） */}
+                        {/* 导入学生管理按钮（提取步骤完成时显示） */}
                         {(task.status === "completed" || task.status === "partial") &&
                           task.stepResults?.extraction?.status === "completed" && (() => {
                             if (task.courseType === "class") {

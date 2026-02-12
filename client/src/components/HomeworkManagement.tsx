@@ -273,7 +273,7 @@ export function HomeworkManagement() {
             <div>
               <Label className="text-sm font-medium flex items-center gap-2">
                 <FileText className="w-4 h-4 text-blue-600" />
-                作业管理提示词
+                学生管理提示词
               </Label>
               <p className="text-xs text-gray-500 mb-1">
                 定义学生状态文档的格式要求和AI处理规则。类似学情反馈的路书，每次AI处理时会使用此提示词。
@@ -283,7 +283,7 @@ export function HomeworkManagement() {
                   ref={promptTextareaRef}
                   value={localPrompt}
                   onChange={(e) => setLocalPrompt(e.target.value)}
-                  placeholder={"在这里编写作业管理提示词...\n\n例如：\n- 学生状态文档的格式模板\n- 各模块（作业布置、完成情况、成绩轨迹、词汇进展等）的具体要求\n- 作业标准名称列表\n- 更新规则（哪些字段原封不动保留，哪些需要更新）"}
+                  placeholder={"在这里编写学生管理提示词...\n\n例如：\n- 学生状态文档的格式模板\n- 各模块（作业布置、完成情况、成绩轨迹、词汇进展等）的具体要求\n- 作业标准名称列表\n- 更新规则（哪些字段原封不动保留，哪些需要更新）"}
                   rows={12}
                   className="text-sm font-mono !field-sizing-fixed max-h-[45vh] overflow-y-auto"
                   style={{ fieldSizing: 'fixed' } as React.CSSProperties}

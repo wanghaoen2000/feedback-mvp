@@ -692,7 +692,7 @@ function TaskCard({
               <div className="px-3 py-1.5 border-b border-blue-200 flex items-center gap-2">
                 <span className="text-xs font-medium text-blue-700">状态更新</span>
                 {expandedData.autoImported ? (
-                  <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded">已自动推送到作业管理</span>
+                  <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded">已自动推送到学生管理</span>
                 ) : (
                   <span className="text-[10px] text-blue-400">等待推送</span>
                 )}

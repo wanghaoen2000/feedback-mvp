@@ -260,7 +260,7 @@ B. 中译英
 1. 正确答案：X
 解析：xxx`;
 
-const EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。从学情反馈中提取关键信息，生成助教用的作业管理档案。
+const EXTRACTION_SYSTEM_PROMPT = `你是一个课后信息提取助手。从学情反馈中提取关键信息，生成助教用的学生管理档案。
 
 【重要格式要求】
 1. 不要使用任何markdown标记
@@ -1267,7 +1267,7 @@ export async function generateExtractionContent(
 学情反馈内容：
 ${feedback}
 
-请严格按照课后信息提取格式规范生成作业管理档案。不要使用markdown标记。
+请严格按照课后信息提取格式规范生成学生管理档案。不要使用markdown标记。
 
 【重要边界限制】
 本次只需要生成课后信息提取，不要生成学情反馈、复习文档、测试本或其他任何内容。

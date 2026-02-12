@@ -1,12 +1,12 @@
 /**
- * 作业管理系统 - 后端逻辑
+ * 学生管理系统 - 后端逻辑（代码中 hw/homework 前缀均指本模块）
  * 包含：表自动创建、学生管理、AI处理、预入库队列
  */
 
 import { getDb } from "./db";
 import { hwStudents, hwEntries } from "../drizzle/schema";
 import { eq, desc, sql, and, inArray } from "drizzle-orm";
-import { invokeWhatAI } from "./whatai";
+import { invokeWhatAIStream } from "./whatai";
 import { getConfigValue } from "./core/aiClient";
 import { getBeijingTimeContext } from "./utils";
 
@@ -47,15 +47,15 @@ export async function ensureHwTables(): Promise<void> {
     // 安全添加 current_status 列（已有表可能没有此列）
     try {
       await db.execute(sql`ALTER TABLE \`hw_students\` ADD COLUMN \`current_status\` MEDIUMTEXT`);
-      console.log("[作业管理] 已添加 current_status 列");
+      console.log("[学生管理] 已添加 current_status 列");
     } catch (alterErr: any) {
       // 如果列已存在，MySQL 会报 Duplicate column name 错误，忽略即可
       if (!alterErr?.message?.includes("Duplicate column")) {
-        console.warn("[作业管理] ALTER TABLE 警告:", alterErr?.message);
+        console.warn("[学生管理] ALTER TABLE 警告:", alterErr?.message);
       }
     }
     tableEnsured = true;
-    console.log("[作业管理] 表已就绪");
+    console.log("[学生管理] 表已就绪");
     // 恢复卡死的条目：服务器重启后 processing/pending 状态的条目不会继续处理
     try {
       const stuck = await db.update(hwEntries)
@@ -64,13 +64,13 @@ export async function ensureHwTables(): Promise<void> {
       // MySQL returns affected rows info
       const affectedRows = (stuck as any)[0]?.affectedRows ?? 0;
       if (affectedRows > 0) {
-        console.log(`[作业管理] 恢复 ${affectedRows} 条卡死条目为失败状态`);
+        console.log(`[学生管理] 恢复 ${affectedRows} 条卡死条目为失败状态`);
       }
     } catch (recoverErr: any) {
-      console.warn("[作业管理] 恢复卡死条目失败:", recoverErr?.message);
+      console.warn("[学生管理] 恢复卡死条目失败:", recoverErr?.message);
     }
   } catch (err: any) {
-    console.error("[作业管理] 建表失败:", err?.message || err);
+    console.error("[学生管理] 建表失败:", err?.message || err);
   }
 }
 
@@ -100,7 +100,7 @@ export async function addStudent(name: string, planType: string = "weekly") {
       await db.update(hwStudents)
         .set({ status: "active", planType })
         .where(eq(hwStudents.id, existing[0].id));
-      console.log(`[作业管理] 重新激活学生: ${name}`);
+      console.log(`[学生管理] 重新激活学生: ${name}`);
       return { success: true };
     }
     throw new Error(`学生「${name.trim()}」已存在`);
@@ -143,7 +143,7 @@ export async function removeStudent(id: number) {
 // ============= AI 处理 =============
 
 // 默认系统提示词（用户未配置自定义提示词时的兜底）
-const HW_DEFAULT_SYSTEM_PROMPT = `你是一个教学助手的作业管理助手。你的任务是将教师的语音转文字记录整理为结构化的作业管理数据。
+const HW_DEFAULT_SYSTEM_PROMPT = `你是一个教学助手的学生管理助手。你的任务是将教师的语音转文字记录整理为结构化的学生管理数据。
 
 输出格式要求（严格遵守，所有字段必须填写）：
 
@@ -235,10 +235,10 @@ export async function processEntry(
     { role: "user" as const, content: userPrompt },
   ];
 
-  const response = await invokeWhatAI(messages, {
+  // 使用流式调用，避免大输入时中间层超时
+  const content = await invokeWhatAIStream(messages, {
     max_tokens: 4000,
     temperature: 0.3,
-    timeout: 120000,
     retries: 1,
   }, {
     apiModel: modelToUse,
@@ -246,7 +246,6 @@ export async function processEntry(
     apiUrl,
   });
 
-  const content = response.choices?.[0]?.message?.content;
   if (!content) {
     throw new Error("AI 返回空内容");
   }
@@ -311,7 +310,7 @@ async function processEntryInBackground(
     // Validate: check for empty fields
     const hasEmptyFields = parsedContent.includes("【】") || /【[^】]+】\s*\n\s*\n/.test(parsedContent);
     if (hasEmptyFields) {
-      console.warn(`[作业管理] 条目 ${id} 解析结果有空字段`);
+      console.warn(`[学生管理] 条目 ${id} 解析结果有空字段`);
     }
 
     // Update entry with parsed content
@@ -323,10 +322,10 @@ async function processEntryInBackground(
       })
       .where(eq(hwEntries.id, id));
 
-    console.log(`[作业管理] 条目 ${id} 处理完成`);
+    console.log(`[学生管理] 条目 ${id} 处理完成`);
   } catch (err: any) {
     const errorMsg = err?.message || "AI处理失败";
-    console.error(`[作业管理] 条目 ${id} 处理失败:`, errorMsg);
+    console.error(`[学生管理] 条目 ${id} 处理失败:`, errorMsg);
 
     await db.update(hwEntries)
       .set({
@@ -495,13 +494,13 @@ export async function confirmAllPreStaged() {
     await db.update(hwStudents)
       .set({ currentStatus: studentLatest.get(name)! })
       .where(eq(hwStudents.name, name));
-    console.log(`[作业管理] 入库: ${name} 的状态已更新`);
+    console.log(`[学生管理] 入库: ${name} 的状态已更新`);
   }
 
   // 4. 删除所有 pre_staged 条目（旧记录不保留）
   const entryIds = preStagedEntries.map(e => e.id);
   await db.delete(hwEntries).where(inArray(hwEntries.id, entryIds));
-  console.log(`[作业管理] 入库完成: 已删除 ${entryIds.length} 条预入库记录`);
+  console.log(`[学生管理] 入库完成: 已删除 ${entryIds.length} 条预入库记录`);
 
   return { success: true, updatedStudents };
 }
@@ -528,18 +527,18 @@ export async function importFromExtraction(
       status: "active",
     });
     studentCreated = true;
-    console.log(`[作业管理] 自动创建学生: ${studentName}`);
+    console.log(`[学生管理] 自动创建学生: ${studentName}`);
   } else if (existing[0].status === "inactive") {
     // 学生曾被删除，重新激活
     await db.update(hwStudents).set({ status: "active" }).where(eq(hwStudents.id, existing[0].id));
     studentCreated = true;
-    console.log(`[作业管理] 重新激活学生: ${studentName}`);
+    console.log(`[学生管理] 重新激活学生: ${studentName}`);
   }
 
-  // 创建 pending 条目，走 AI 处理流程（课后信息提取内容格式与作业管理格式不同，需要 AI 转换）
+  // 创建 pending 条目，走 AI 处理流程（课后信息提取内容格式与学生管理格式不同，需要 AI 转换）
   const rawInput = `[从课后信息提取导入]\n${extractionContent.trim()}`;
   const { id } = await createEntry(studentName, rawInput);
-  console.log(`[作业管理] 从课后信息提取导入: ${studentName}, 条目ID: ${id}, 将进行AI处理`);
+  console.log(`[学生管理] 从课后信息提取导入: ${studentName}, 条目ID: ${id}, 将进行AI处理`);
 
   // 后台异步 AI 处理（不阻塞返回）
   processEntryInBackground(id, studentName, rawInput);
@@ -620,7 +619,7 @@ export async function importClassFromTaskExtraction(
   // 1. 导入班级整体记录
   const classResult = await importFromExtraction(className, content);
   results.push({ name: className, ...classResult });
-  console.log(`[作业管理] 小班课导入: 班级 ${className}, 条目ID: ${classResult.id}`);
+  console.log(`[学生管理] 小班课导入: 班级 ${className}, 条目ID: ${classResult.id}`);
 
   // 2. 逐个导入出勤学生
   const validStudents = attendanceStudents.filter(s => s.trim());
@@ -628,9 +627,9 @@ export async function importClassFromTaskExtraction(
     const trimmed = studentName.trim();
     const studentResult = await importFromExtraction(trimmed, content);
     results.push({ name: trimmed, ...studentResult });
-    console.log(`[作业管理] 小班课导入: 学生 ${trimmed}, 条目ID: ${studentResult.id}`);
+    console.log(`[学生管理] 小班课导入: 学生 ${trimmed}, 条目ID: ${studentResult.id}`);
   }
 
-  console.log(`[作业管理] 小班课一键导入完成: ${className}, 共${results.length}条 (1班级 + ${validStudents.length}学生)`);
+  console.log(`[学生管理] 小班课一键导入完成: ${className}, 共${results.length}条 (1班级 + ${validStudents.length}学生)`);
   return { total: results.length, className, results };
 }
