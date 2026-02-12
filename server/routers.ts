@@ -2023,6 +2023,8 @@ export const appRouter = router({
           // 从 inputParams 中提取使用的模型名称和素材摘要
           let model: string | null = null;
           let materialsSummary: { transcriptChars: number; notesChars: number; lastFeedbackChars: number; transcriptSegments?: { count: number; chars: number[] } } | null = null;
+          let classNumber: string | null = null;
+          let attendanceStudents: string[] | null = null;
           try {
             const params = t.inputParams ? JSON.parse(t.inputParams) : null;
             if (params) {
@@ -2033,6 +2035,9 @@ export const appRouter = router({
                 lastFeedbackChars: params.lastFeedback?.length || 0,
                 transcriptSegments: params.transcriptSegments || undefined,
               };
+              // 小班课参数（用于历史任务的作业管理导入）
+              if (params.classNumber) classNumber = params.classNumber;
+              if (params.attendanceStudents) attendanceStudents = params.attendanceStudents;
             }
           } catch { /* ignore */ }
           return {
@@ -2046,6 +2051,8 @@ export const appRouter = router({
             errorMessage: t.errorMessage,
             model,
             materialsSummary,
+            classNumber,
+            attendanceStudents,
             createdAt: t.createdAt.toISOString(),
             completedAt: t.completedAt?.toISOString() || null,
           };
