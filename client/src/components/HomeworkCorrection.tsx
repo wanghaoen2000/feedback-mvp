@@ -1,10 +1,12 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { sortByPinyin } from "@/lib/pinyinSort";
 import {
   Loader2,
   CheckCircle2,
@@ -19,6 +21,7 @@ import {
   Plus,
   ChevronDown,
   ChevronUp,
+  UserPlus,
 } from "lucide-react";
 
 // ============= 类型定义 =============
@@ -61,6 +64,10 @@ export function HomeworkCorrection() {
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [files, setFiles] = useState<AttachedFile[]>([]);
 
+  // 学生管理
+  const [newStudentName, setNewStudentName] = useState("");
+  const [showStudentMgmt, setShowStudentMgmt] = useState(false);
+
   // UI 状态
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -75,7 +82,13 @@ export function HomeworkCorrection() {
   // ============= tRPC 查询 =============
 
   const studentsQuery = trpc.homework.listStudents.useQuery({ status: "active" });
-  const students = studentsQuery.data || [];
+  const students = useMemo(() => sortByPinyin(studentsQuery.data || []), [studentsQuery.data]);
+  const addStudentMut = trpc.homework.addStudent.useMutation({
+    onSuccess: () => { studentsQuery.refetch(); setNewStudentName(""); },
+  });
+  const removeStudentMut = trpc.homework.removeStudent.useMutation({
+    onSuccess: () => studentsQuery.refetch(),
+  });
 
   const typesQuery = trpc.correction.getTypes.useQuery();
   const correctionTypes: CorrectionType[] = typesQuery.data || [];
@@ -314,28 +327,90 @@ export function HomeworkCorrection() {
       {/* 设置面板 */}
       {showSettings && <CorrectionSettings onClose={() => setShowSettings(false)} />}
 
-      {/* 学生选择 */}
+      {/* 学生选择 + 管理 */}
       <div className="space-y-2">
-        <Label className="text-sm font-medium">选择学生</Label>
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium">选择学生</Label>
+          <button
+            type="button"
+            onClick={() => setShowStudentMgmt(!showStudentMgmt)}
+            className="text-xs text-gray-400 hover:text-purple-600 flex items-center gap-1"
+          >
+            <UserPlus className="w-3 h-3" />
+            管理
+          </button>
+        </div>
         <div className="flex flex-wrap gap-2">
           {students.length === 0 && (
-            <p className="text-sm text-gray-400">暂无学生，请先在「作业管理」中添加</p>
+            <p className="text-sm text-gray-400">暂无学生，点击右上角「管理」添加</p>
           )}
           {students.map((s: any) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSelectedStudent(selectedStudent === s.name ? "" : s.name)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-                selectedStudent === s.name
-                  ? "bg-purple-600 text-white shadow-md scale-105"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              {s.name}
-            </button>
+            <div key={s.id} className="relative group">
+              <button
+                type="button"
+                onClick={() => setSelectedStudent(selectedStudent === s.name ? "" : s.name)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                  selectedStudent === s.name
+                    ? "bg-purple-600 text-white shadow-md scale-105"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {s.name}
+              </button>
+              {showStudentMgmt && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm(`确定要移除学生「${s.name}」吗？`)) {
+                      const removedName = s.name;
+                      removeStudentMut.mutate({ id: s.id }, {
+                        onSuccess: () => {
+                          if (selectedStudent === removedName) setSelectedStudent("");
+                        },
+                      });
+                    }
+                  }}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] hover:bg-red-600"
+                  title="移除学生"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              )}
+            </div>
           ))}
         </div>
+        {/* 添加学生（管理模式下展示） */}
+        {showStudentMgmt && (
+          <div className="flex items-center gap-2">
+            <Input
+              value={newStudentName}
+              onChange={(e) => setNewStudentName(e.target.value)}
+              placeholder="输入新学生姓名"
+              className="h-8 text-sm flex-1 max-w-[200px]"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newStudentName.trim()) {
+                  addStudentMut.mutate({ name: newStudentName.trim() });
+                }
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (newStudentName.trim()) addStudentMut.mutate({ name: newStudentName.trim() });
+              }}
+              disabled={!newStudentName.trim() || addStudentMut.isPending}
+              className="h-8 text-xs"
+            >
+              <Plus className="w-3 h-3 mr-1" />
+              添加
+            </Button>
+            {addStudentMut.isError && (
+              <span className="text-xs text-red-500">{addStudentMut.error?.message || "添加失败"}</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 批改类型选择 */}

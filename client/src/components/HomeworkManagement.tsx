@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
+import { sortByPinyin } from "@/lib/pinyinSort";
 import {
   Loader2,
   CheckCircle2,
@@ -189,8 +190,8 @@ export function HomeworkManagement() {
   // 模型预设列表
   const presetList = (hwConfigQuery.data?.modelPresets || "").split("\n").map(s => s.trim()).filter(Boolean);
 
-  // 学生列表
-  const students = studentsQuery.data || [];
+  // 学生列表（按姓氏拼音排序）
+  const students = useMemo(() => sortByPinyin(studentsQuery.data || []), [studentsQuery.data]);
 
   // 待处理条目
   const entries = pendingEntriesQuery.data || [];
