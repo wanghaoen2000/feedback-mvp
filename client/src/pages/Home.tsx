@@ -2389,6 +2389,7 @@ export default function Home() {
         });
         transcriptSegmentsRef.current = null; // 提交后清除
         setActiveTaskId(result.taskId);
+        setHwImportStatus('idle'); // 新任务开始，重置导入状态
 
         // 保存学生/班级课次到历史（用于下次自动填充课次+1）
         const lessonNum = parseInt((lessonNumber || '').replace(/[^0-9]/g, ''), 10);
@@ -2909,11 +2910,14 @@ export default function Home() {
   // 一键导入作业管理（从课后信息提取）
   const handleHwImport = useCallback(async () => {
     if (!activeTaskId) return;
+    // 先验证必填字段，避免设置loading后提前return导致按钮卡死
+    if (courseType === 'class' && !classNumber.trim()) return;
+    if (courseType !== 'class' && !studentName.trim()) return;
+
     setHwImportStatus('loading');
     try {
       if (courseType === 'class') {
         // 小班课：N+1模式，导入班级 + 每个出勤学生
-        if (!classNumber.trim()) return;
         const validStudents = attendanceStudents.filter((s: string) => s.trim());
         const result = await hwImportClassFromTaskMutation.mutateAsync({
           taskId: activeTaskId,
@@ -2923,7 +2927,6 @@ export default function Home() {
         console.log(`[作业管理导入] 小班课导入完成: ${result.className}, 共${result.total}条`);
       } else {
         // 一对一：原有逻辑
-        if (!studentName.trim()) return;
         await hwImportFromTaskMutation.mutateAsync({
           taskId: activeTaskId,
           studentName: studentName.trim(),
