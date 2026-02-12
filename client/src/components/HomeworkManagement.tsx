@@ -90,6 +90,23 @@ function statusLabel(status: string): string {
   }
 }
 
+/** 模型名称缩写 */
+function shortModelName(model: string): string {
+  if (!model) return "";
+  let s = model.replace(/^claude-/, "");
+  s = s.replace(/-\d{8}/, "");
+  s = s.replace(/(\d+)-(\d+)/, "$1.$2");
+  return s;
+}
+
+/** 格式化秒数为 Xs 或 Xm Xs */
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s > 0 ? `${m}m${s}s` : `${m}m`;
+}
+
 // ============= 主组件 =============
 export function HomeworkManagement() {
   // --- 学生名册 ---
@@ -112,8 +129,23 @@ export function HomeworkManagement() {
 
   // --- 条目（预入库队列） ---
   const pendingEntriesQuery = trpc.homework.listPendingEntries.useQuery(undefined, {
-    refetchInterval: 5000, // 轮询刷新
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 5000;
+      const hasProcessing = data.some((e: any) => e.entryStatus === "pending" || e.entryStatus === "processing");
+      return hasProcessing ? 3000 : 5000; // 有处理中的条目时加快轮询
+    },
   });
+
+  // 心跳计时器：处理中条目实时刷新秒数
+  const [now, setNow] = useState(Date.now());
+  const entries = pendingEntriesQuery.data || [];
+  const hasProcessing = entries.some((e: any) => e.entryStatus === "pending" || e.entryStatus === "processing");
+  useEffect(() => {
+    if (!hasProcessing) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasProcessing]);
   const submitEntryMut = trpc.homework.submitEntry.useMutation({
     onSuccess: () => { pendingEntriesQuery.refetch(); setInputText(""); },
   });
@@ -193,8 +225,7 @@ export function HomeworkManagement() {
   // 学生列表（按姓氏拼音排序）
   const students = useMemo(() => sortByPinyin(studentsQuery.data || []), [studentsQuery.data]);
 
-  // 待处理条目
-  const entries = pendingEntriesQuery.data || [];
+  // 待处理条目统计
   const preStagedCount = entries.filter(e => e.entryStatus === "pre_staged").length;
   const failedCount = entries.filter(e => e.entryStatus === "failed").length;
   const processingCount = entries.filter(e => e.entryStatus === "pending" || e.entryStatus === "processing").length;
@@ -577,10 +608,40 @@ export function HomeworkManagement() {
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <EntryStatusIcon status={entry.entryStatus} />
                     <span className="font-medium text-sm">{entry.studentName}</span>
-                    <span className="text-xs text-gray-500">{statusLabel(entry.entryStatus)}</span>
+                    {(entry.entryStatus === "pending" || entry.entryStatus === "processing") ? (
+                      // 处理中：实时进度
+                      <>
+                        {entry.streamingChars > 0 ? (
+                          <span className="text-xs text-blue-500 tabular-nums">已接收{entry.streamingChars}字</span>
+                        ) : entry.entryStatus === "processing" ? (
+                          <span className="text-xs text-blue-400">等待AI响应...</span>
+                        ) : (
+                          <span className="text-xs text-gray-500">{statusLabel(entry.entryStatus)}</span>
+                        )}
+                        {entry.startedAt && (
+                          <span className="text-xs text-gray-400 tabular-nums">
+                            {formatDuration(Math.round((now - new Date(entry.startedAt).getTime()) / 1000))}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      // 已完成/失败：静态信息
+                      <>
+                        <span className="text-xs text-gray-500">{statusLabel(entry.entryStatus)}</span>
+                        {entry.aiModel && <span className="text-xs text-gray-400">({shortModelName(entry.aiModel)})</span>}
+                        {entry.startedAt && entry.completedAt && (
+                          <span className="text-xs text-gray-400 tabular-nums">
+                            {formatDuration(Math.round((new Date(entry.completedAt).getTime() - new Date(entry.startedAt).getTime()) / 1000))}
+                          </span>
+                        )}
+                        {entry.streamingChars > 0 && (
+                          <span className="text-xs text-gray-400">{entry.streamingChars}字</span>
+                        )}
+                      </>
+                    )}
                     <span className="text-xs text-gray-400">
                       {new Date(entry.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
                     </span>

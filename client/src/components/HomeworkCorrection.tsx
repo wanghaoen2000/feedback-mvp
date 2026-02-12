@@ -119,6 +119,15 @@ export function HomeworkCorrection() {
     },
   );
 
+  // 心跳计时器：处理中任务实时刷新秒数
+  const [corrNow, setCorrNow] = useState(Date.now());
+  const hasPendingTasks = historyQuery.data?.some((t: any) => t.taskStatus === "pending" || t.taskStatus === "processing");
+  useEffect(() => {
+    if (!hasPendingTasks) return;
+    const timer = setInterval(() => setCorrNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasPendingTasks]);
+
   // 展开的任务详情
   const expandedTaskQuery = trpc.correction.getTask.useQuery(
     { id: expandedTaskId! },
@@ -587,6 +596,7 @@ export function HomeworkCorrection() {
               onToggle={() => setExpandedTaskId(expandedTaskId === t.id ? null : t.id)}
               onCopy={handleCopy}
               copySuccess={copySuccess}
+              now={corrNow}
             />
           ))}
         </div>
@@ -597,6 +607,23 @@ export function HomeworkCorrection() {
 
 // ============= 任务卡片子组件 =============
 
+/** 模型名称缩写 */
+function shortModelName(model: string): string {
+  if (!model) return "";
+  let s = model.replace(/^claude-/, "");
+  s = s.replace(/-\d{8}/, "");
+  s = s.replace(/(\d+)-(\d+)/, "$1.$2");
+  return s;
+}
+
+/** 格式化秒数 */
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s > 0 ? `${m}m${s}s` : `${m}m`;
+}
+
 function TaskCard({
   task,
   isExpanded,
@@ -604,6 +631,7 @@ function TaskCard({
   onToggle,
   onCopy,
   copySuccess,
+  now,
 }: {
   task: any;
   isExpanded: boolean;
@@ -611,6 +639,7 @@ function TaskCard({
   onToggle: () => void;
   onCopy: (text: string) => void;
   copySuccess: boolean;
+  now: number;
 }) {
   const isPending = task.taskStatus === "pending" || task.taskStatus === "processing";
   const isCompleted = task.taskStatus === "completed";
@@ -640,7 +669,24 @@ function TaskCard({
           <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded">已入库</span>
         )}
         {isPending && (
-          <span className="text-xs text-blue-500">批改中...</span>
+          task.streamingChars > 0 ? (
+            <span className="text-xs text-blue-500 tabular-nums">已接收{task.streamingChars}字 · {formatDuration(Math.round((now - new Date(task.createdAt).getTime()) / 1000))}</span>
+          ) : task.taskStatus === "processing" ? (
+            <span className="text-xs text-blue-400">等待AI响应... · {formatDuration(Math.round((now - new Date(task.createdAt).getTime()) / 1000))}</span>
+          ) : (
+            <span className="text-xs text-blue-500">等待处理</span>
+          )
+        )}
+        {isCompleted && (
+          <>
+            {task.aiModel && <span className="text-xs text-gray-400">({shortModelName(task.aiModel)})</span>}
+            {task.completedAt && (
+              <span className="text-xs text-gray-400 tabular-nums">
+                {formatDuration(Math.round((new Date(task.completedAt).getTime() - new Date(task.createdAt).getTime()) / 1000))}
+              </span>
+            )}
+            {task.streamingChars > 0 && <span className="text-xs text-gray-400">{task.streamingChars}字</span>}
+          </>
         )}
         {isFailed && (
           <span className="text-xs text-red-500 truncate max-w-[150px]">{task.errorMessage}</span>

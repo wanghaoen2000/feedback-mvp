@@ -44,16 +44,20 @@ export async function ensureHwTables(): Promise<void> {
       \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (\`id\`)
     )`);
-    // 安全添加 current_status 列（已有表可能没有此列）
-    try {
-      await db.execute(sql`ALTER TABLE \`hw_students\` ADD COLUMN \`current_status\` MEDIUMTEXT`);
-      console.log("[学生管理] 已添加 current_status 列");
-    } catch (alterErr: any) {
-      // 如果列已存在，MySQL 会报 Duplicate column name 错误，忽略即可
-      if (!alterErr?.message?.includes("Duplicate column")) {
-        console.warn("[学生管理] ALTER TABLE 警告:", alterErr?.message);
+    // 安全添加新列（已有表可能没有）
+    const safeAddColumn = async (table: string, col: string, def: string) => {
+      try {
+        await db.execute(sql.raw(`ALTER TABLE \`${table}\` ADD COLUMN \`${col}\` ${def}`));
+      } catch (e: any) {
+        if (!e?.message?.includes("Duplicate column")) {
+          console.warn(`[学生管理] ALTER TABLE ${table} 警告:`, e?.message);
+        }
       }
-    }
+    };
+    await safeAddColumn("hw_students", "current_status", "MEDIUMTEXT");
+    await safeAddColumn("hw_entries", "streaming_chars", "INT DEFAULT 0");
+    await safeAddColumn("hw_entries", "started_at", "TIMESTAMP NULL");
+    await safeAddColumn("hw_entries", "completed_at", "TIMESTAMP NULL");
     tableEnsured = true;
     console.log("[学生管理] 表已就绪");
     // 恢复卡死的条目：服务器重启后 processing/pending 状态的条目不会继续处理
@@ -201,7 +205,8 @@ export async function processEntry(
   studentName: string,
   rawInput: string,
   aiModel?: string,
-): Promise<{ parsedContent: string }> {
+  onProgress?: (chars: number) => void,
+): Promise<{ parsedContent: string; model: string }> {
   // Build API config
   const apiKey = await getConfigValue("apiKey");
   const apiUrl = await getConfigValue("apiUrl");
@@ -235,6 +240,18 @@ export async function processEntry(
     { role: "user" as const, content: userPrompt },
   ];
 
+  // 流式进度回调：每秒上报字符数
+  let charCount = 0;
+  let lastProgressTime = 0;
+  const chunkCallback = onProgress ? (chunk: string) => {
+    charCount += chunk.length;
+    const now = Date.now();
+    if (now - lastProgressTime >= 1000) {
+      onProgress(charCount);
+      lastProgressTime = now;
+    }
+  } : undefined;
+
   // 使用流式调用，避免大输入时中间层超时
   const content = await invokeWhatAIStream(messages, {
     max_tokens: 4000,
@@ -244,13 +261,16 @@ export async function processEntry(
     apiModel: modelToUse,
     apiKey,
     apiUrl,
-  });
+  }, chunkCallback);
 
   if (!content) {
     throw new Error("AI 返回空内容");
   }
 
-  return { parsedContent: content.trim() };
+  // 最终上报确保字符数准确
+  if (onProgress) onProgress(content.length);
+
+  return { parsedContent: content.trim(), model: modelToUse };
 }
 
 // ============= 条目管理（预入库队列） =============
@@ -298,14 +318,22 @@ async function processEntryInBackground(
   const db = await getDb();
   if (!db) return;
 
-  // Update status to processing
+  // Update status to processing, record start time
   await db.update(hwEntries)
-    .set({ entryStatus: "processing" })
+    .set({ entryStatus: "processing", startedAt: new Date(), streamingChars: 0 })
     .where(eq(hwEntries.id, id));
 
   try {
+    // 流式进度回调：每秒更新 streaming_chars
+    const onProgress = (chars: number) => {
+      db.update(hwEntries)
+        .set({ streamingChars: chars })
+        .where(eq(hwEntries.id, id))
+        .catch(() => {}); // 进度更新失败不影响主流程
+    };
+
     // Process with AI
-    const { parsedContent } = await processEntry(studentName, rawInput, aiModel);
+    const { parsedContent, model } = await processEntry(studentName, rawInput, aiModel, onProgress);
 
     // Validate: check for empty fields
     const hasEmptyFields = parsedContent.includes("【】") || /【[^】]+】\s*\n\s*\n/.test(parsedContent);
@@ -319,10 +347,13 @@ async function processEntryInBackground(
         parsedContent,
         entryStatus: "pre_staged",
         errorMessage: null,
+        aiModel: model,
+        streamingChars: parsedContent.length,
+        completedAt: new Date(),
       })
       .where(eq(hwEntries.id, id));
 
-    console.log(`[学生管理] 条目 ${id} 处理完成`);
+    console.log(`[学生管理] 条目 ${id} 处理完成, ${parsedContent.length}字`);
   } catch (err: any) {
     const errorMsg = err?.message || "AI处理失败";
     console.error(`[学生管理] 条目 ${id} 处理失败:`, errorMsg);
@@ -331,6 +362,7 @@ async function processEntryInBackground(
       .set({
         entryStatus: "failed",
         errorMessage: errorMsg,
+        completedAt: new Date(),
       })
       .where(eq(hwEntries.id, id));
   }

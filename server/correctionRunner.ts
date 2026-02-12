@@ -93,6 +93,12 @@ export async function ensureCorrectionTable(): Promise<void> {
       \`completed_at\` timestamp,
       PRIMARY KEY (\`id\`)
     )`);
+    // 安全添加新列
+    try {
+      await db.execute(sql`ALTER TABLE \`correction_tasks\` ADD COLUMN \`streaming_chars\` INT DEFAULT 0`);
+    } catch (e: any) {
+      if (!e?.message?.includes("Duplicate column")) console.warn("[作业批改] ALTER TABLE 警告:", e?.message);
+    }
     tableEnsured = true;
     console.log("[作业批改] 表已就绪");
 
@@ -303,9 +309,20 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
       apiConfig.apiModel = task.aiModel;
     }
 
-    // 调用 AI
+    // 调用 AI（带流式进度上报）
     console.log(`[作业批改] 开始AI批改: 任务${taskId}, 图片${fileInfos.length}张`);
-    const result = await invokeAIStream(systemPrompt, userMessage, undefined, {
+    let lastProgressTime = 0;
+    const onProgress = (chars: number) => {
+      const now = Date.now();
+      if (now - lastProgressTime >= 1000) {
+        db.update(correctionTasks)
+          .set({ streamingChars: chars })
+          .where(eq(correctionTasks.id, taskId))
+          .catch(() => {}); // 进度更新失败不影响主流程
+        lastProgressTime = now;
+      }
+    };
+    const result = await invokeAIStream(systemPrompt, userMessage, onProgress, {
       config: apiConfig,
       maxTokens: 8000,
       temperature: 0.5,
@@ -327,6 +344,7 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
         resultCorrection: correction,
         resultStatusUpdate: statusUpdate,
         taskStatus: "completed",
+        streamingChars: result.content.length,
         completedAt: new Date(),
       })
       .where(eq(correctionTasks.id, taskId));
@@ -434,6 +452,8 @@ export async function listCorrectionTasks(studentName?: string, limit: number = 
     studentName: correctionTasks.studentName,
     correctionType: correctionTasks.correctionType,
     taskStatus: correctionTasks.taskStatus,
+    aiModel: correctionTasks.aiModel,
+    streamingChars: correctionTasks.streamingChars,
     autoImported: correctionTasks.autoImported,
     errorMessage: correctionTasks.errorMessage,
     createdAt: correctionTasks.createdAt,

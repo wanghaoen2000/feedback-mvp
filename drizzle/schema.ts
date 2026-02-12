@@ -95,6 +95,9 @@ export const hwEntries = mysqlTable("hw_entries", {
   aiModel: varchar("ai_model", { length: 128 }),
   entryStatus: varchar("entry_status", { length: 20 }).notNull().default("pending"), // pending | processing | pre_staged | confirmed | failed
   errorMessage: text("error_message"),
+  streamingChars: int("streaming_chars").default(0),       // 流式接收字符数（实时更新）
+  startedAt: timestamp("started_at"),                       // AI处理开始时间
+  completedAt: timestamp("completed_at"),                   // AI处理完成时间
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
@@ -154,6 +157,7 @@ export const correctionTasks = mysqlTable("correction_tasks", {
   aiModel: varchar("ai_model", { length: 128 }),
   taskStatus: varchar("task_status", { length: 20 }).notNull().default("pending"), // pending | processing | completed | failed
   errorMessage: text("error_message"),
+  streamingChars: int("streaming_chars").default(0),  // 流式接收字符数（实时更新）
   autoImported: int("auto_imported").default(0),      // 是否已自动推送到学生管理
   importEntryId: int("import_entry_id"),              // 推送后的条目ID
   createdAt: timestamp("created_at").defaultNow().notNull(),
