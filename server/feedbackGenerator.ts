@@ -1115,7 +1115,9 @@ export async function generateReviewContent(
   input: FeedbackInput | ClassFeedbackInput,
   feedback: string,
   dateStr: string,
-  config?: APIConfig
+  config?: APIConfig,
+  onChunk?: (chunk: string) => void,
+  signal?: AbortSignal
 ): Promise<{ buffer: Buffer; textChars: number }> {
   let prompt: string;
   let label: string;
@@ -1162,12 +1164,19 @@ ${d.currentNotes}
 
   const systemPrompt = selectSystemPrompt('review', courseType, config?.roadmap);
 
-  console.log(`[${label}] 开始非流式生成...`);
-  const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label);
-  const textChars = result.content.length;
+  let resultContent: string;
+  if (onChunk) {
+    console.log(`[${label}] 开始流式生成...`);
+    resultContent = await invokeWithContinuation(systemPrompt, prompt, config, onChunk, label, signal);
+  } else {
+    console.log(`[${label}] 开始非流式生成...`);
+    const result = await invokeNonStreamWithContinuation(systemPrompt, prompt, config, label);
+    resultContent = result.content;
+  }
+  const textChars = resultContent.length;
   console.log(`[${label}] 生成完成，内容长度: ${textChars}字符`);
 
-  const buffer = await textToDocx(result.content, docxTitle);
+  const buffer = await textToDocx(resultContent, docxTitle);
   return { buffer, textChars };
 }
 
@@ -1422,10 +1431,12 @@ export async function generateClassReviewContent(
   input: ClassFeedbackInput,
   combinedFeedback: string,
   roadmap: string,
-  apiConfig: { apiModel: string; apiKey: string; apiUrl: string }
+  apiConfig: { apiModel: string; apiKey: string; apiUrl: string },
+  onChunk?: (chunk: string) => void,
+  signal?: AbortSignal
 ): Promise<{ buffer: Buffer; textChars: number }> {
   const dateStr = input.lessonDate || '';
-  return generateReviewContent('class', input, combinedFeedback, dateStr, { ...apiConfig, roadmap });
+  return generateReviewContent('class', input, combinedFeedback, dateStr, { ...apiConfig, roadmap }, onChunk, signal);
 }
 
 /** @deprecated 使用 generateTestContent('class', ...) */
