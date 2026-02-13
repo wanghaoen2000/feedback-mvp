@@ -82,6 +82,38 @@ export default function DashboardLayout({
     );
   }
 
+  if ((user as any).allowed === false) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="flex flex-col items-center gap-6 p-8 max-w-md w-full">
+          <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center text-3xl">
+            🔒
+          </div>
+          <div className="flex flex-col items-center gap-3">
+            <h1 className="text-xl font-semibold tracking-tight text-center text-gray-800">
+              账号未授权
+            </h1>
+            <p className="text-sm text-muted-foreground text-center">
+              您已登录为 <span className="font-medium text-gray-700">{user.email || user.name || '未知用户'}</span>，但该账号尚未被授权使用此系统。
+            </p>
+            <p className="text-xs text-muted-foreground text-center">
+              请联系系统管理员将您的邮箱添加到白名单中。
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              window.location.href = getLoginUrl();
+            }}
+            className="w-full"
+          >
+            使用其他账号登录
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <SidebarProvider
       style={

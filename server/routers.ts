@@ -2,7 +2,7 @@ import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, NOT_ALLOWED_ERR_MSG } from "@shared/const";
 import { z } from "zod";
 import { eq, gte, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -44,7 +44,7 @@ import {
   generateClassBubbleChartSVG,
 } from "./feedbackGenerator";
 import { storeContent } from "./contentStore";
-import { DEFAULT_CONFIG, getConfigValue as getConfig } from "./core/aiClient";
+import { DEFAULT_CONFIG, getConfigValue as getConfig, isEmailAllowed } from "./core/aiClient";
 import { addWeekdayToDate } from "./utils";
 import {
   listStudents,
@@ -129,7 +129,13 @@ const classFeedbackInputSchema = z.object({
 export const appRouter = router({
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(async (opts) => {
+      const user = opts.ctx.user;
+      if (!user) return null;
+      // 检查白名单，admin 始终允许
+      const allowed = user.role === 'admin' || await isEmailAllowed(user.email);
+      return { ...user, allowed };
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -149,13 +155,13 @@ export const appRouter = router({
         roadmap, roadmapClass, firstLessonTemplate, classFirstLessonTemplate,
         driveBasePath, classStoragePath, batchFilePrefix, batchStoragePath,
         batchConcurrency, maxTokens, gdriveLocalBasePath, gdriveDownloadsPath,
-        modelPresets, apiProviderPresets,
+        modelPresets, apiProviderPresets, allowedEmails,
       ] = await Promise.all([
         getConfig("apiModel"), getConfig("apiKey"), getConfig("apiUrl"), getConfig("currentYear"),
         getConfig("roadmap"), getConfig("roadmapClass"), getConfig("firstLessonTemplate"), getConfig("classFirstLessonTemplate"),
         getConfig("driveBasePath"), getConfig("classStoragePath"), getConfig("batchFilePrefix"), getConfig("batchStoragePath"),
         getConfig("batchConcurrency"), getConfig("maxTokens"), getConfig("gdriveLocalBasePath"), getConfig("gdriveDownloadsPath"),
-        getConfig("modelPresets"), getConfig("apiProviderPresets"),
+        getConfig("modelPresets"), getConfig("apiProviderPresets"), getConfig("allowedEmails"),
       ]);
 
       // 解析供应商预设，遮蔽密钥
@@ -193,6 +199,8 @@ export const appRouter = router({
         gdriveDownloadsPath: gdriveDownloadsPath || "",
         modelPresets: modelPresets || "",
         apiProviderPresets: providerPresetsForClient,
+        // 白名单（JSON 字符串，前端解析为数组）
+        allowedEmails: allowedEmails || "",
         // 返回是否使用默认值（apiKey 特殊处理：表示是否已配置）
         hasApiKey: !!apiKey,
         isDefault: {
@@ -229,6 +237,7 @@ export const appRouter = router({
         modelPresets: z.string().optional(),
         apiProviderPresets: z.string().optional(), // JSON 格式的供应商预设列表
         applyProviderKey: z.string().optional(), // 选中的供应商名称，应用其密钥
+        allowedEmails: z.string().optional(), // JSON 格式的邮箱白名单
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -383,6 +392,11 @@ export const appRouter = router({
             await setConfig("apiProviderPresets", input.apiProviderPresets, "API供应商预设列表");
           }
           updates.push("apiProviderPresets");
+        }
+
+        if (input.allowedEmails !== undefined) {
+          await setConfig("allowedEmails", input.allowedEmails, "授权用户邮箱白名单（JSON数组）");
+          updates.push("allowedEmails");
         }
 
         // 应用选中供应商的密钥和地址

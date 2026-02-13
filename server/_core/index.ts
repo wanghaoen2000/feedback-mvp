@@ -78,6 +78,27 @@ async function startServer() {
 
   server.listen(port, async () => {
     console.log(`Server running on http://localhost:${port}/`);
+    // 初始化白名单（首次启动时种子）
+    try {
+      const { getConfigValue } = await import("../core/aiClient");
+      const existing = await getConfigValue("allowedEmails");
+      if (!existing) {
+        const { getDb } = await import("../db");
+        const { systemConfig } = await import("../../drizzle/schema");
+        const db = await getDb();
+        if (db) {
+          const initialEmails = JSON.stringify(["wanghaoen2000@gmail.com"]);
+          await db.insert(systemConfig).values({
+            key: "allowedEmails",
+            value: initialEmails,
+            description: "授权用户邮箱白名单（JSON数组）",
+          }).onDuplicateKeyUpdate({ set: { value: initialEmails } });
+          console.log("[启动] 白名单已初始化:", initialEmails);
+        }
+      }
+    } catch (e) {
+      console.warn("[启动] 白名单初始化跳过:", e);
+    }
     // 恢复中断的后台任务 + 清理旧任务
     try {
       const { recoverInterruptedTasks, cleanupOldTasks } = await import("../backgroundTaskRunner");

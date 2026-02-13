@@ -23,6 +23,25 @@ export const DEFAULT_CONFIG: Record<string, string> = {
 };
 
 /**
+ * 检查邮箱是否在白名单中
+ * - 白名单未配置或为空 → 所有人允许（开放模式）
+ * - 白名单已配置 → 只允许列表中的邮箱
+ * - admin 角色始终允许（由调用方判断）
+ */
+export async function isEmailAllowed(email: string | null | undefined): Promise<boolean> {
+  const raw = await getConfigValue("allowedEmails");
+  if (!raw) return true; // 未配置 = 开放模式
+  try {
+    const list = JSON.parse(raw) as string[];
+    if (list.length === 0) return true; // 空列表 = 开放模式
+    if (!email) return false; // 有白名单但用户无邮箱 = 拒绝
+    return list.some(e => e.toLowerCase().trim() === email.toLowerCase().trim());
+  } catch {
+    return true; // JSON 解析失败 = 安全降级，开放模式
+  }
+}
+
+/**
  * API 配置接口
  */
 export interface APIConfig {
