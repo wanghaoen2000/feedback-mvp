@@ -44,7 +44,7 @@ import {
   generateClassBubbleChartSVG,
 } from "./feedbackGenerator";
 import { storeContent } from "./contentStore";
-import { DEFAULT_CONFIG, getConfigValue as getConfig, isEmailAllowed } from "./core/aiClient";
+import { DEFAULT_CONFIG, getConfigValue as getConfig, isEmailAllowed, setUserConfigValue, deleteUserConfigValue } from "./core/aiClient";
 import { addWeekdayToDate } from "./utils";
 import {
   listStudents,
@@ -147,9 +147,10 @@ export const appRouter = router({
 
   // 配置管理
   config: router({
-    // 获取所有配置
-    getAll: protectedProcedure.query(async () => {
-      // 并行查询所有配置值（18个独立DB查询 → 1次并行）
+    // 获取所有配置（返回用户级覆盖 + 全局 fallback 的合并结果）
+    getAll: protectedProcedure.query(async ({ ctx }) => {
+      const uid = ctx.user.id;
+      // 并行查询所有配置值（用户级优先，fallback 到全局）
       const [
         apiModel, apiKey, apiUrl, currentYear,
         roadmap, roadmapClass, firstLessonTemplate, classFirstLessonTemplate,
@@ -157,11 +158,11 @@ export const appRouter = router({
         batchConcurrency, maxTokens, gdriveLocalBasePath, gdriveDownloadsPath,
         modelPresets, apiProviderPresets, allowedEmails,
       ] = await Promise.all([
-        getConfig("apiModel"), getConfig("apiKey"), getConfig("apiUrl"), getConfig("currentYear"),
-        getConfig("roadmap"), getConfig("roadmapClass"), getConfig("firstLessonTemplate"), getConfig("classFirstLessonTemplate"),
-        getConfig("driveBasePath"), getConfig("classStoragePath"), getConfig("batchFilePrefix"), getConfig("batchStoragePath"),
-        getConfig("batchConcurrency"), getConfig("maxTokens"), getConfig("gdriveLocalBasePath"), getConfig("gdriveDownloadsPath"),
-        getConfig("modelPresets"), getConfig("apiProviderPresets"), getConfig("allowedEmails"),
+        getConfig("apiModel", uid), getConfig("apiKey", uid), getConfig("apiUrl", uid), getConfig("currentYear", uid),
+        getConfig("roadmap", uid), getConfig("roadmapClass", uid), getConfig("firstLessonTemplate", uid), getConfig("classFirstLessonTemplate", uid),
+        getConfig("driveBasePath", uid), getConfig("classStoragePath", uid), getConfig("batchFilePrefix", uid), getConfig("batchStoragePath", uid),
+        getConfig("batchConcurrency", uid), getConfig("maxTokens", uid), getConfig("gdriveLocalBasePath", uid), getConfig("gdriveDownloadsPath", uid),
+        getConfig("modelPresets", uid), getConfig("apiProviderPresets", uid), getConfig("allowedEmails"),
       ]);
 
       // 解析供应商预设，遮蔽密钥
@@ -452,6 +453,65 @@ export const appRouter = router({
           success: true,
           reset: input.keys,
           message: `已重置: ${input.keys.join(", ")}`,
+        };
+      }),
+
+    // 更新当前用户的个人配置（覆盖全局默认值）
+    updateMyConfig: protectedProcedure
+      .input(z.object({
+        apiModel: z.string().optional(),
+        apiKey: z.string().optional(),
+        apiUrl: z.string().optional(),
+        currentYear: z.string().optional(),
+        roadmap: z.string().optional(),
+        roadmapClass: z.string().optional(),
+        firstLessonTemplate: z.string().optional(),
+        classFirstLessonTemplate: z.string().optional(),
+        driveBasePath: z.string().optional(),
+        classStoragePath: z.string().optional(),
+        batchFilePrefix: z.string().optional(),
+        batchStoragePath: z.string().optional(),
+        batchConcurrency: z.string().optional(),
+        maxTokens: z.string().optional(),
+        gdriveLocalBasePath: z.string().optional(),
+        gdriveDownloadsPath: z.string().optional(),
+        modelPresets: z.string().optional(),
+        apiProviderPresets: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
+        const updates: string[] = [];
+
+        for (const [key, value] of Object.entries(input)) {
+          if (value !== undefined) {
+            await setUserConfigValue(uid, key, value);
+            updates.push(key);
+          }
+        }
+
+        return {
+          success: true,
+          updated: updates,
+          message: updates.length > 0
+            ? `已更新个人配置: ${updates.join(", ")}`
+            : "没有需要更新的配置",
+        };
+      }),
+
+    // 重置当前用户的个人配置（恢复使用全局默认值）
+    resetMyConfig: protectedProcedure
+      .input(z.object({
+        keys: z.array(z.string()),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
+        for (const key of input.keys) {
+          await deleteUserConfigValue(uid, key);
+        }
+        return {
+          success: true,
+          reset: input.keys,
+          message: `已恢复默认: ${input.keys.join(", ")}`,
         };
       }),
 

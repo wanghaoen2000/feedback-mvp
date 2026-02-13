@@ -37,6 +37,18 @@ export const systemConfig = mysqlTable("system_config", {
 export type SystemConfig = typeof systemConfig.$inferSelect;
 export type InsertSystemConfig = typeof systemConfig.$inferInsert;
 
+// 用户级配置表（per-user overrides for systemConfig）
+export const userConfig = mysqlTable("user_config", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  key: varchar("key", { length: 64 }).notNull(),
+  value: mediumtext("value").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserConfig = typeof userConfig.$inferSelect;
+export type InsertUserConfig = typeof userConfig.$inferInsert;
+
 // Google Drive OAuth Token表
 export const googleTokens = mysqlTable("google_tokens", {
   id: int("id").autoincrement().primaryKey(),

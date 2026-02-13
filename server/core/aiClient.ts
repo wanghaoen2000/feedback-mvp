@@ -3,8 +3,8 @@
  * 封装 AI API 调用，提供统一的接口
  */
 import { getDb } from "../db";
-import { systemConfig } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { systemConfig, userConfig } from "../../drizzle/schema";
+import { eq, and, sql } from "drizzle-orm";
 
 // 默认配置值（全局唯一定义，其他模块通过导入使用）
 export const DEFAULT_CONFIG: Record<string, string> = {
@@ -56,12 +56,47 @@ export interface APIConfig {
 }
 
 /**
- * 从数据库读取单个配置值（全局唯一定义，其他模块通过导入使用）
+ * 确保 user_config 表存在（运行时建表，与项目其他表一致）
  */
-export async function getConfigValue(key: string): Promise<string> {
+let _userConfigTableReady = false;
+export async function ensureUserConfigTable(): Promise<void> {
+  if (_userConfigTableReady) return;
+  const db = await getDb();
+  if (!db) return;
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS \`user_config\` (
+    \`id\` int AUTO_INCREMENT PRIMARY KEY,
+    \`userId\` int NOT NULL,
+    \`key\` varchar(64) NOT NULL,
+    \`value\` mediumtext NOT NULL,
+    \`updatedAt\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE INDEX \`idx_user_key\` (\`userId\`, \`key\`),
+    INDEX \`idx_userId\` (\`userId\`)
+  )`);
+  _userConfigTableReady = true;
+}
+
+/**
+ * 从数据库读取单个配置值
+ * - userId 提供时：先查 user_config，未找到则 fallback 到 systemConfig
+ * - userId 不提供时：直接读 systemConfig（向后兼容）
+ */
+export async function getConfigValue(key: string, userId?: number): Promise<string> {
   try {
     const db = await getDb();
     if (!db) return DEFAULT_CONFIG[key] || "";
+
+    // 如果有 userId，先查用户级配置
+    if (userId != null) {
+      await ensureUserConfigTable();
+      const userResult = await db.select().from(userConfig)
+        .where(and(eq(userConfig.userId, userId), eq(userConfig.key, key)))
+        .limit(1);
+      if (userResult.length > 0 && userResult[0].value) {
+        return userResult[0].value;
+      }
+    }
+
+    // fallback 到全局 systemConfig
     const result = await db.select().from(systemConfig).where(eq(systemConfig.key, key)).limit(1);
     if (result.length > 0 && result[0].value) {
       return result[0].value;
@@ -73,19 +108,41 @@ export async function getConfigValue(key: string): Promise<string> {
 }
 
 /**
+ * 设置用户级配置值（INSERT ON DUPLICATE KEY UPDATE）
+ */
+export async function setUserConfigValue(userId: number, key: string, value: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+  await ensureUserConfigTable();
+  await db.execute(
+    sql`INSERT INTO \`user_config\` (\`userId\`, \`key\`, \`value\`) VALUES (${userId}, ${key}, ${value}) ON DUPLICATE KEY UPDATE \`value\` = VALUES(\`value\`)`
+  );
+}
+
+/**
+ * 删除用户级配置值（恢复使用全局默认）
+ */
+export async function deleteUserConfigValue(userId: number, key: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+  await ensureUserConfigTable();
+  await db.delete(userConfig).where(and(eq(userConfig.userId, userId), eq(userConfig.key, key)));
+}
+
+/**
  * 获取完整的 API 配置
  * 从数据库读取所有 API 相关配置
  */
-export async function getAPIConfig(): Promise<APIConfig> {
+export async function getAPIConfig(userId?: number): Promise<APIConfig> {
   const [apiModel, apiKey, apiUrl, roadmap, roadmapClass, driveBasePath, currentYear, maxTokensStr] = await Promise.all([
-    getConfigValue("apiModel"),
-    getConfigValue("apiKey"),
-    getConfigValue("apiUrl"),
-    getConfigValue("roadmap"),
-    getConfigValue("roadmapClass"),
-    getConfigValue("driveBasePath"),
-    getConfigValue("currentYear"),
-    getConfigValue("maxTokens"),
+    getConfigValue("apiModel", userId),
+    getConfigValue("apiKey", userId),
+    getConfigValue("apiUrl", userId),
+    getConfigValue("roadmap", userId),
+    getConfigValue("roadmapClass", userId),
+    getConfigValue("driveBasePath", userId),
+    getConfigValue("currentYear", userId),
+    getConfigValue("maxTokens", userId),
   ]);
 
   return {
