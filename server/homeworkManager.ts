@@ -709,7 +709,9 @@ export async function exportStudentBackup(): Promise<{ content: string; studentC
   const now = new Date();
   const timestamp = now.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })
     .replace(/\//g, "-");
-  const fileTimestamp = now.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  // 文件名时间戳也用北京时间（UTC+8）
+  const bjDate = new Date(now.getTime() + 8 * 3600_000);
+  const fileTimestamp = bjDate.toISOString().replace(/[-:T]/g, "").slice(0, 14);
 
   const lines: string[] = [];
   lines.push("# 学生管理数据备份");
