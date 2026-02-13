@@ -483,10 +483,21 @@ export const appRouter = router({
         const updates: string[] = [];
 
         for (const [key, value] of Object.entries(input)) {
-          if (value !== undefined) {
-            await setUserConfigValue(uid, key, value);
-            updates.push(key);
+          if (value === undefined) continue;
+          let sanitized = value.trim();
+          // 与 admin update 相同的验证规则
+          if (key === "maxTokens") {
+            const n = parseInt(sanitized, 10);
+            if (isNaN(n) || n < 1000 || n > 200000) continue;
+            sanitized = String(n);
           }
+          if (key === "batchConcurrency") {
+            const n = parseInt(sanitized, 10);
+            if (isNaN(n) || n < 1 || n > 200) continue;
+            sanitized = String(n);
+          }
+          await setUserConfigValue(uid, key, sanitized);
+          updates.push(key);
         }
 
         return {
@@ -501,7 +512,7 @@ export const appRouter = router({
     // 重置当前用户的个人配置（恢复使用全局默认值）
     resetMyConfig: protectedProcedure
       .input(z.object({
-        keys: z.array(z.string()),
+        keys: z.array(z.string()).max(30),
       }))
       .mutation(async ({ input, ctx }) => {
         const uid = ctx.user.id;

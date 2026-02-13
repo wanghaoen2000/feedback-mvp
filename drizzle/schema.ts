@@ -1,4 +1,4 @@
-import { int, mediumtext, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mediumtext, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, index, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -44,7 +44,10 @@ export const userConfig = mysqlTable("user_config", {
   key: varchar("key", { length: 64 }).notNull(),
   value: mediumtext("value").notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [
+  uniqueIndex("idx_user_key").on(table.userId, table.key),
+  index("idx_userId").on(table.userId),
+]);
 
 export type UserConfig = typeof userConfig.$inferSelect;
 export type InsertUserConfig = typeof userConfig.$inferInsert;
