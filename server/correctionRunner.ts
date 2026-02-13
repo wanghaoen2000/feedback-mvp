@@ -1,6 +1,6 @@
 /**
  * 作业批改系统 - 后端逻辑
- * 包含：表自动创建、任务提交、AI批改处理、结果解析、自动推送到作业管理
+ * 包含：表自动创建、任务提交、AI批改处理、结果解析、自动推送到学生管理
  */
 
 import { getDb } from "./db";
@@ -93,6 +93,12 @@ export async function ensureCorrectionTable(): Promise<void> {
       \`completed_at\` timestamp,
       PRIMARY KEY (\`id\`)
     )`);
+    // 安全添加新列
+    try {
+      await db.execute(sql`ALTER TABLE \`correction_tasks\` ADD COLUMN \`streaming_chars\` INT DEFAULT 0`);
+    } catch (e: any) {
+      if (!e?.message?.includes("Duplicate column")) console.warn("[作业批改] ALTER TABLE 警告:", e?.message);
+    }
     tableEnsured = true;
     console.log("[作业批改] 表已就绪");
 
@@ -230,9 +236,9 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
   if (!db) return;
 
   try {
-    // 更新状态为 processing
+    // 更新状态为 processing，重置进度字段
     await db.update(correctionTasks)
-      .set({ taskStatus: "processing" })
+      .set({ taskStatus: "processing", streamingChars: 0 })
       .where(eq(correctionTasks.id, taskId));
 
     // 读取任务数据
@@ -303,9 +309,20 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
       apiConfig.apiModel = task.aiModel;
     }
 
-    // 调用 AI
+    // 调用 AI（带流式进度上报）
     console.log(`[作业批改] 开始AI批改: 任务${taskId}, 图片${fileInfos.length}张`);
-    const result = await invokeAIStream(systemPrompt, userMessage, undefined, {
+    let lastProgressTime = 0;
+    const onProgress = (chars: number) => {
+      const now = Date.now();
+      if (now - lastProgressTime >= 1000) {
+        db.update(correctionTasks)
+          .set({ streamingChars: chars })
+          .where(eq(correctionTasks.id, taskId))
+          .catch(() => {}); // 进度更新失败不影响主流程
+        lastProgressTime = now;
+      }
+    };
+    const result = await invokeAIStream(systemPrompt, userMessage, onProgress, {
       config: apiConfig,
       maxTokens: 8000,
       temperature: 0.5,
@@ -327,13 +344,14 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
         resultCorrection: correction,
         resultStatusUpdate: statusUpdate,
         taskStatus: "completed",
+        streamingChars: result.content.length,
         completedAt: new Date(),
       })
       .where(eq(correctionTasks.id, taskId));
 
     console.log(`[作业批改] 任务${taskId}完成, 批改${correction.length}字, 状态更新${statusUpdate.length}字`);
 
-    // 自动推送到作业管理系统（始终尝试，即使AI未按格式分割）
+    // 自动推送到学生管理系统（始终尝试，即使AI未按格式分割）
     try {
       const importContent = statusUpdate.trim()
         ? statusUpdate
@@ -348,7 +366,7 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
           importEntryId: importResult.id,
         })
         .where(eq(correctionTasks.id, taskId));
-      console.log(`[作业批改] 已自动推送到作业管理: 条目ID=${importResult.id}`);
+      console.log(`[作业批改] 已自动推送到学生管理: 条目ID=${importResult.id}`);
     } catch (importErr: any) {
       console.error(`[作业批改] 自动推送失败:`, importErr?.message);
       // 推送失败不影响批改结果
@@ -434,6 +452,8 @@ export async function listCorrectionTasks(studentName?: string, limit: number = 
     studentName: correctionTasks.studentName,
     correctionType: correctionTasks.correctionType,
     taskStatus: correctionTasks.taskStatus,
+    aiModel: correctionTasks.aiModel,
+    streamingChars: correctionTasks.streamingChars,
     autoImported: correctionTasks.autoImported,
     errorMessage: correctionTasks.errorMessage,
     createdAt: correctionTasks.createdAt,

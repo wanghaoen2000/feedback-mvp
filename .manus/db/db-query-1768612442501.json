@@ -1,9 +1,0 @@
-{
-  "query": "INSERT INTO system_config (`key`, `value`, `description`) VALUES ('maxTokens', '64000', 'AI生成的最大token数') ON DUPLICATE KEY UPDATE `value` = '64000', `description` = 'AI生成的最大token数';",
-  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2MZtV6wEbn7VDxk.root --database i28QGEfQiub7RkxMVRZYkr --execute INSERT INTO system_config (`key`, `value`, `description`) VALUES ('maxTokens', '64000', 'AI生成的最大token数') ON DUPLICATE KEY UPDATE `value` = '64000', `description` = 'AI生成的最大token数';",
-  "rows": [],
-  "messages": [],
-  "stdout": "",
-  "stderr": "",
-  "execution_time_ms": 88
-}

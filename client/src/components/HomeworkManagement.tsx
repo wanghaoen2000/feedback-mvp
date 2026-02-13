@@ -27,6 +27,9 @@ import {
   FileText,
   Copy,
   Check,
+  Database,
+  Download,
+  Upload,
 } from "lucide-react";
 
 // ============= 学生名片按钮组件 =============
@@ -90,6 +93,23 @@ function statusLabel(status: string): string {
   }
 }
 
+/** 模型名称缩写 */
+function shortModelName(model: string): string {
+  if (!model) return "";
+  let s = model.replace(/^claude-/, "");
+  s = s.replace(/-\d{8}/, "");
+  s = s.replace(/(\d+)-(\d+)/, "$1.$2");
+  return s;
+}
+
+/** 格式化秒数为 Xs 或 Xm Xs */
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s > 0 ? `${m}m${s}s` : `${m}m`;
+}
+
 // ============= 主组件 =============
 export function HomeworkManagement() {
   // --- 学生名册 ---
@@ -112,8 +132,23 @@ export function HomeworkManagement() {
 
   // --- 条目（预入库队列） ---
   const pendingEntriesQuery = trpc.homework.listPendingEntries.useQuery(undefined, {
-    refetchInterval: 5000, // 轮询刷新
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 5000;
+      const hasProcessing = data.some((e: any) => e.entryStatus === "pending" || e.entryStatus === "processing");
+      return hasProcessing ? 3000 : 5000; // 有处理中的条目时加快轮询
+    },
   });
+
+  // 心跳计时器：处理中条目实时刷新秒数
+  const [now, setNow] = useState(Date.now());
+  const entries = pendingEntriesQuery.data || [];
+  const hasProcessing = entries.some((e: any) => e.entryStatus === "pending" || e.entryStatus === "processing");
+  useEffect(() => {
+    if (!hasProcessing) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasProcessing]);
   const submitEntryMut = trpc.homework.submitEntry.useMutation({
     onSuccess: () => { pendingEntriesQuery.refetch(); setInputText(""); },
   });
@@ -140,6 +175,28 @@ export function HomeworkManagement() {
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
   const [statusCopied, setStatusCopied] = useState(false);
   const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // --- 数据备份相关 ---
+  const [showDataMgmt, setShowDataMgmt] = useState(false);
+  const [backupPreview, setBackupPreview] = useState<{
+    total: number;
+    samples: Array<{ name: string; planType: string; statusPreview: string }>;
+    allNames: string[];
+    rawContent: string;
+  } | null>(null);
+  const [importResult, setImportResult] = useState<{ imported: number; created: number; updated: number } | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const exportBackupMut = trpc.homework.exportBackup.useMutation();
+  const previewBackupMut = trpc.homework.previewBackup.useMutation();
+  const importBackupMut = trpc.homework.importBackup.useMutation({
+    onSuccess: (data) => {
+      setImportResult(data);
+      setBackupPreview(null);
+      studentsQuery.refetch();
+      trpcUtils.homework.getStudentStatus.invalidate();
+    },
+  });
 
   // --- 学生当前状态 ---
   const studentStatusQuery = trpc.homework.getStudentStatus.useQuery(
@@ -193,8 +250,7 @@ export function HomeworkManagement() {
   // 学生列表（按姓氏拼音排序）
   const students = useMemo(() => sortByPinyin(studentsQuery.data || []), [studentsQuery.data]);
 
-  // 待处理条目
-  const entries = pendingEntriesQuery.data || [];
+  // 待处理条目统计
   const preStagedCount = entries.filter(e => e.entryStatus === "pre_staged").length;
   const failedCount = entries.filter(e => e.entryStatus === "failed").length;
   const processingCount = entries.filter(e => e.entryStatus === "pending" || e.entryStatus === "processing").length;
@@ -263,6 +319,15 @@ export function HomeworkManagement() {
             <UserPlus className="w-4 h-4" />
             <span className="hidden sm:inline ml-1">管理学生</span>
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setShowDataMgmt(!showDataMgmt); setBackupPreview(null); setImportResult(null); }}
+            className="h-8"
+          >
+            <Database className="w-4 h-4" />
+            <span className="hidden sm:inline ml-1">数据</span>
+          </Button>
         </div>
       </div>
 
@@ -273,7 +338,7 @@ export function HomeworkManagement() {
             <div>
               <Label className="text-sm font-medium flex items-center gap-2">
                 <FileText className="w-4 h-4 text-blue-600" />
-                作业管理提示词
+                学生管理提示词
               </Label>
               <p className="text-xs text-gray-500 mb-1">
                 定义学生状态文档的格式要求和AI处理规则。类似学情反馈的路书，每次AI处理时会使用此提示词。
@@ -283,7 +348,7 @@ export function HomeworkManagement() {
                   ref={promptTextareaRef}
                   value={localPrompt}
                   onChange={(e) => setLocalPrompt(e.target.value)}
-                  placeholder={"在这里编写作业管理提示词...\n\n例如：\n- 学生状态文档的格式模板\n- 各模块（作业布置、完成情况、成绩轨迹、词汇进展等）的具体要求\n- 作业标准名称列表\n- 更新规则（哪些字段原封不动保留，哪些需要更新）"}
+                  placeholder={"在这里编写学生管理提示词...\n\n例如：\n- 学生状态文档的格式模板\n- 各模块（作业布置、完成情况、成绩轨迹、词汇进展等）的具体要求\n- 作业标准名称列表\n- 更新规则（哪些字段原封不动保留，哪些需要更新）"}
                   rows={12}
                   className="text-sm font-mono !field-sizing-fixed max-h-[45vh] overflow-y-auto"
                   style={{ fieldSizing: 'fixed' } as React.CSSProperties}
@@ -423,6 +488,148 @@ export function HomeworkManagement() {
             )}
             {addStudentMut.isError && (
               <p className="text-xs text-red-500">{addStudentMut.error?.message || "添加失败"}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ===== 数据管理面板（折叠） ===== */}
+      {showDataMgmt && (
+        <Card className="border-dashed border-emerald-200">
+          <CardContent className="pt-4 space-y-3">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Database className="w-4 h-4 text-emerald-600" />
+              数据备份与恢复
+            </Label>
+            <p className="text-xs text-gray-500">
+              导出所有学生数据为 Markdown 备份文件（自动上传到 Google Drive）。每次入库操作也会自动备份。
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+              {/* 一键导出 */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const result = await exportBackupMut.mutateAsync();
+                    // 下载为本地文件
+                    const blob = new Blob([result.content], { type: "text/markdown;charset=utf-8" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `学生管理备份_${result.timestamp}.md`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  } catch {}
+                }}
+                disabled={exportBackupMut.isPending}
+              >
+                {exportBackupMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                一键导出 ({students.length}个学生)
+              </Button>
+
+              {/* 导入备份 */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={previewBackupMut.isPending}
+              >
+                {previewBackupMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Upload className="w-3 h-3 mr-1" />}
+                导入备份
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md,.txt"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const text = await file.text();
+                    const preview = await previewBackupMut.mutateAsync({ content: text });
+                    setBackupPreview({ ...preview, rawContent: text });
+                    setImportResult(null);
+                  } catch {}
+                  e.target.value = "";
+                }}
+              />
+            </div>
+
+            {exportBackupMut.isSuccess && !backupPreview && (
+              <div className="text-xs text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                已导出 {exportBackupMut.data.studentCount} 个学生，文件已下载并上传到 Google Drive
+              </div>
+            )}
+
+            {exportBackupMut.isError && (
+              <p className="text-xs text-red-500">导出失败: {exportBackupMut.error?.message}</p>
+            )}
+
+            {/* 导入预览 */}
+            {backupPreview && (
+              <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-2">
+                <p className="text-sm font-medium text-amber-800">
+                  预览：共 {backupPreview.total} 个学生
+                </p>
+                <div className="space-y-1">
+                  {backupPreview.samples.map((s, i) => (
+                    <div key={i} className="text-xs bg-white rounded p-2 border border-amber-100">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-medium">{s.name}</span>
+                        <span className={`px-1 py-0.5 rounded ${s.planType === "daily" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
+                          {s.planType === "daily" ? "日计划" : "周计划"}
+                        </span>
+                        {i === 0 && <span className="text-gray-400">(第1个)</span>}
+                        {i === 1 && backupPreview.total > 2 && <span className="text-gray-400">(中间)</span>}
+                        {i === backupPreview.samples.length - 1 && i > 0 && <span className="text-gray-400">(最后)</span>}
+                      </div>
+                      <p className="text-gray-500 whitespace-pre-wrap line-clamp-3">{s.statusPreview}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-amber-700">
+                  将覆盖现有同名学生的数据，不存在的学生会自动创建。确认导入？
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => importBackupMut.mutate({ content: backupPreview.rawContent })}
+                    disabled={importBackupMut.isPending}
+                    className="bg-amber-600 hover:bg-amber-700"
+                  >
+                    {importBackupMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
+                    确认导入
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setBackupPreview(null)}
+                    disabled={importBackupMut.isPending}
+                  >
+                    取消
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* 导入结果 */}
+            {importResult && (
+              <div className="text-xs text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                导入完成：共 {importResult.imported} 个学生（新建 {importResult.created}，更新 {importResult.updated}）
+              </div>
+            )}
+
+            {importBackupMut.isError && (
+              <p className="text-xs text-red-500">导入失败: {importBackupMut.error?.message}</p>
+            )}
+
+            {previewBackupMut.isError && (
+              <p className="text-xs text-red-500">文件解析失败: {previewBackupMut.error?.message}</p>
             )}
           </CardContent>
         </Card>
@@ -577,10 +784,40 @@ export function HomeworkManagement() {
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <EntryStatusIcon status={entry.entryStatus} />
                     <span className="font-medium text-sm">{entry.studentName}</span>
-                    <span className="text-xs text-gray-500">{statusLabel(entry.entryStatus)}</span>
+                    {(entry.entryStatus === "pending" || entry.entryStatus === "processing") ? (
+                      // 处理中：实时进度
+                      <>
+                        {entry.streamingChars > 0 ? (
+                          <span className="text-xs text-blue-500 tabular-nums">已接收{entry.streamingChars}字</span>
+                        ) : entry.entryStatus === "processing" ? (
+                          <span className="text-xs text-blue-400">等待AI响应...</span>
+                        ) : (
+                          <span className="text-xs text-gray-500">{statusLabel(entry.entryStatus)}</span>
+                        )}
+                        {entry.startedAt && (
+                          <span className="text-xs text-gray-400 tabular-nums">
+                            {formatDuration(Math.round((now - new Date(entry.startedAt).getTime()) / 1000))}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      // 已完成/失败：静态信息
+                      <>
+                        <span className="text-xs text-gray-500">{statusLabel(entry.entryStatus)}</span>
+                        {entry.aiModel && <span className="text-xs text-gray-400">({shortModelName(entry.aiModel)})</span>}
+                        {entry.startedAt && entry.completedAt && (
+                          <span className="text-xs text-gray-400 tabular-nums">
+                            {formatDuration(Math.round((new Date(entry.completedAt).getTime() - new Date(entry.startedAt).getTime()) / 1000))}
+                          </span>
+                        )}
+                        {entry.streamingChars > 0 && (
+                          <span className="text-xs text-gray-400">{entry.streamingChars}字</span>
+                        )}
+                      </>
+                    )}
                     <span className="text-xs text-gray-400">
                       {new Date(entry.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
                     </span>

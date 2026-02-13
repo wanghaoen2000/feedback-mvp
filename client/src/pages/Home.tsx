@@ -836,7 +836,7 @@ export default function Home() {
     setIsComplete(false);
     setHasError(false);
     setIsStopping(false);
-    setHwImportStatus('idle'); // 重置作业管理导入状态
+    setHwImportStatus('idle'); // 重置学生管理导入状态
     setCurrentGeneratingStudent(studentName.trim()); // 设置当前生成的学生名
     setSteps(initialSteps);
     setCurrentStep(1);
@@ -2907,7 +2907,7 @@ export default function Home() {
     setIsClassFirstLesson(false);
   };
 
-  // 一键导入作业管理（从课后信息提取）
+  // 一键导入学生管理（从课后信息提取）
   const handleHwImport = useCallback(async () => {
     if (!activeTaskId) return;
     // 先验证必填字段，避免设置loading后提前return导致按钮卡死
@@ -2924,7 +2924,7 @@ export default function Home() {
           classNumber: classNumber.trim(),
           attendanceStudents: validStudents,
         });
-        console.log(`[作业管理导入] 小班课导入完成: ${result.className}, 共${result.total}条`);
+        console.log(`[学生管理导入] 小班课导入完成: ${result.className}, 共${result.total}条`);
       } else {
         // 一对一：原有逻辑
         await hwImportFromTaskMutation.mutateAsync({
@@ -2934,7 +2934,7 @@ export default function Home() {
       }
       setHwImportStatus('success');
     } catch (err: any) {
-      console.error("[作业管理导入] 失败:", err);
+      console.error("[学生管理导入] 失败:", err);
       setHwImportStatus('error');
     }
   }, [activeTaskId, courseType, studentName, classNumber, attendanceStudents, hwImportFromTaskMutation, hwImportClassFromTaskMutation]);
@@ -3005,7 +3005,7 @@ export default function Home() {
             </TabsTrigger>
             <TabsTrigger value="homework" className="text-base py-2">
               <BookOpen className="w-4 h-4 mr-2" />
-              作业管理
+              学生管理
             </TabsTrigger>
             <TabsTrigger value="correction" className="text-base py-2">
               <PenLine className="w-4 h-4 mr-2" />
@@ -3903,7 +3903,7 @@ export default function Home() {
                                         {hwImportStatus === 'success'
                                           ? (courseType === 'class' ? `已导入(1+${attendanceStudents.filter((s: string) => s.trim()).length})` : '已导入')
                                           : hwImportStatus === 'error' ? '导入失败，点击重试'
-                                          : (courseType === 'class' ? '导入作业管理(班级+学生)' : '导入作业管理')}
+                                          : (courseType === 'class' ? '导入学生管理(班级+学生)' : '导入学生管理')}
                                       </button>
                                     )}
                                   </div>
@@ -4126,13 +4126,13 @@ export default function Home() {
         </div>
           </TabsContent>
 
-          {/* 作业管理 Tab 内容 */}
+          {/* 学生管理 Tab 内容 */}
           <TabsContent value="homework">
             <Card className="shadow-xl">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <BookOpen className="w-5 h-5 text-green-600" />
-                  作业管理
+                  学生管理
                 </CardTitle>
                 <CardDescription className="text-xs sm:text-sm">
                   选择学生 → 输入语音转文字 → AI结构化处理 → 确认入库
