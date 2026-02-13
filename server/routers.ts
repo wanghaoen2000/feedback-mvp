@@ -2496,9 +2496,6 @@ export const appRouter = router({
         id: z.number(),
         name: z.string().min(1).optional(),
         planType: z.enum(["daily", "weekly"]).optional(),
-        nextClassDate: z.string().nullable().optional(),
-        examTarget: z.string().nullable().optional(),
-        examDate: z.string().nullable().optional(),
         status: z.enum(["active", "inactive"]).optional(),
       }))
       .mutation(async ({ input }) => {

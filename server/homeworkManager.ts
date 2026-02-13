@@ -23,9 +23,6 @@ export async function ensureHwTables(): Promise<void> {
       \`id\` int AUTO_INCREMENT NOT NULL,
       \`name\` varchar(64) NOT NULL,
       \`plan_type\` varchar(10) NOT NULL DEFAULT 'weekly',
-      \`next_class_date\` varchar(20),
-      \`exam_target\` varchar(255),
-      \`exam_date\` varchar(20),
       \`status\` varchar(10) NOT NULL DEFAULT 'active',
       \`created_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
       \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -58,6 +55,23 @@ export async function ensureHwTables(): Promise<void> {
     await safeAddColumn("hw_entries", "streaming_chars", "INT DEFAULT 0");
     await safeAddColumn("hw_entries", "started_at", "TIMESTAMP NULL");
     await safeAddColumn("hw_entries", "completed_at", "TIMESTAMP NULL");
+    // 清理废弃列（曾定义但从未使用）
+    const safeDropColumn = async (table: string, col: string) => {
+      try {
+        await db.execute(sql.raw(`ALTER TABLE \`${table}\` DROP COLUMN \`${col}\``));
+        console.log(`[学生管理] 已删除废弃列 ${table}.${col}`);
+      } catch (e: any) {
+        // "Can't DROP" = 列不存在，忽略
+        if (!e?.message?.includes("check that column/key exists")) {
+          if (!e?.message?.includes("Can't DROP")) {
+            console.warn(`[学生管理] DROP COLUMN ${table}.${col} 警告:`, e?.message);
+          }
+        }
+      }
+    };
+    await safeDropColumn("hw_students", "next_class_date");
+    await safeDropColumn("hw_students", "exam_target");
+    await safeDropColumn("hw_students", "exam_date");
     tableEnsured = true;
     console.log("[学生管理] 表已就绪");
     // 恢复卡死的条目：服务器重启后 processing/pending 状态的条目不会继续处理
@@ -116,9 +130,6 @@ export async function addStudent(name: string, planType: string = "weekly") {
 export async function updateStudent(id: number, data: {
   name?: string;
   planType?: string;
-  nextClassDate?: string | null;
-  examTarget?: string | null;
-  examDate?: string | null;
   status?: string;
 }) {
   await ensureHwTables();
@@ -127,9 +138,6 @@ export async function updateStudent(id: number, data: {
   const updateObj: Record<string, any> = {};
   if (data.name !== undefined) updateObj.name = data.name.trim();
   if (data.planType !== undefined) updateObj.planType = data.planType;
-  if (data.nextClassDate !== undefined) updateObj.nextClassDate = data.nextClassDate;
-  if (data.examTarget !== undefined) updateObj.examTarget = data.examTarget;
-  if (data.examDate !== undefined) updateObj.examDate = data.examDate;
   if (data.status !== undefined) updateObj.status = data.status;
   if (Object.keys(updateObj).length === 0) return { success: true };
   await db.update(hwStudents).set(updateObj).where(eq(hwStudents.id, id));
