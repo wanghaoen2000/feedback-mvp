@@ -8,7 +8,7 @@ import { eq, gte, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
 import { systemConfig } from "../drizzle/schema";
@@ -215,8 +215,8 @@ export const appRouter = router({
       };
     }),
 
-    // 更新配置
-    update: protectedProcedure
+    // 更新配置（仅管理员）
+    update: adminProcedure
       .input(z.object({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
@@ -432,8 +432,8 @@ export const appRouter = router({
         };
       }),
 
-    // 重置为默认值
-    reset: protectedProcedure
+    // 重置为默认值（仅管理员）
+    reset: adminProcedure
       .input(z.object({
         keys: z.array(z.enum(["apiModel", "apiKey", "apiUrl", "currentYear", "roadmap", "driveBasePath"])),
       }))
