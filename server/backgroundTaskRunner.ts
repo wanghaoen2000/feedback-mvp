@@ -953,10 +953,12 @@ async function ensureTable(): Promise<void> {
       \`input_params\` mediumtext NOT NULL,
       \`step_results\` mediumtext,
       \`error_message\` text,
+      \`user_id\` int NOT NULL DEFAULT 0,
       \`created_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
       \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       \`completed_at\` timestamp NULL,
-      PRIMARY KEY (\`id\`)
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_background_tasks_user_id\` (\`user_id\`)
     )`);
     // 兼容旧表：text → mediumtext 升级（防止大文本超过 64KB 限制）
     try {
@@ -966,6 +968,14 @@ async function ensureTable(): Promise<void> {
     } catch (alterErr: any) {
       // ALTER TABLE 失败可能有多种原因，不能盲目忽略
       console.warn("[后台任务] 列类型升级失败(可能已是mediumtext):", alterErr?.message || alterErr);
+    }
+    // 兼容旧表：添加 user_id 列用于数据隔离
+    try {
+      await db.execute(sql`ALTER TABLE \`background_tasks\` ADD COLUMN \`user_id\` INT NOT NULL DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE \`background_tasks\` ADD INDEX \`idx_background_tasks_user_id\` (\`user_id\`)`);
+      console.log("[后台任务] 已添加 user_id 列和索引");
+    } catch (userIdErr: any) {
+      // 列已存在时会报 Duplicate column，安全忽略
     }
     console.log("[后台任务] 表已就绪");
   } catch (err: any) {

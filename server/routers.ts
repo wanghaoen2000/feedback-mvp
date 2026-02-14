@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 import { COOKIE_NAME, NOT_ALLOWED_ERR_MSG } from "@shared/const";
 import { z } from "zod";
-import { eq, gte, desc } from "drizzle-orm";
+import { eq, gte, desc, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -2008,7 +2008,7 @@ export const appRouter = router({
         driveBasePath: z.string().optional(),
         classStoragePath: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { startBackgroundTask, cleanupOldTasks } = await import("./backgroundTaskRunner");
         const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
         const db = await getDb();
@@ -2034,6 +2034,7 @@ export const appRouter = router({
         // 插入任务记录
         await db.insert(bgTasksTable).values({
           id: taskId,
+          userId: ctx.user.id,
           courseType: input.courseType,
           displayName,
           status: "pending",
@@ -2051,12 +2052,12 @@ export const appRouter = router({
     // 查询单个任务状态
     status: protectedProcedure
       .input(z.object({ taskId: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
 
-        const tasks = await db.select().from(bgTasksTable).where(eq(bgTasksTable.id, input.taskId)).limit(1);
+        const tasks = await db.select().from(bgTasksTable).where(and(eq(bgTasksTable.id, input.taskId), eq(bgTasksTable.userId, ctx.user.id))).limit(1);
         if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
 
         const task = tasks[0];
@@ -2075,7 +2076,7 @@ export const appRouter = router({
       }),
 
     // 查询最近3天的任务历史
-    history: protectedProcedure.query(async () => {
+    history: protectedProcedure.query(async ({ ctx }) => {
       const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
       const db = await getDb();
       if (!db) return [];
@@ -2095,7 +2096,7 @@ export const appRouter = router({
         inputParams: bgTasksTable.inputParams,
       })
         .from(bgTasksTable)
-        .where(gte(bgTasksTable.createdAt, threeDaysAgo))
+        .where(and(eq(bgTasksTable.userId, ctx.user.id), gte(bgTasksTable.createdAt, threeDaysAgo)))
         .orderBy(desc(bgTasksTable.createdAt));
 
       return tasks.map((t) => {
@@ -2151,14 +2152,14 @@ export const appRouter = router({
     // 获取反馈全文（按需加载）
     feedbackContent: protectedProcedure
       .input(z.object({ taskId: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
 
         const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
           .from(bgTasksTable)
-          .where(eq(bgTasksTable.id, input.taskId))
+          .where(and(eq(bgTasksTable.id, input.taskId), eq(bgTasksTable.userId, ctx.user.id)))
           .limit(1);
         if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
 
@@ -2176,14 +2177,14 @@ export const appRouter = router({
     // 获取课后信息提取全文（按需加载）
     extractionContent: protectedProcedure
       .input(z.object({ taskId: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
 
         const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
           .from(bgTasksTable)
-          .where(eq(bgTasksTable.id, input.taskId))
+          .where(and(eq(bgTasksTable.id, input.taskId), eq(bgTasksTable.userId, ctx.user.id)))
           .limit(1);
         if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
 
@@ -2201,14 +2202,14 @@ export const appRouter = router({
     // 获取发送素材（按需加载，用于用户验证发送内容）
     inputMaterials: protectedProcedure
       .input(z.object({ taskId: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
 
         const tasks = await db.select({ inputParams: bgTasksTable.inputParams })
           .from(bgTasksTable)
-          .where(eq(bgTasksTable.id, input.taskId))
+          .where(and(eq(bgTasksTable.id, input.taskId), eq(bgTasksTable.userId, ctx.user.id)))
           .limit(1);
         if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
 
@@ -2231,7 +2232,7 @@ export const appRouter = router({
     // 取消运行中的任务
     cancel: protectedProcedure
       .input(z.object({ taskId: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { cancelBackgroundTask } = await import("./backgroundTaskRunner");
         const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
         const db = await getDb();
@@ -2240,7 +2241,7 @@ export const appRouter = router({
         // 检查任务是否存在且在运行中
         const tasks = await db.select({ status: bgTasksTable.status })
           .from(bgTasksTable)
-          .where(eq(bgTasksTable.id, input.taskId))
+          .where(and(eq(bgTasksTable.id, input.taskId), eq(bgTasksTable.userId, ctx.user.id)))
           .limit(1);
         if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
         if (tasks[0].status !== "running" && tasks[0].status !== "pending") {
@@ -2280,7 +2281,7 @@ export const appRouter = router({
         apiKey: z.string().optional(),
         apiUrl: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { startBatchBackgroundTask, cleanupOldBatchTasks } = await import("./batch/batchTaskRunner");
         const { batchTasks: batchTasksTable, batchTaskItems: batchItemsTable } = await import("../drizzle/schema");
         const db = await getDb();
@@ -2335,6 +2336,7 @@ export const appRouter = router({
         // 插入批量任务记录
         await db.insert(batchTasksTable).values({
           id: batchId,
+          userId: ctx.user.id,
           displayName,
           status: "pending",
           totalItems,
@@ -2365,7 +2367,7 @@ export const appRouter = router({
       }),
 
     // 查询最近3天的批量任务历史
-    history: protectedProcedure.query(async () => {
+    history: protectedProcedure.query(async ({ ctx }) => {
       const { batchTasks: batchTasksTable } = await import("../drizzle/schema");
       const db = await getDb();
       if (!db) return [];
@@ -2384,7 +2386,7 @@ export const appRouter = router({
         inputParams: batchTasksTable.inputParams,
       })
         .from(batchTasksTable)
-        .where(gte(batchTasksTable.createdAt, threeDaysAgo))
+        .where(and(eq(batchTasksTable.userId, ctx.user.id), gte(batchTasksTable.createdAt, threeDaysAgo)))
         .orderBy(desc(batchTasksTable.createdAt));
 
       return tasks.map((t) => {
@@ -2417,10 +2419,15 @@ export const appRouter = router({
     // 获取批量任务的子项列表
     items: protectedProcedure
       .input(z.object({ batchId: z.string().uuid() }))
-      .query(async ({ input }) => {
-        const { batchTaskItems: batchItemsTable } = await import("../drizzle/schema");
+      .query(async ({ input, ctx }) => {
+        const { batchTasks: batchTasksTable, batchTaskItems: batchItemsTable } = await import("../drizzle/schema");
         const db = await getDb();
         if (!db) return [];
+
+        // 验证批量任务属于当前用户
+        const batch = await db.select({ id: batchTasksTable.id }).from(batchTasksTable)
+          .where(and(eq(batchTasksTable.id, input.batchId), eq(batchTasksTable.userId, ctx.user.id))).limit(1);
+        if (batch.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
 
         const items = await db.select({
           id: batchItemsTable.id,
@@ -2454,7 +2461,14 @@ export const appRouter = router({
         batchId: z.string().uuid(),
         taskNumber: z.number(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        // 验证批量任务属于当前用户
+        const { batchTasks: batchTasksTable } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "数据库不可用" });
+        const batch = await db.select({ id: batchTasksTable.id }).from(batchTasksTable)
+          .where(and(eq(batchTasksTable.id, input.batchId), eq(batchTasksTable.userId, ctx.user.id))).limit(1);
+        if (batch.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
         const { retryBatchItem } = await import("./batch/batchTaskRunner");
         // 异步执行，不等待结果
         retryBatchItem(input.batchId, input.taskNumber).catch((err) => {
@@ -2466,7 +2480,7 @@ export const appRouter = router({
     // 取消/停止批量任务
     cancel: protectedProcedure
       .input(z.object({ batchId: z.string().uuid() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { cancelBatchTask } = await import("./batch/batchTaskRunner");
         const { batchTasks: batchTasksTable } = await import("../drizzle/schema");
         const db = await getDb();
@@ -2474,7 +2488,7 @@ export const appRouter = router({
 
         const tasks = await db.select({ status: batchTasksTable.status })
           .from(batchTasksTable)
-          .where(eq(batchTasksTable.id, input.batchId))
+          .where(and(eq(batchTasksTable.id, input.batchId), eq(batchTasksTable.userId, ctx.user.id)))
           .limit(1);
         if (tasks.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "任务不存在" });
         if (tasks[0].status !== "running" && tasks[0].status !== "pending") {
@@ -2549,8 +2563,8 @@ export const appRouter = router({
     // 学生名册
     listStudents: protectedProcedure
       .input(z.object({ status: z.string().optional() }).optional())
-      .query(async ({ input }) => {
-        return listStudents(input?.status);
+      .query(async ({ input, ctx }) => {
+        return listStudents(ctx.user.id, input?.status);
       }),
 
     addStudent: protectedProcedure
@@ -2558,8 +2572,8 @@ export const appRouter = router({
         name: z.string().min(1),
         planType: z.enum(["daily", "weekly"]).default("weekly"),
       }))
-      .mutation(async ({ input }) => {
-        return addStudent(input.name, input.planType);
+      .mutation(async ({ input, ctx }) => {
+        return addStudent(ctx.user.id, input.name, input.planType);
       }),
 
     updateStudent: protectedProcedure
@@ -2569,15 +2583,15 @@ export const appRouter = router({
         planType: z.enum(["daily", "weekly"]).optional(),
         status: z.enum(["active", "inactive"]).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
-        return updateStudent(id, data);
+        return updateStudent(ctx.user.id, id, data);
       }),
 
     removeStudent: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
-        return removeStudent(input.id);
+      .mutation(async ({ input, ctx }) => {
+        return removeStudent(ctx.user.id, input.id);
       }),
 
     // 语音输入处理（预入库队列）
@@ -2587,8 +2601,9 @@ export const appRouter = router({
         rawInput: z.string().min(1),
         aiModel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         return submitAndProcessEntry(
+          ctx.user.id,
           input.studentName,
           input.rawInput,
           input.aiModel,
@@ -2596,14 +2611,14 @@ export const appRouter = router({
       }),
 
     listPendingEntries: protectedProcedure
-      .query(async () => {
-        return listPendingEntries();
+      .query(async ({ ctx }) => {
+        return listPendingEntries(ctx.user.id);
       }),
 
     listEntries: protectedProcedure
       .input(z.object({ status: z.string().optional() }).optional())
-      .query(async ({ input }) => {
-        return listEntries(input?.status);
+      .query(async ({ input, ctx }) => {
+        return listEntries(ctx.user.id, input?.status);
       }),
 
     // 查询某学生的已入库记录
@@ -2613,36 +2628,36 @@ export const appRouter = router({
         limit: z.number().min(1).max(200).default(50),
         offset: z.number().min(0).default(0),
       }))
-      .query(async ({ input }) => {
-        return listStudentEntries(input.studentName, input.limit, input.offset);
+      .query(async ({ input, ctx }) => {
+        return listStudentEntries(ctx.user.id, input.studentName, input.limit, input.offset);
       }),
 
     retryEntry: protectedProcedure
       .input(z.object({
         id: z.number(),
       }))
-      .mutation(async ({ input }) => {
-        return retryEntry(input.id);
+      .mutation(async ({ input, ctx }) => {
+        return retryEntry(ctx.user.id, input.id);
       }),
 
     deleteEntry: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
-        return deleteEntry(input.id);
+      .mutation(async ({ input, ctx }) => {
+        return deleteEntry(ctx.user.id, input.id);
       }),
 
     confirmEntries: protectedProcedure
       .input(z.object({ ids: z.array(z.number()) }))
-      .mutation(async ({ input }) => {
-        const result = await confirmEntries(input.ids);
-        if (result.count > 0) autoBackupToGDrive(); // fire-and-forget
+      .mutation(async ({ input, ctx }) => {
+        const result = await confirmEntries(ctx.user.id, input.ids);
+        if (result.count > 0) autoBackupToGDrive(ctx.user.id); // fire-and-forget
         return result;
       }),
 
     confirmAll: protectedProcedure
-      .mutation(async () => {
-        const result = await confirmAllPreStaged();
-        if (result.updatedStudents.length > 0) autoBackupToGDrive(); // fire-and-forget
+      .mutation(async ({ ctx }) => {
+        const result = await confirmAllPreStaged(ctx.user.id);
+        if (result.updatedStudents.length > 0) autoBackupToGDrive(ctx.user.id); // fire-and-forget
         return result;
       }),
 
@@ -2677,8 +2692,8 @@ export const appRouter = router({
     // 获取学生当前状态文档
     getStudentStatus: protectedProcedure
       .input(z.object({ studentName: z.string().min(1) }))
-      .query(async ({ input }) => {
-        const status = await getStudentLatestStatus(input.studentName);
+      .query(async ({ input, ctx }) => {
+        const status = await getStudentLatestStatus(ctx.user.id, input.studentName);
         return { currentStatus: status };
       }),
 
@@ -2688,9 +2703,9 @@ export const appRouter = router({
         studentName: z.string().min(1),
         extractionContent: z.string().min(1),
       }))
-      .mutation(async ({ input }) => {
-        const result = await importFromExtraction(input.studentName, input.extractionContent);
-        autoBackupToGDrive(); // fire-and-forget
+      .mutation(async ({ input, ctx }) => {
+        const result = await importFromExtraction(ctx.user.id, input.studentName, input.extractionContent);
+        autoBackupToGDrive(ctx.user.id); // fire-and-forget
         return result;
       }),
 
@@ -2700,9 +2715,9 @@ export const appRouter = router({
         taskId: z.string().min(1),
         studentName: z.string().min(1),
       }))
-      .mutation(async ({ input }) => {
-        const result = await importFromTaskExtraction(input.taskId, input.studentName);
-        autoBackupToGDrive(); // fire-and-forget
+      .mutation(async ({ input, ctx }) => {
+        const result = await importFromTaskExtraction(ctx.user.id, input.taskId, input.studentName);
+        autoBackupToGDrive(ctx.user.id); // fire-and-forget
         return result;
       }),
 
@@ -2713,18 +2728,18 @@ export const appRouter = router({
         classNumber: z.string().min(1),
         attendanceStudents: z.array(z.string()),
       }))
-      .mutation(async ({ input }) => {
-        const result = await importClassFromTaskExtraction(input.taskId, input.classNumber, input.attendanceStudents);
-        autoBackupToGDrive(); // fire-and-forget
+      .mutation(async ({ input, ctx }) => {
+        const result = await importClassFromTaskExtraction(ctx.user.id, input.taskId, input.classNumber, input.attendanceStudents);
+        autoBackupToGDrive(ctx.user.id); // fire-and-forget
         return result;
       }),
 
     // ========== 数据备份与恢复 ==========
     exportBackup: protectedProcedure
-      .mutation(async () => {
-        const result = await exportStudentBackup();
+      .mutation(async ({ ctx }) => {
+        const result = await exportStudentBackup(ctx.user.id);
         // 同时上传到 Google Drive
-        autoBackupToGDrive();
+        autoBackupToGDrive(ctx.user.id);
         return result;
       }),
 
@@ -2736,8 +2751,8 @@ export const appRouter = router({
 
     importBackup: protectedProcedure
       .input(z.object({ content: z.string().min(1, "备份内容不能为空") }))
-      .mutation(async ({ input }) => {
-        return importStudentBackup(input.content);
+      .mutation(async ({ input, ctx }) => {
+        return importStudentBackup(ctx.user.id, input.content);
       }),
   }),
 
@@ -2757,17 +2772,17 @@ export const appRouter = router({
         })).optional(),
         aiModel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { submitCorrection } = await import("./correctionRunner");
-        return submitCorrection(input);
+        return submitCorrection(ctx.user.id, input);
       }),
 
     // 查询单个任务
     getTask: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCorrectionTask } = await import("./correctionRunner");
-        return getCorrectionTask(input.id);
+        return getCorrectionTask(ctx.user.id, input.id);
       }),
 
     // 列出批改任务
@@ -2776,9 +2791,9 @@ export const appRouter = router({
         studentName: z.string().optional(),
         limit: z.number().min(1).max(100).default(20),
       }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { listCorrectionTasks } = await import("./correctionRunner");
-        return listCorrectionTasks(input?.studentName, input?.limit);
+        return listCorrectionTasks(ctx.user.id, input?.studentName, input?.limit);
       }),
 
     // 获取批改类型列表
