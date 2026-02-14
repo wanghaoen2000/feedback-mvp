@@ -76,6 +76,10 @@ import {
   listGradingTasks,
   updateGradingEditedResult,
   syncGradingToStudents,
+  getGradingSyncItems,
+  retrySyncItem,
+  importSyncToStudents,
+  DEFAULT_SYNC_SYSTEM_PROMPT,
 } from "./gradingRunner";
 
 // 设置配置值
@@ -2699,12 +2703,16 @@ export const appRouter = router({
         const modelPresets = await getConfig("modelPresets");
         const gradingPrompt = await getConfig("gradingPrompt");
         const gradingYear = await getConfig("gradingYear");
+        const gradingSyncPrompt = await getConfig("gradingSyncPrompt");
+        const gradingSyncConcurrency = await getConfig("gradingSyncConcurrency");
         return {
           hwAiModel: hwAiModel || "",
           hwPromptTemplate: hwPromptTemplate || "",
           modelPresets: modelPresets || "",
           gradingPrompt: gradingPrompt || "",
           gradingYear: gradingYear || "",
+          gradingSyncPrompt: gradingSyncPrompt || "",
+          gradingSyncConcurrency: gradingSyncConcurrency || "20",
         };
       }),
 
@@ -2714,6 +2722,8 @@ export const appRouter = router({
         hwPromptTemplate: z.string().optional(),
         gradingPrompt: z.string().optional(),
         gradingYear: z.string().optional(),
+        gradingSyncPrompt: z.string().optional(),
+        gradingSyncConcurrency: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         if (input.hwAiModel !== undefined) {
@@ -2727,6 +2737,12 @@ export const appRouter = router({
         }
         if (input.gradingYear !== undefined) {
           await setConfig("gradingYear", input.gradingYear, "打分默认年份");
+        }
+        if (input.gradingSyncPrompt !== undefined) {
+          await setConfig("gradingSyncPrompt", input.gradingSyncPrompt, "打分同步系统提示词");
+        }
+        if (input.gradingSyncConcurrency !== undefined) {
+          await setConfig("gradingSyncConcurrency", input.gradingSyncConcurrency, "打分同步并发数");
         }
         return { success: true };
       }),
@@ -2772,9 +2788,44 @@ export const appRouter = router({
 
     // 一键同步打分结果到所有学生状态
     syncGradingToStudents: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({
+        id: z.number(),
+        syncPrompt: z.string().optional(),
+        concurrency: z.number().min(1).max(100).optional(),
+      }))
       .mutation(async ({ input, ctx }) => {
-        return syncGradingToStudents(ctx.user.id, input.id);
+        return syncGradingToStudents(ctx.user.id, input.id, {
+          syncPrompt: input.syncPrompt,
+          concurrency: input.concurrency,
+        });
+      }),
+
+    // 查询同步子任务列表（逐学生进度）
+    getSyncItems: protectedProcedure
+      .input(z.object({ gradingTaskId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        return getGradingSyncItems(ctx.user.id, input.gradingTaskId);
+      }),
+
+    // 重试单个同步子任务
+    retrySyncItem: protectedProcedure
+      .input(z.object({ gradingTaskId: z.number(), itemId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await retrySyncItem(ctx.user.id, input.gradingTaskId, input.itemId);
+        return { success: true };
+      }),
+
+    // 导入同步结果到学生状态（预入库）
+    importSyncToStudents: protectedProcedure
+      .input(z.object({ gradingTaskId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        return importSyncToStudents(ctx.user.id, input.gradingTaskId);
+      }),
+
+    // 获取默认同步系统提示词
+    getDefaultSyncPrompt: protectedProcedure
+      .query(() => {
+        return { prompt: DEFAULT_SYNC_SYSTEM_PROMPT };
       }),
 
     // 预览发送处理的系统提示词

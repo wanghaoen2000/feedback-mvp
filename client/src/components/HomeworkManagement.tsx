@@ -19,6 +19,7 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   UserPlus,
   BookOpen,
   X,
@@ -32,6 +33,8 @@ import {
   Upload,
   Star,
   Eye,
+  Clock,
+  Timer,
 } from "lucide-react";
 
 // ============= 学生名片按钮组件 =============
@@ -222,6 +225,15 @@ export function HomeworkManagement() {
   const [activeGradingId, setActiveGradingId] = useState<number | null>(null);
   const [editedGradingText, setEditedGradingText] = useState<string>("");
   const [gradingEditSaved, setGradingEditSaved] = useState(false);
+  const [syncPromptText, setSyncPromptText] = useState("");
+  const [syncPromptSaved, setSyncPromptSaved] = useState(false);
+  const [syncConcurrency, setSyncConcurrency] = useState("");
+  const [showSyncPrompt, setShowSyncPrompt] = useState(false);
+  const [showSyncPreview, setShowSyncPreview] = useState(false);
+  const [expandedSyncItems, setExpandedSyncItems] = useState(false);
+  const [retryingItems, setRetryingItems] = useState<Set<number>>(new Set());
+  const [syncStartTime, setSyncStartTime] = useState<number | null>(null);
+  const [syncElapsed, setSyncElapsed] = useState(0);
   const submitGradingMut = trpc.homework.submitGrading.useMutation();
   const updateGradingResultMut = trpc.homework.updateGradingResult.useMutation({
     onSuccess: () => {
@@ -231,10 +243,19 @@ export function HomeworkManagement() {
   });
   const syncGradingMut = trpc.homework.syncGradingToStudents.useMutation({
     onSuccess: () => {
-      // 同步启动成功，开始轮询
+      setSyncStartTime(Date.now());
+      setExpandedSyncItems(true);
       gradingHistoryQuery.refetch();
     },
   });
+  const importSyncMut = trpc.homework.importSyncToStudents.useMutation({
+    onSuccess: () => {
+      gradingHistoryQuery.refetch();
+      activeGradingQuery.refetch();
+      pendingEntriesQuery.refetch();
+    },
+  });
+  const retrySyncItemMut = trpc.homework.retrySyncItem.useMutation();
   const gradingHistoryQuery = trpc.homework.listGradingTasks.useQuery(undefined, {
     refetchInterval: (query) => {
       const data = query.state.data;
@@ -256,6 +277,30 @@ export function HomeworkManagement() {
       },
     }
   );
+  // 同步子任务查询
+  const syncItemsQuery = trpc.homework.getSyncItems.useQuery(
+    { gradingTaskId: activeGradingId! },
+    {
+      enabled: activeGradingId !== null && expandedSyncItems,
+      refetchInterval: (query) => {
+        const data = query.state.data;
+        if (!data) return 3000;
+        const hasRunning = data.some((item: any) => item.status === "pending" || item.status === "running");
+        return hasRunning ? 2000 : false;
+      },
+    }
+  );
+
+  // 同步计时器
+  useEffect(() => {
+    if (activeGradingQuery.data?.syncStatus !== "syncing") {
+      if (syncStartTime) setSyncStartTime(null);
+      return;
+    }
+    if (!syncStartTime) setSyncStartTime(Date.now());
+    const timer = setInterval(() => setSyncElapsed(Math.floor((Date.now() - (syncStartTime || Date.now())) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [activeGradingQuery.data?.syncStatus, syncStartTime]);
 
   // 初始化编辑文本：展开时加载已有的编辑结果或原始结果
   useEffect(() => {
@@ -308,6 +353,8 @@ export function HomeworkManagement() {
       setLocalModel(hwConfigQuery.data.hwAiModel || "");
       setLocalPrompt(hwConfigQuery.data.hwPromptTemplate || "");
       if (hwConfigQuery.data.gradingPrompt) setGradingPrompt(hwConfigQuery.data.gradingPrompt);
+      if (hwConfigQuery.data.gradingSyncPrompt) setSyncPromptText(hwConfigQuery.data.gradingSyncPrompt);
+      setSyncConcurrency(hwConfigQuery.data.gradingSyncConcurrency || "20");
     }
   }, [hwConfigQuery.data]);
 
@@ -790,6 +837,80 @@ export function HomeworkManagement() {
               </div>
             </div>
 
+            {/* 同步系统提示词（可编辑的软提示词） */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <Label className="text-xs text-gray-600">同步系统提示词（AI更新每个学生状态时使用）</Label>
+                <button
+                  type="button"
+                  onClick={() => setShowSyncPrompt(!showSyncPrompt)}
+                  className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
+                >
+                  {showSyncPrompt ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  {showSyncPrompt ? "收起" : "展开编辑"}
+                </button>
+              </div>
+              {showSyncPrompt && (
+                <div className="space-y-1">
+                  <Textarea
+                    value={syncPromptText}
+                    onChange={(e) => setSyncPromptText(e.target.value)}
+                    placeholder="留空则使用默认提示词。支持占位符：{startDate}（起始日期）、{endDate}（截止日期）"
+                    className="text-xs resize-none bg-white font-mono"
+                    rows={8}
+                    style={{ maxHeight: '16rem' }}
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">留空=使用默认 | 占位符: {"{startDate}"} {"{endDate}"} 会被替换为实际日期</span>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-xs px-2"
+                        onClick={() => setSyncPromptText("")}
+                      >
+                        恢复默认
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-xs px-2"
+                        onClick={() => {
+                          updateHwConfigMut.mutate({ gradingSyncPrompt: syncPromptText });
+                          setSyncPromptSaved(true);
+                          setTimeout(() => setSyncPromptSaved(false), 2000);
+                        }}
+                        disabled={updateHwConfigMut.isPending}
+                      >
+                        {syncPromptSaved ? <><Check className="w-3 h-3 mr-1" />已保存</> : <><Save className="w-3 h-3 mr-1" />保存</>}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 并发数配置 */}
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-gray-600 shrink-0">同步并发数</Label>
+              <Input
+                type="number"
+                value={syncConcurrency}
+                onChange={(e) => setSyncConcurrency(e.target.value)}
+                onBlur={() => {
+                  const val = Math.min(Math.max(parseInt(syncConcurrency) || 20, 1), 100);
+                  setSyncConcurrency(String(val));
+                  if (String(val) !== (hwConfigQuery.data?.gradingSyncConcurrency || "20")) {
+                    updateHwConfigMut.mutate({ gradingSyncConcurrency: String(val) });
+                  }
+                }}
+                className="w-20 h-7 text-xs text-center"
+                min={1}
+                max={100}
+              />
+              <span className="text-xs text-gray-400">最多100</span>
+            </div>
+
             {/* 日期范围选择 */}
             <div className="space-y-2">
               <Label className="text-xs text-gray-600 block">评分日期范围</Label>
@@ -941,7 +1062,14 @@ export function HomeworkManagement() {
                   <span>打分历史（保留180天）</span>
                 </div>
                 <div className="space-y-1.5">
-                  {gradingHistoryQuery.data.map((task: any) => (
+                  {gradingHistoryQuery.data.map((task: any) => {
+                    const syncConcurrencyNum = parseInt(syncConcurrency) || 20;
+                    const syncTotal = task.syncTotal || 0;
+                    const syncDone = (task.syncCompleted || 0) + (task.syncFailed || 0);
+                    const totalRounds = syncTotal > 0 ? Math.ceil(syncTotal / syncConcurrencyNum) : 0;
+                    const currentRound = syncTotal > 0 ? Math.min(Math.floor(syncDone / syncConcurrencyNum) + 1, totalRounds) : 0;
+
+                    return (
                     <div key={task.id} className={`border rounded-lg p-2.5 ${
                       task.taskStatus === "failed" ? "border-red-200 bg-red-50" :
                       task.taskStatus === "completed" ? "border-green-200 bg-green-50" :
@@ -969,11 +1097,17 @@ export function HomeworkManagement() {
                           {task.syncStatus === "syncing" && (
                             <span className="text-xs text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded flex items-center gap-1">
                               <Loader2 className="w-3 h-3 animate-spin" />同步中 {task.syncCompleted}/{task.syncTotal}
+                              {totalRounds > 1 && <span className="ml-0.5">({currentRound}/{totalRounds}轮)</span>}
                             </span>
                           )}
-                          {task.syncStatus === "completed" && (
+                          {task.syncStatus === "completed" && !task.syncImported && (
                             <span className="text-xs text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">
-                              已同步{task.syncCompleted}人{(task.syncFailed || 0) > 0 ? ` (${task.syncFailed}失败)` : ""}
+                              已同步{task.syncCompleted}人{(task.syncFailed || 0) > 0 ? ` (${task.syncFailed}失败)` : ""} - 待导入
+                            </span>
+                          )}
+                          {task.syncImported === "imported" && (
+                            <span className="text-xs text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded">
+                              已导入学生状态
                             </span>
                           )}
                         </div>
@@ -985,13 +1119,11 @@ export function HomeworkManagement() {
                                 variant="ghost"
                                 className="h-6 text-xs px-1.5"
                                 onClick={async () => {
-                                  // 展开/收起需要先获取完整数据
                                   if (expandedGradingId === task.id) {
                                     setExpandedGradingId(null);
                                   } else {
                                     setActiveGradingId(task.id);
                                     setExpandedGradingId(task.id);
-                                    // 初始化编辑文本（先置空，等数据加载后填充）
                                     setEditedGradingText("");
                                   }
                                 }}
@@ -1064,17 +1196,22 @@ export function HomeworkManagement() {
                               <Button
                                 size="sm"
                                 onClick={() => {
-                                  // 先保存编辑，再启动同步
                                   const doSync = async () => {
                                     try {
+                                      // 自动保存编辑
                                       await updateGradingResultMut.mutateAsync({
                                         id: task.id,
                                         editedResult: editedGradingText,
                                       });
-                                      syncGradingMut.mutate({ id: task.id });
+                                      const concurrencyVal = Math.min(Math.max(parseInt(syncConcurrency) || 20, 1), 100);
+                                      syncGradingMut.mutate({
+                                        id: task.id,
+                                        syncPrompt: syncPromptText || undefined,
+                                        concurrency: concurrencyVal,
+                                      });
                                     } catch {}
                                   };
-                                  if (confirm("确定将打分结果同步到所有学生的状态管理吗？\n（班级会自动排除，仅同步个人学生）")) {
+                                  if (confirm("确定将打分结果同步到所有学生的状态管理吗？\n（班级会自动排除，仅同步个人学生）\n\n同步完成后需要手动点击「一键导入学生状态」才会生效。")) {
                                     doSync();
                                   }
                                 }}
@@ -1087,52 +1224,273 @@ export function HomeworkManagement() {
                                   <><Send className="w-4 h-4 mr-1" />一键同步到所有学生</>
                                 )}
                               </Button>
+                              <button
+                                type="button"
+                                onClick={() => setShowSyncPreview(!showSyncPreview)}
+                                className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
+                              >
+                                <Eye className="w-3 h-3" />
+                                预览
+                              </button>
                               <span className="text-xs text-gray-400">将评分记录写入每个学生的【作业完成评分记录】</span>
                             </div>
 
-                            {/* 同步进度 */}
-                            {activeGradingQuery.data?.syncStatus === "syncing" && (
-                              <div className="flex items-center gap-2 text-xs text-purple-600 bg-purple-50 border border-purple-200 rounded px-3 py-2">
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                <span>正在同步: {activeGradingQuery.data.syncCompleted || 0}/{activeGradingQuery.data.syncTotal || 0} 个学生</span>
-                                {(activeGradingQuery.data.syncFailed || 0) > 0 && (
-                                  <span className="text-red-500">（{activeGradingQuery.data.syncFailed}个失败）</span>
+                            {/* 同步预览 */}
+                            {showSyncPreview && (
+                              <div className="border rounded bg-white p-3 space-y-2">
+                                <div className="text-xs text-gray-600 space-y-1 bg-purple-50 border border-purple-200 rounded p-2">
+                                  <div className="font-medium text-purple-800">同步数据结构（每个学生独立发送）：</div>
+                                  <div>1. <b>系统提示词</b>：上方配置的「同步系统提示词」（告诉AI怎么更新学生状态）</div>
+                                  <div>2. <b>用户消息</b>：学生姓名 + 周打分结论 + 该学生当前状态文档</div>
+                                  <div>3. <b>AI输出</b>：更新后的完整学生状态文档（仅修改作业完成评分记录部分）</div>
+                                  <div className="text-gray-500 mt-1">
+                                    每个学生独立调用AI，并发数={syncConcurrency}，所有学生按批次并行处理。
+                                    同步完成后不会直接修改学生数据，需要手动点击「一键导入学生状态」。
+                                  </div>
+                                </div>
+                                <details>
+                                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看同步系统提示词</summary>
+                                  <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-gray-50 p-2 rounded max-h-60 overflow-y-auto mt-1">
+                                    {syncPromptText || "(使用默认提示词 - 展开上方「同步系统提示词」可查看/编辑)"}
+                                  </pre>
+                                </details>
+                              </div>
+                            )}
+
+                            {/* 同步进度：批量任务风格 */}
+                            {(activeGradingQuery.data?.syncStatus === "syncing" || activeGradingQuery.data?.syncStatus === "completed" || activeGradingQuery.data?.syncStatus === "failed") && (
+                              <div className="border rounded-lg overflow-hidden">
+                                {/* 批次头部 */}
+                                <div
+                                  className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors ${
+                                    activeGradingQuery.data?.syncStatus === "syncing" ? "bg-blue-50" :
+                                    activeGradingQuery.data?.syncStatus === "completed" ? "bg-green-50" : "bg-red-50"
+                                  }`}
+                                  onClick={() => setExpandedSyncItems(!expandedSyncItems)}
+                                >
+                                  {expandedSyncItems ? (
+                                    <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+                                  )}
+
+                                  {activeGradingQuery.data?.syncStatus === "syncing" ? (
+                                    <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
+                                  ) : activeGradingQuery.data?.syncStatus === "completed" ? (
+                                    <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                                  ) : (
+                                    <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                                  )}
+
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-sm font-medium text-gray-800">
+                                        {activeGradingQuery.data?.syncStatus === "syncing" ? "同步进行中" :
+                                         activeGradingQuery.data?.syncStatus === "completed" ? "同步完成" : "同步失败"}
+                                      </span>
+                                      {totalRounds > 1 && activeGradingQuery.data?.syncStatus === "syncing" && (
+                                        <span className="text-xs text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded">
+                                          第{currentRound}/{totalRounds}轮
+                                        </span>
+                                      )}
+                                      {activeGradingQuery.data?.syncStatus === "syncing" && syncElapsed > 0 && (
+                                        <span className="text-xs text-gray-500 flex items-center gap-0.5">
+                                          <Timer className="w-3 h-3" />
+                                          {formatDuration(syncElapsed)}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* 进度数字 */}
+                                  <div className="text-right shrink-0">
+                                    <div className="text-sm">
+                                      <span className="text-green-600 font-medium">{activeGradingQuery.data?.syncCompleted || 0}</span>
+                                      {(activeGradingQuery.data?.syncFailed || 0) > 0 && (
+                                        <>
+                                          <span className="text-gray-400">/</span>
+                                          <span className="text-red-500 font-medium">{activeGradingQuery.data?.syncFailed}</span>
+                                        </>
+                                      )}
+                                      <span className="text-gray-400">/{activeGradingQuery.data?.syncTotal || 0}</span>
+                                    </div>
+                                    {activeGradingQuery.data?.syncStatus === "syncing" && (activeGradingQuery.data?.syncTotal || 0) > 0 && (
+                                      <div className="w-20 h-1.5 bg-gray-200 rounded-full mt-1">
+                                        <div
+                                          className="h-full bg-blue-500 rounded-full transition-all"
+                                          style={{ width: `${Math.round(((activeGradingQuery.data?.syncCompleted || 0) + (activeGradingQuery.data?.syncFailed || 0)) / (activeGradingQuery.data?.syncTotal || 1) * 100)}%` }}
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* 展开的同步子任务列表 */}
+                                {expandedSyncItems && (
+                                  <div className="border-t px-3 py-2 space-y-1 max-h-[50vh] overflow-y-auto bg-white">
+                                    {!syncItemsQuery.data ? (
+                                      <div className="flex items-center gap-2 text-gray-400 text-sm py-2">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        加载中...
+                                      </div>
+                                    ) : syncItemsQuery.data.length === 0 ? (
+                                      <div className="text-gray-400 text-sm py-2">暂无子任务</div>
+                                    ) : (
+                                      syncItemsQuery.data.map((item: any) => {
+                                        const isRunning = item.status === "running";
+                                        const isPending = item.status === "pending";
+                                        const isCompleted = item.status === "completed";
+                                        const isFailed = item.status === "failed";
+                                        const isRetrying = retryingItems.has(item.id);
+
+                                        return (
+                                          <div
+                                            key={item.id}
+                                            className={`flex items-center gap-2 px-3 py-2 rounded-md ${
+                                              isFailed ? "bg-red-50" :
+                                              isCompleted ? "bg-green-50" :
+                                              isRunning ? "bg-blue-50" : "bg-gray-50"
+                                            }`}
+                                          >
+                                            {isRunning ? (
+                                              <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
+                                            ) : isCompleted ? (
+                                              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                                            ) : isFailed ? (
+                                              <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                                            ) : (
+                                              <Clock className="w-4 h-4 text-gray-400 shrink-0" />
+                                            )}
+
+                                            <span className="text-sm font-medium text-gray-700 w-20 shrink-0 truncate" title={item.studentName}>
+                                              {item.studentName}
+                                            </span>
+
+                                            <div className="flex-1 min-w-0">
+                                              {isRunning && (
+                                                <span className="text-sm text-blue-600">
+                                                  生成中{item.chars > 0 ? `... ${item.chars}字` : "..."}
+                                                </span>
+                                              )}
+                                              {isCompleted && (
+                                                <span className="text-sm text-green-600">
+                                                  完成 {item.chars}字
+                                                </span>
+                                              )}
+                                              {isFailed && (
+                                                <span className="text-sm text-red-600 truncate block">
+                                                  {item.error || "失败"}
+                                                </span>
+                                              )}
+                                              {isPending && (
+                                                <span className="text-sm text-gray-400">等待中</span>
+                                              )}
+                                            </div>
+
+                                            {/* 重做按钮 */}
+                                            {(isCompleted || isFailed) && (
+                                              <button
+                                                onClick={async () => {
+                                                  setRetryingItems(prev => new Set(prev).add(item.id));
+                                                  try {
+                                                    await retrySyncItemMut.mutateAsync({
+                                                      gradingTaskId: task.id,
+                                                      itemId: item.id,
+                                                    });
+                                                    syncItemsQuery.refetch();
+                                                    activeGradingQuery.refetch();
+                                                  } catch {}
+                                                  setRetryingItems(prev => {
+                                                    const next = new Set(prev);
+                                                    next.delete(item.id);
+                                                    return next;
+                                                  });
+                                                }}
+                                                disabled={isRetrying}
+                                                className="p-1 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                                                title="重新生成"
+                                              >
+                                                <RefreshCw className={`w-3.5 h-3.5 ${isRetrying ? "animate-spin" : ""}`} />
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
+                                      })
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             )}
 
-                            {/* 同步完成 */}
+                            {/* 一键导入学生状态 */}
                             {activeGradingQuery.data?.syncStatus === "completed" && (
-                              <div className="flex items-center gap-2 text-xs text-green-600 bg-green-50 border border-green-200 rounded px-3 py-2">
-                                <CheckCircle2 className="w-3 h-3" />
-                                <span>同步完成: {activeGradingQuery.data.syncCompleted || 0}/{activeGradingQuery.data.syncTotal || 0} 个学生已更新</span>
-                                {(activeGradingQuery.data.syncFailed || 0) > 0 && (
-                                  <span className="text-red-500">（{activeGradingQuery.data.syncFailed}个失败）</span>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {activeGradingQuery.data?.syncImported === "imported" ? (
+                                  <Button
+                                    size="sm"
+                                    disabled
+                                    className="bg-gray-400 text-white h-8 cursor-not-allowed"
+                                  >
+                                    <Check className="w-4 h-4 mr-1" />已导入学生状态
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => {
+                                      if (confirm("确定将同步结果导入到学生状态管理吗？\n\n导入后会在「待入库」列表中显示，需要再次确认入库。")) {
+                                        importSyncMut.mutate({ gradingTaskId: task.id });
+                                      }
+                                    }}
+                                    disabled={importSyncMut.isPending}
+                                    className="bg-emerald-500 hover:bg-emerald-600 text-white h-8"
+                                  >
+                                    {importSyncMut.isPending ? (
+                                      <><Loader2 className="w-4 h-4 animate-spin mr-1" />导入中...</>
+                                    ) : (
+                                      <><Database className="w-4 h-4 mr-1" />一键导入学生状态</>
+                                    )}
+                                  </Button>
+                                )}
+                                {activeGradingQuery.data?.syncImported !== "imported" && (
+                                  <span className="text-xs text-gray-400">
+                                    导入后变为「待入库」，在下方确认入库
+                                    {(activeGradingQuery.data?.syncFailed || 0) > 0 && (
+                                      <span className="text-red-500"> ({activeGradingQuery.data?.syncFailed}个失败的不会导入)</span>
+                                    )}
+                                  </span>
+                                )}
+                                {importSyncMut.isSuccess && (
+                                  <span className="text-xs text-emerald-600 flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    导入成功
+                                  </span>
                                 )}
                               </div>
                             )}
 
-                            {/* 同步失败 */}
-                            {activeGradingQuery.data?.syncStatus === "failed" && (
+                            {/* 同步失败提示 */}
+                            {activeGradingQuery.data?.syncStatus === "failed" && activeGradingQuery.data?.syncError && (
                               <div className="text-xs text-red-500 bg-red-50 border border-red-200 rounded px-3 py-2">
                                 <div className="flex items-center gap-1">
                                   <XCircle className="w-3 h-3" />
                                   <span>同步失败</span>
                                 </div>
-                                {activeGradingQuery.data.syncError && (
-                                  <pre className="mt-1 whitespace-pre-wrap text-red-400">{activeGradingQuery.data.syncError}</pre>
-                                )}
+                                <pre className="mt-1 whitespace-pre-wrap text-red-400">{activeGradingQuery.data.syncError}</pre>
                               </div>
                             )}
 
                             {syncGradingMut.isError && (
                               <p className="text-xs text-red-500">启动同步失败: {syncGradingMut.error?.message}</p>
                             )}
+                            {importSyncMut.isError && (
+                              <p className="text-xs text-red-500">导入失败: {importSyncMut.error?.message}</p>
+                            )}
                           </div>
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

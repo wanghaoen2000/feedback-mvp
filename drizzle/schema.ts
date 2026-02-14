@@ -220,6 +220,9 @@ export const gradingTasks = mysqlTable("grading_tasks", {
   syncCompleted: int("sync_completed").default(0),
   syncFailed: int("sync_failed").default(0),
   syncError: text("sync_error"),
+  syncSystemPrompt: mediumtext("sync_system_prompt"),   // 同步使用的系统提示词
+  syncConcurrency: int("sync_concurrency").default(20), // 同步并发数
+  syncImported: varchar("sync_imported", { length: 20 }), // null | 'imported'
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completed_at"),
@@ -229,3 +232,24 @@ export const gradingTasks = mysqlTable("grading_tasks", {
 
 export type GradingTask = typeof gradingTasks.$inferSelect;
 export type InsertGradingTask = typeof gradingTasks.$inferInsert;
+
+// 打分同步子任务表（每个学生一条记录）
+export const gradingSyncItems = mysqlTable("grading_sync_items", {
+  id: int("id").autoincrement().primaryKey(),
+  gradingTaskId: int("grading_task_id").notNull(),
+  studentId: int("student_id").notNull(),
+  studentName: varchar("student_name", { length: 64 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | running | completed | failed
+  chars: int("chars").default(0),           // 流式接收字符数
+  result: mediumtext("result"),             // AI生成的更新后状态文档
+  error: text("error"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("idx_sync_grading_id").on(table.gradingTaskId),
+]);
+
+export type GradingSyncItem = typeof gradingSyncItems.$inferSelect;
+export type InsertGradingSyncItem = typeof gradingSyncItems.$inferInsert;

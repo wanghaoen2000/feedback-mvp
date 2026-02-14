@@ -1,16 +1,31 @@
 /**
  * 一键打分系统 - 后台任务模式
  * 模式：提交 → 入库 → 后台AI处理 → 轮询查看结果
+ * 同步模式：逐学生并行AI处理 → 存储结果 → 手动导入学生状态
  * 留存180天，自动清理过期记录
  */
 
 import { getDb } from "./db";
-import { gradingTasks, hwStudents } from "../drizzle/schema";
+import { gradingTasks, gradingSyncItems, hwStudents, hwEntries } from "../drizzle/schema";
 import { eq, desc, sql, and } from "drizzle-orm";
 import { invokeWhatAIStream } from "./whatai";
 import { getConfigValue } from "./core/aiClient";
 import { exportStudentBackup, ensureHwTables, getStudentLatestStatus } from "./homeworkManager";
 import { ConcurrencyPool } from "./core/concurrencyPool";
+
+// ============= 默认同步系统提示词 =============
+
+export const DEFAULT_SYNC_SYSTEM_PROMPT = `你是一个教学助手。你的任务是根据周打分结论，更新一位学生的状态文档。
+
+具体要求：
+1. 我会提供该学生的周打分结论和当前状态文档
+2. 请在状态文档的【作业完成评分记录】部分，新增一条本周的记录
+3. 新增记录的格式：{startDate}周一到{endDate}周日，作业完成比例XX%，完成质量分数XX分
+4. 注意：起始日期固定写"周一"，结束日期固定写"周日"，不要自己推算星期几
+5. 完成比例和分数请从周打分结论中该学生的部分提取
+6. 如果该学生在打分结论中找不到对应记录，则跳过不新增，原样返回
+7. 状态文档的其他所有部分必须原封不动保留，只修改【作业完成评分记录】部分
+8. 输出更新后的完整状态文档，不要加任何额外说明`;
 
 // ============= 表自动创建 =============
 
@@ -41,8 +56,6 @@ export async function ensureGradingTable(): Promise<void> {
       PRIMARY KEY (\`id\`),
       INDEX \`idx_grading_userId\` (\`user_id\`)
     )`);
-    tableEnsured = true;
-    console.log("[一键打分] 表已就绪");
 
     // 安全添加新列（已有表可能没有）
     const safeAddColumn = async (col: string, def: string) => {
@@ -60,6 +73,30 @@ export async function ensureGradingTable(): Promise<void> {
     await safeAddColumn("sync_completed", "INT DEFAULT 0");
     await safeAddColumn("sync_failed", "INT DEFAULT 0");
     await safeAddColumn("sync_error", "TEXT");
+    await safeAddColumn("sync_system_prompt", "MEDIUMTEXT");
+    await safeAddColumn("sync_concurrency", "INT DEFAULT 20");
+    await safeAddColumn("sync_imported", "VARCHAR(20)");
+
+    // 同步子任务表
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS \`grading_sync_items\` (
+      \`id\` int AUTO_INCREMENT NOT NULL,
+      \`grading_task_id\` int NOT NULL,
+      \`student_id\` int NOT NULL,
+      \`student_name\` varchar(64) NOT NULL,
+      \`status\` varchar(20) NOT NULL DEFAULT 'pending',
+      \`chars\` int DEFAULT 0,
+      \`result\` mediumtext,
+      \`error\` text,
+      \`started_at\` timestamp NULL,
+      \`completed_at\` timestamp NULL,
+      \`created_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      INDEX \`idx_sync_grading_id\` (\`grading_task_id\`)
+    )`);
+
+    tableEnsured = true;
+    console.log("[一键打分] 表已就绪");
 
     // 启动时清理超过180天的旧任务
     cleanupOldGradingTasks();
@@ -74,6 +111,16 @@ async function cleanupOldGradingTasks(): Promise<void> {
     const db = await getDb();
     if (!db) return;
     const cutoff = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+
+    // 先删除子任务
+    const oldTasks = await db.select({ id: gradingTasks.id }).from(gradingTasks)
+      .where(sql`${gradingTasks.createdAt} < ${cutoff}`);
+    if (oldTasks.length > 0) {
+      for (const t of oldTasks) {
+        await db.delete(gradingSyncItems).where(eq(gradingSyncItems.gradingTaskId, t.id)).catch(() => {});
+      }
+    }
+
     const result = await db.delete(gradingTasks)
       .where(sql`${gradingTasks.createdAt} < ${cutoff}`);
     const deleted = (result as any)[0]?.affectedRows || 0;
@@ -191,14 +238,9 @@ async function processGradingInBackground(userId: number, taskId: number): Promi
 
     console.log(`[一键打分] 开始AI打分: 任务${taskId}, ${backup.studentCount}个学生, 模型 ${modelToUse}`);
 
-    // 流式进度上报
-    let lastProgressTime = 0;
-    const chunkCallback = (chunk: string) => {
-      // 累计字符数由 invokeWhatAIStream 内部处理
-    };
-
     // 用于追踪总字符数
     let totalChars = 0;
+    let lastProgressTime = 0;
     const onChunk = (chunk: string) => {
       totalChars += chunk.length;
       const now = Date.now();
@@ -280,6 +322,9 @@ export async function getGradingTask(userId: number, taskId: number) {
     syncCompleted: gradingTasks.syncCompleted,
     syncFailed: gradingTasks.syncFailed,
     syncError: gradingTasks.syncError,
+    syncSystemPrompt: gradingTasks.syncSystemPrompt,
+    syncConcurrency: gradingTasks.syncConcurrency,
+    syncImported: gradingTasks.syncImported,
     createdAt: gradingTasks.createdAt,
     completedAt: gradingTasks.completedAt,
   }).from(gradingTasks)
@@ -307,6 +352,7 @@ export async function listGradingTasks(userId: number, limit: number = 20) {
     syncTotal: gradingTasks.syncTotal,
     syncCompleted: gradingTasks.syncCompleted,
     syncFailed: gradingTasks.syncFailed,
+    syncImported: gradingTasks.syncImported,
     createdAt: gradingTasks.createdAt,
     completedAt: gradingTasks.completedAt,
   }).from(gradingTasks)
@@ -337,9 +383,24 @@ function isClassName(name: string): boolean {
 }
 
 /**
- * 启动同步：将打分结果同步到所有学生状态的【作业完成评分记录】
+ * 将提示词模板中的占位符替换为实际日期
  */
-export async function syncGradingToStudents(userId: number, taskId: number): Promise<{ syncTotal: number }> {
+function renderSyncPrompt(template: string, startDate: string, endDate: string): string {
+  return template
+    .replace(/\{startDate\}/g, startDate)
+    .replace(/\{endDate\}/g, endDate);
+}
+
+/**
+ * 启动同步：将打分结果同步到所有学生状态的【作业完成评分记录】
+ * 现在是逐学生创建子任务，AI处理结果存储在 grading_sync_items 表中
+ * 不直接更新学生状态，需要用户手动导入
+ */
+export async function syncGradingToStudents(
+  userId: number,
+  taskId: number,
+  options?: { syncPrompt?: string; concurrency?: number }
+): Promise<{ syncTotal: number }> {
   await ensureGradingTable();
   await ensureHwTables();
   const db = await getDb();
@@ -357,6 +418,15 @@ export async function syncGradingToStudents(userId: number, taskId: number): Pro
   const gradingResult = task.editedResult || task.result;
   if (!gradingResult) throw new Error("没有打分结果可同步");
 
+  // 获取同步配置
+  const syncPromptTemplate = options?.syncPrompt
+    || await getConfigValue("gradingSyncPrompt", userId)
+    || DEFAULT_SYNC_SYSTEM_PROMPT;
+  const concurrency = Math.min(
+    Math.max(options?.concurrency || parseInt(await getConfigValue("gradingSyncConcurrency", userId) || "20") || 20, 1),
+    100
+  );
+
   // 获取所有活跃学生，过滤掉班级（数字开头）
   const allStudents = await db.select({ id: hwStudents.id, name: hwStudents.name })
     .from(hwStudents)
@@ -366,6 +436,23 @@ export async function syncGradingToStudents(userId: number, taskId: number): Pro
   const realStudents = allStudents.filter(s => !isClassName(s.name));
   if (realStudents.length === 0) throw new Error("没有找到需要同步的学生（已排除班级）");
 
+  // 清除之前的同步子任务（如果有）
+  await db.delete(gradingSyncItems).where(eq(gradingSyncItems.gradingTaskId, taskId));
+
+  // 创建同步子任务
+  for (const student of realStudents) {
+    await db.insert(gradingSyncItems).values({
+      gradingTaskId: taskId,
+      studentId: student.id,
+      studentName: student.name,
+      status: "pending",
+      chars: 0,
+    });
+  }
+
+  // 渲染系统提示词（替换日期占位符）
+  const renderedSyncPrompt = renderSyncPrompt(syncPromptTemplate, task.startDate, task.endDate);
+
   // 更新同步状态
   await db.update(gradingTasks)
     .set({
@@ -374,13 +461,16 @@ export async function syncGradingToStudents(userId: number, taskId: number): Pro
       syncCompleted: 0,
       syncFailed: 0,
       syncError: null,
+      syncSystemPrompt: renderedSyncPrompt,
+      syncConcurrency: concurrency,
+      syncImported: null,
     })
     .where(eq(gradingTasks.id, taskId));
 
-  console.log(`[打分同步] 开始同步: 任务${taskId}, ${realStudents.length}个学生（已排除${allStudents.length - realStudents.length}个班级）`);
+  console.log(`[打分同步] 开始同步: 任务${taskId}, ${realStudents.length}个学生, 并发${concurrency}（已排除${allStudents.length - realStudents.length}个班级）`);
 
   // fire-and-forget 后台处理
-  processGradingSyncInBackground(userId, taskId, realStudents, gradingResult, task.startDate, task.endDate);
+  processGradingSyncInBackground(userId, taskId, realStudents, gradingResult, renderedSyncPrompt, concurrency);
 
   return { syncTotal: realStudents.length };
 }
@@ -393,8 +483,8 @@ async function processGradingSyncInBackground(
   taskId: number,
   students: Array<{ id: number; name: string }>,
   gradingResult: string,
-  startDate: string,
-  endDate: string,
+  syncSystemPrompt: string,
+  concurrency: number,
 ): Promise<void> {
   const db = await getDb();
   if (!db) return;
@@ -408,37 +498,41 @@ async function processGradingSyncInBackground(
 
   let completedCount = 0;
   let failedCount = 0;
-  const errors: string[] = [];
-
-  // 构建系统提示词（所有学生共用）
-  const syncSystemPrompt = `你是一个教学助手。你的任务是根据周打分结论，更新一位学生的状态文档。
-
-具体要求：
-1. 我会提供该学生的周打分结论和当前状态文档
-2. 请在状态文档的【作业完成评分记录】部分，新增一条本周的记录
-3. 新增记录的格式：${startDate}周一到${endDate}周日，作业完成比例XX%，完成质量分数XX分
-4. 注意：起始日期固定写"周一"，结束日期固定写"周日"，不要自己推算星期几
-5. 完成比例和分数请从周打分结论中该学生的部分提取
-6. 如果该学生在打分结论中找不到对应记录，则跳过不新增，原样返回
-7. 状态文档的其他所有部分必须原封不动保留，只修改【作业完成评分记录】部分
-8. 输出更新后的完整状态文档，不要加任何额外说明`;
 
   // 使用并发池并行处理
-  const pool = new ConcurrencyPool(20);
+  const pool = new ConcurrencyPool(concurrency);
   pool.addTasks(students.map((_, i) => i));
 
   await pool.execute(
     async (taskIndex: number) => {
       const student = students[taskIndex];
+
+      // 更新子任务状态为 running
+      await db.update(gradingSyncItems)
+        .set({ status: "running", startedAt: new Date(), chars: 0 })
+        .where(and(
+          eq(gradingSyncItems.gradingTaskId, taskId),
+          eq(gradingSyncItems.studentId, student.id),
+        ))
+        .catch(() => {});
+
       try {
         // 获取学生当前状态
         const currentStatus = await getStudentLatestStatus(userId, student.name);
         if (!currentStatus) {
           console.warn(`[打分同步] 学生 ${student.name} 没有状态文档，跳过`);
           completedCount++;
+          await db.update(gradingSyncItems)
+            .set({ status: "completed", result: null, completedAt: new Date() })
+            .where(and(
+              eq(gradingSyncItems.gradingTaskId, taskId),
+              eq(gradingSyncItems.studentId, student.id),
+            ))
+            .catch(() => {});
           await db.update(gradingTasks)
             .set({ syncCompleted: completedCount })
-            .where(eq(gradingTasks.id, taskId));
+            .where(eq(gradingTasks.id, taskId))
+            .catch(() => {});
           return;
         }
 
@@ -458,6 +552,24 @@ ${currentStatus}
           { role: "user" as const, content: userMessage },
         ];
 
+        // 流式进度追踪
+        let totalChars = 0;
+        let lastProgressTime = 0;
+        const onChunk = (chunk: string) => {
+          totalChars += chunk.length;
+          const now = Date.now();
+          if (now - lastProgressTime >= 1000) {
+            db.update(gradingSyncItems)
+              .set({ chars: totalChars })
+              .where(and(
+                eq(gradingSyncItems.gradingTaskId, taskId),
+                eq(gradingSyncItems.studentId, student.id),
+              ))
+              .catch(() => {});
+            lastProgressTime = now;
+          }
+        };
+
         const content = await invokeWhatAIStream(messages, {
           max_tokens: 8000,
           temperature: 0.2,
@@ -466,24 +578,43 @@ ${currentStatus}
           apiModel: modelToUse,
           apiKey,
           apiUrl,
-        });
+        }, onChunk);
 
         if (!content || !content.trim()) {
           throw new Error("AI 返回空内容");
         }
 
-        // 更新学生状态到数据库
-        await db.update(hwStudents)
-          .set({ currentStatus: content.trim() })
-          .where(and(eq(hwStudents.id, student.id), eq(hwStudents.userId, userId)));
+        // 存储结果到子任务（不直接更新学生状态）
+        await db.update(gradingSyncItems)
+          .set({
+            status: "completed",
+            result: content.trim(),
+            chars: content.length,
+            completedAt: new Date(),
+          })
+          .where(and(
+            eq(gradingSyncItems.gradingTaskId, taskId),
+            eq(gradingSyncItems.studentId, student.id),
+          ));
 
         completedCount++;
         console.log(`[打分同步] ${student.name} 同步成功 (${completedCount}/${students.length})`);
       } catch (err: any) {
         failedCount++;
-        const errMsg = `${student.name}: ${err?.message || "未知错误"}`;
-        errors.push(errMsg);
-        console.error(`[打分同步] ${student.name} 同步失败:`, err?.message);
+        const errMsg = err?.message || "未知错误";
+        console.error(`[打分同步] ${student.name} 同步失败:`, errMsg);
+
+        await db.update(gradingSyncItems)
+          .set({
+            status: "failed",
+            error: errMsg,
+            completedAt: new Date(),
+          })
+          .where(and(
+            eq(gradingSyncItems.gradingTaskId, taskId),
+            eq(gradingSyncItems.studentId, student.id),
+          ))
+          .catch(() => {});
       }
 
       // 更新进度
@@ -496,6 +627,17 @@ ${currentStatus}
 
   // 最终状态更新
   const finalStatus = failedCount === 0 ? "completed" : (completedCount === 0 ? "failed" : "completed");
+  const errors: string[] = [];
+  if (failedCount > 0) {
+    // 收集失败信息
+    const failedItems = await db.select({ studentName: gradingSyncItems.studentName, error: gradingSyncItems.error })
+      .from(gradingSyncItems)
+      .where(and(eq(gradingSyncItems.gradingTaskId, taskId), eq(gradingSyncItems.status, "failed")));
+    for (const item of failedItems) {
+      errors.push(`${item.studentName}: ${item.error || "未知错误"}`);
+    }
+  }
+
   await db.update(gradingTasks)
     .set({
       syncStatus: finalStatus,
@@ -506,14 +648,236 @@ ${currentStatus}
     .where(eq(gradingTasks.id, taskId));
 
   console.log(`[打分同步] 任务${taskId}同步完成: 成功${completedCount}, 失败${failedCount}, 共${students.length}个学生`);
+}
 
-  // 自动备份到 Google Drive
-  try {
-    const { autoBackupToGDrive } = await import("./homeworkManager");
-    await autoBackupToGDrive(userId);
-  } catch (backupErr: any) {
-    console.warn(`[打分同步] 自动备份失败:`, backupErr?.message);
+// ============= 查询同步子任务 =============
+
+export async function getGradingSyncItems(userId: number, taskId: number) {
+  await ensureGradingTable();
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+
+  // 验证任务属于该用户
+  const tasks = await db.select({ id: gradingTasks.id }).from(gradingTasks)
+    .where(and(eq(gradingTasks.id, taskId), eq(gradingTasks.userId, userId)))
+    .limit(1);
+  if (tasks.length === 0) throw new Error("任务不存在");
+
+  return db.select({
+    id: gradingSyncItems.id,
+    gradingTaskId: gradingSyncItems.gradingTaskId,
+    studentId: gradingSyncItems.studentId,
+    studentName: gradingSyncItems.studentName,
+    status: gradingSyncItems.status,
+    chars: gradingSyncItems.chars,
+    error: gradingSyncItems.error,
+    startedAt: gradingSyncItems.startedAt,
+    completedAt: gradingSyncItems.completedAt,
+  }).from(gradingSyncItems)
+    .where(eq(gradingSyncItems.gradingTaskId, taskId))
+    .orderBy(gradingSyncItems.id);
+}
+
+// ============= 重试单个同步子任务 =============
+
+/** 重试锁：防止同一子任务被并发重试 */
+const _syncRetryLocks = new Set<string>();
+
+export async function retrySyncItem(userId: number, taskId: number, itemId: number): Promise<void> {
+  await ensureGradingTable();
+  await ensureHwTables();
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+
+  const lockKey = `${taskId}:${itemId}`;
+  if (_syncRetryLocks.has(lockKey)) {
+    throw new Error("该任务正在重试中，请稍候");
   }
+  _syncRetryLocks.add(lockKey);
+
+  try {
+    // 验证任务属于该用户
+    const tasks = await db.select().from(gradingTasks)
+      .where(and(eq(gradingTasks.id, taskId), eq(gradingTasks.userId, userId)))
+      .limit(1);
+    if (tasks.length === 0) throw new Error("任务不存在");
+    const task = tasks[0];
+
+    // 获取子任务
+    const items = await db.select().from(gradingSyncItems)
+      .where(and(eq(gradingSyncItems.id, itemId), eq(gradingSyncItems.gradingTaskId, taskId)))
+      .limit(1);
+    if (items.length === 0) throw new Error("子任务不存在");
+    const item = items[0];
+
+    // 使用编辑后的结果
+    const gradingResult = task.editedResult || task.result;
+    if (!gradingResult) throw new Error("没有打分结果");
+
+    // 渲染系统提示词
+    const syncPromptTemplate = task.syncSystemPrompt
+      || await getConfigValue("gradingSyncPrompt", userId)
+      || DEFAULT_SYNC_SYSTEM_PROMPT;
+    const syncSystemPrompt = renderSyncPrompt(syncPromptTemplate, task.startDate, task.endDate);
+
+    // 获取API配置
+    const apiKey = await getConfigValue("apiKey", userId);
+    const apiUrl = await getConfigValue("apiUrl", userId);
+    const modelToUse = await getConfigValue("hwAiModel", userId)
+      || await getConfigValue("apiModel", userId)
+      || "claude-sonnet-4-5-20250929";
+
+    // 标记为 running
+    await db.update(gradingSyncItems)
+      .set({ status: "running", chars: 0, error: null, result: null, startedAt: new Date(), completedAt: null })
+      .where(eq(gradingSyncItems.id, itemId));
+
+    try {
+      // 获取学生当前状态
+      const currentStatus = await getStudentLatestStatus(userId, item.studentName);
+      if (!currentStatus) {
+        await db.update(gradingSyncItems)
+          .set({ status: "completed", result: null, completedAt: new Date() })
+          .where(eq(gradingSyncItems.id, itemId));
+        // 更新计数：从 failed 变为 completed
+        await db.execute(sql`UPDATE grading_tasks SET
+          sync_completed = sync_completed + 1,
+          sync_failed = GREATEST(0, sync_failed - 1)
+          WHERE id = ${taskId}`);
+        return;
+      }
+
+      const userMessage = `【学生姓名】${item.studentName}
+
+【周打分结论】
+${gradingResult}
+
+【该学生当前状态文档】
+${currentStatus}
+
+请根据上述周打分结论中"${item.studentName}"的部分，更新该学生状态文档的【作业完成评分记录】部分，输出完整的更新后状态文档。`;
+
+      const messages = [
+        { role: "system" as const, content: syncSystemPrompt },
+        { role: "user" as const, content: userMessage },
+      ];
+
+      let totalChars = 0;
+      let lastProgressTime = 0;
+      const onChunk = (chunk: string) => {
+        totalChars += chunk.length;
+        const now = Date.now();
+        if (now - lastProgressTime >= 1000) {
+          db.update(gradingSyncItems)
+            .set({ chars: totalChars })
+            .where(eq(gradingSyncItems.id, itemId))
+            .catch(() => {});
+          lastProgressTime = now;
+        }
+      };
+
+      const content = await invokeWhatAIStream(messages, {
+        max_tokens: 8000,
+        temperature: 0.2,
+        retries: 1,
+      }, {
+        apiModel: modelToUse,
+        apiKey,
+        apiUrl,
+      }, onChunk);
+
+      if (!content || !content.trim()) {
+        throw new Error("AI 返回空内容");
+      }
+
+      await db.update(gradingSyncItems)
+        .set({
+          status: "completed",
+          result: content.trim(),
+          chars: content.length,
+          completedAt: new Date(),
+          error: null,
+        })
+        .where(eq(gradingSyncItems.id, itemId));
+
+      // 更新计数
+      await db.execute(sql`UPDATE grading_tasks SET
+        sync_completed = sync_completed + 1,
+        sync_failed = GREATEST(0, sync_failed - 1)
+        WHERE id = ${taskId}`);
+
+      console.log(`[打分同步] 重试 ${item.studentName} 成功`);
+    } catch (err: any) {
+      const errMsg = err?.message || "重试失败";
+      await db.update(gradingSyncItems)
+        .set({ status: "failed", error: errMsg, completedAt: new Date() })
+        .where(eq(gradingSyncItems.id, itemId));
+      console.error(`[打分同步] 重试 ${item.studentName} 失败:`, errMsg);
+      throw err;
+    }
+  } finally {
+    _syncRetryLocks.delete(lockKey);
+  }
+}
+
+// ============= 导入同步结果到学生状态（预入库） =============
+
+/**
+ * 将同步结果导入学生状态管理（创建 pre_staged 条目）
+ * 不直接更新 hwStudents.currentStatus
+ */
+export async function importSyncToStudents(userId: number, taskId: number): Promise<{ imported: number; skipped: number }> {
+  await ensureGradingTable();
+  await ensureHwTables();
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+
+  // 验证任务属于该用户
+  const tasks = await db.select().from(gradingTasks)
+    .where(and(eq(gradingTasks.id, taskId), eq(gradingTasks.userId, userId)))
+    .limit(1);
+  if (tasks.length === 0) throw new Error("任务不存在");
+  const task = tasks[0];
+  if (task.syncImported === "imported") throw new Error("该任务的同步结果已导入");
+
+  // 获取所有成功的同步子任务
+  const successItems = await db.select()
+    .from(gradingSyncItems)
+    .where(and(
+      eq(gradingSyncItems.gradingTaskId, taskId),
+      eq(gradingSyncItems.status, "completed"),
+    ));
+
+  let imported = 0;
+  let skipped = 0;
+
+  for (const item of successItems) {
+    if (!item.result) {
+      skipped++;
+      continue;
+    }
+
+    // 创建 hwEntry 作为 pre_staged（预入库）
+    await db.insert(hwEntries).values({
+      userId,
+      studentName: item.studentName,
+      rawInput: `[打分同步] ${task.startDate}~${task.endDate}`,
+      parsedContent: item.result,
+      aiModel: "sync-import",
+      entryStatus: "pre_staged",
+      completedAt: new Date(),
+    });
+    imported++;
+  }
+
+  // 标记为已导入
+  await db.update(gradingTasks)
+    .set({ syncImported: "imported" })
+    .where(eq(gradingTasks.id, taskId));
+
+  console.log(`[打分同步] 任务${taskId}导入完成: 导入${imported}个, 跳过${skipped}个`);
+
+  return { imported, skipped };
 }
 
 // ============= 自动上传到 Google Drive =============
