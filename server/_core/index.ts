@@ -78,26 +78,22 @@ async function startServer() {
 
   server.listen(port, async () => {
     console.log(`Server running on http://localhost:${port}/`);
-    // 初始化白名单（首次启动时种子）
+    // 用户表 migration: 添加 account_status 列
     try {
-      const { getConfigValue } = await import("../core/aiClient");
-      const existing = await getConfigValue("allowedEmails");
-      if (!existing) {
-        const { getDb } = await import("../db");
-        const { systemConfig } = await import("../../drizzle/schema");
-        const db = await getDb();
-        if (db) {
-          const initialEmails = JSON.stringify(["wanghaoen2000@gmail.com"]);
-          await db.insert(systemConfig).values({
-            key: "allowedEmails",
-            value: initialEmails,
-            description: "授权用户邮箱白名单（JSON数组）",
-          }).onDuplicateKeyUpdate({ set: { value: initialEmails } });
-          console.log("[启动] 白名单已初始化:", initialEmails);
+      const { getDb } = await import("../db");
+      const db = await getDb();
+      if (db) {
+        const { sql } = await import("drizzle-orm");
+        try {
+          await db.execute(sql`ALTER TABLE \`users\` ADD COLUMN \`account_status\` VARCHAR(20) NOT NULL DEFAULT 'active'`);
+          console.log("[启动] users 表已添加 account_status 列");
+        } catch (e: any) {
+          // Duplicate column = 已存在，安全忽略
+          if (!e?.message?.includes("Duplicate column")) console.warn("[启动] users ALTER TABLE 警告:", e?.message);
         }
       }
     } catch (e) {
-      console.warn("[启动] 白名单初始化跳过:", e);
+      console.warn("[启动] users migration 跳过:", e);
     }
     // 恢复中断的后台任务 + 清理旧任务
     try {

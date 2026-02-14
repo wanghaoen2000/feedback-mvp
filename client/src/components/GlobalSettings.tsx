@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List, Plus, Trash2, Shield, Crown, UserPlus, Eye, ArrowLeftRight, Download, Upload } from "lucide-react";
+import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List, Plus, Trash2, Shield, Crown, UserPlus, Eye, ArrowLeftRight, Download, Upload, Pencil, Ban, UserCheck } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
@@ -54,10 +54,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
   const [gdriveLocalBasePath, setGdriveLocalBasePath] = useState("");
   const [gdriveDownloadsPath, setGdriveDownloadsPath] = useState("");
 
-  // 白名单
-  const [allowedEmails, setAllowedEmails] = useState<string[]>([]);
-  const [newEmail, setNewEmail] = useState("");
-  const [allowedEmailsDirty, setAllowedEmailsDirty] = useState(false);
+  // 白名单（已废弃，保留状态用于兼容配置保存逻辑）
 
   // Google Drive 连接状态
   const [isConnectingGdrive, setIsConnectingGdrive] = useState(false);
@@ -87,6 +84,11 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
   const [newUserName, setNewUserName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserRole, setNewUserRole] = useState<"user" | "admin">("user");
+  // 编辑用户弹窗状态
+  const [editingUser, setEditingUser] = useState<{ id: number; name: string; email: string; role: string } | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editRole, setEditRole] = useState<"user" | "admin">("user");
 
   // 管理员查询
   const usersQuery = trpc.admin.listUsers.useQuery(undefined, {
@@ -94,6 +96,9 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
   });
   const impersonateMut = trpc.admin.impersonateUser.useMutation();
   const createUserMut = trpc.admin.createUser.useMutation();
+  const updateUserMut = trpc.admin.updateUser.useMutation();
+  const suspendUserMut = trpc.admin.suspendUser.useMutation();
+  const activateUserMut = trpc.admin.activateUser.useMutation();
   const deleteUserMut = trpc.admin.deleteUser.useMutation();
 
   // 获取配置
@@ -132,13 +137,6 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
       setSelectedProvider("");
       setShowProviderEditor(false);
       setProviderEditorDirty(false);
-      // 加载白名单
-      try {
-        const emails = configQuery.data.allowedEmails ? JSON.parse(configQuery.data.allowedEmails) : [];
-        setAllowedEmails(Array.isArray(emails) ? emails : []);
-      } catch { setAllowedEmails([]); }
-      setNewEmail("");
-      setAllowedEmailsDirty(false);
       // 不加载 apiKey，保持为空（安全考虑）
     }
   }, [open, configQuery.data]);
@@ -177,7 +175,6 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         modelPresets,
         ...(providerEditorDirty ? { apiProviderPresets: JSON.stringify(providerEditList) } : {}),
         ...(selectedProvider ? { applyProviderKey: selectedProvider } : {}),
-        ...(allowedEmailsDirty ? { allowedEmails: JSON.stringify(allowedEmails) } : {}),
       });
       await configQuery.refetch();
       alert("全局设置已保存！");
@@ -267,7 +264,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         </DialogHeader>
 
         <Tabs defaultValue="api" className="w-full">
-          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
+          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-5' : 'grid-cols-4'}`}>
             <TabsTrigger value="api" className="flex items-center gap-1 px-1 text-xs">
               <Key className="h-4 w-4 shrink-0" />
               <span className="hidden sm:inline">API</span>配置
@@ -279,10 +276,6 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
             <TabsTrigger value="gdrive" className="flex items-center gap-1 px-1 text-xs">
               <Cloud className="h-4 w-4 shrink-0" />
               云盘
-            </TabsTrigger>
-            <TabsTrigger value="access" className="flex items-center gap-1 px-1 text-xs">
-              <Shield className="h-4 w-4 shrink-0" />
-              权限
             </TabsTrigger>
             <TabsTrigger value="check" className="flex items-center gap-1 px-1 text-xs">
               <Search className="h-4 w-4 shrink-0" />
@@ -728,92 +721,6 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
             )}
           </TabsContent>
 
-          <TabsContent value="access" className="space-y-4 mt-4">
-            <div className="border rounded-lg p-3 bg-blue-50">
-              <p className="text-xs text-blue-700">
-                白名单控制谁可以使用本系统。只有邮箱在列表中的用户登录后才能访问。
-                清空列表则所有登录用户均可使用（开放模式）。
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <Label>授权用户邮箱</Label>
-              {allowedEmails.map((email, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <Input
-                    value={email}
-                    onChange={(e) => {
-                      const updated = [...allowedEmails];
-                      updated[index] = e.target.value;
-                      setAllowedEmails(updated);
-                      setAllowedEmailsDirty(true);
-                    }}
-                    placeholder="user@example.com"
-                    className="text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="shrink-0 text-gray-400 hover:text-red-500"
-                    onClick={() => {
-                      setAllowedEmails(allowedEmails.filter((_, i) => i !== index));
-                      setAllowedEmailsDirty(true);
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-
-              <div className="flex items-center gap-2">
-                <Input
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="输入邮箱地址并点击添加"
-                  className="text-sm"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newEmail.trim()) {
-                      e.preventDefault();
-                      if (!allowedEmails.some(em => em.toLowerCase() === newEmail.trim().toLowerCase())) {
-                        setAllowedEmails([...allowedEmails, newEmail.trim()]);
-                        setAllowedEmailsDirty(true);
-                      }
-                      setNewEmail("");
-                    }
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  disabled={!newEmail.trim()}
-                  onClick={() => {
-                    if (newEmail.trim() && !allowedEmails.some(em => em.toLowerCase() === newEmail.trim().toLowerCase())) {
-                      setAllowedEmails([...allowedEmails, newEmail.trim()]);
-                      setAllowedEmailsDirty(true);
-                    }
-                    setNewEmail("");
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  添加
-                </Button>
-              </div>
-
-              {allowedEmailsDirty && (
-                <p className="text-xs text-orange-600">白名单已修改，请点击「保存设置」生效</p>
-              )}
-
-              {allowedEmails.length === 0 && (
-                <p className="text-xs text-amber-600">
-                  白名单为空 = 开放模式，所有登录用户均可使用系统。添加邮箱后仅白名单中的用户可以访问。
-                </p>
-              )}
-            </div>
-          </TabsContent>
-
           <TabsContent value="check" className="space-y-4 mt-4">
             {/* 系统自检 */}
             <div className="border rounded-lg overflow-hidden">
@@ -898,44 +805,83 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
             </div>
           </TabsContent>
 
-          {/* 管理员面板 */}
+          {/* 管理员面板 - 用户管理 */}
           {isAdmin && (
             <TabsContent value="admin" className="space-y-4 mt-4">
-              {/* 用户列表 */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">用户管理</Label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => usersQuery.refetch()}
-                    disabled={usersQuery.isRefetching}
-                  >
-                    <RefreshCw className={`h-3 w-3 mr-1 ${usersQuery.isRefetching ? 'animate-spin' : ''}`} />
-                    刷新
-                  </Button>
-                </div>
+              <div className="border rounded-lg p-3 bg-blue-50">
+                <p className="text-xs text-blue-700">
+                  用户管理：创建/编辑用户，暂停（保留数据但禁止使用）或彻底删除（清除所有数据）。
+                  暂停用户后其当前会话立即失效，无需等待重新登录。
+                </p>
+              </div>
 
-                {/* 创建用户 */}
-                <div className="border rounded-lg p-3 space-y-2">
-                  <Label className="text-xs text-muted-foreground">创建新用户</Label>
+              {/* 创建用户 */}
+              <div className="border rounded-lg p-3 space-y-2">
+                <Label className="text-xs text-muted-foreground">创建新用户</Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="用户名"
+                    value={newUserName}
+                    onChange={(e) => setNewUserName(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Input
+                    placeholder="邮箱（可选）"
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Select value={newUserRole} onValueChange={(v) => setNewUserRole(v as "user" | "admin")}>
+                    <SelectTrigger className="w-24">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="user">用户</SelectItem>
+                      <SelectItem value="admin">管理员</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    if (!newUserName.trim()) return;
+                    try {
+                      await createUserMut.mutateAsync({
+                        name: newUserName.trim(),
+                        email: newUserEmail.trim() || undefined,
+                        role: newUserRole,
+                      });
+                      setNewUserName("");
+                      setNewUserEmail("");
+                      setNewUserRole("user");
+                      usersQuery.refetch();
+                    } catch (err: any) {
+                      alert("创建失败: " + (err?.message || "未知错误"));
+                    }
+                  }}
+                  disabled={!newUserName.trim() || createUserMut.isPending}
+                >
+                  {createUserMut.isPending ? (
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  ) : (
+                    <UserPlus className="h-3 w-3 mr-1" />
+                  )}
+                  创建用户
+                </Button>
+              </div>
+
+              {/* 编辑用户弹窗 */}
+              {editingUser && (
+                <div className="border rounded-lg p-3 space-y-2 bg-amber-50">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium">编辑用户 #{editingUser.id}</Label>
+                    <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setEditingUser(null)}>取消</Button>
+                  </div>
                   <div className="flex gap-2">
-                    <Input
-                      placeholder="用户名"
-                      value={newUserName}
-                      onChange={(e) => setNewUserName(e.target.value)}
-                      className="flex-1"
-                    />
-                    <Input
-                      placeholder="邮箱（可选）"
-                      value={newUserEmail}
-                      onChange={(e) => setNewUserEmail(e.target.value)}
-                      className="flex-1"
-                    />
-                    <Select value={newUserRole} onValueChange={(v) => setNewUserRole(v as "user" | "admin")}>
-                      <SelectTrigger className="w-24">
-                        <SelectValue />
-                      </SelectTrigger>
+                    <Input placeholder="用户名" value={editName} onChange={(e) => setEditName(e.target.value)} className="flex-1" />
+                    <Input placeholder="邮箱" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className="flex-1" />
+                    <Select value={editRole} onValueChange={(v) => setEditRole(v as "user" | "admin")}>
+                      <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="user">用户</SelectItem>
                         <SelectItem value="admin">管理员</SelectItem>
@@ -945,103 +891,132 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                   <Button
                     size="sm"
                     onClick={async () => {
-                      if (!newUserName.trim()) return;
                       try {
-                        await createUserMut.mutateAsync({
-                          name: newUserName.trim(),
-                          email: newUserEmail.trim() || undefined,
-                          role: newUserRole,
+                        await updateUserMut.mutateAsync({
+                          userId: editingUser.id,
+                          name: editName.trim() || undefined,
+                          email: editEmail.trim() || null,
+                          role: editRole,
                         });
-                        setNewUserName("");
-                        setNewUserEmail("");
-                        setNewUserRole("user");
+                        setEditingUser(null);
                         usersQuery.refetch();
                       } catch (err: any) {
-                        alert("创建失败: " + (err?.message || "未知错误"));
+                        alert("更新失败: " + (err?.message || "未知错误"));
                       }
                     }}
-                    disabled={!newUserName.trim() || createUserMut.isPending}
+                    disabled={updateUserMut.isPending}
                   >
-                    {createUserMut.isPending ? (
-                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                    ) : (
-                      <UserPlus className="h-3 w-3 mr-1" />
-                    )}
-                    创建用户
+                    {updateUserMut.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}
+                    保存修改
+                  </Button>
+                </div>
+              )}
+
+              {/* 用户列表 */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">用户列表</Label>
+                  <Button variant="ghost" size="sm" onClick={() => usersQuery.refetch()} disabled={usersQuery.isRefetching}>
+                    <RefreshCw className={`h-3 w-3 mr-1 ${usersQuery.isRefetching ? 'animate-spin' : ''}`} />
+                    刷新
                   </Button>
                 </div>
 
-                {/* 用户列表表格 */}
                 <div className="border rounded-lg overflow-hidden">
-                  <div className="max-h-[300px] overflow-y-auto">
+                  <div className="max-h-[350px] overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-muted/50 sticky top-0">
                         <tr>
-                          <th className="text-left p-2">ID</th>
                           <th className="text-left p-2">用户名</th>
                           <th className="text-left p-2">邮箱</th>
                           <th className="text-left p-2">角色</th>
-                          <th className="text-left p-2">最后登录</th>
+                          <th className="text-left p-2">状态</th>
                           <th className="text-right p-2">操作</th>
                         </tr>
                       </thead>
                       <tbody>
                         {usersQuery.data?.map((u) => (
-                          <tr key={u.id} className="border-t hover:bg-muted/30">
-                            <td className="p-2 text-muted-foreground">{u.id}</td>
+                          <tr key={u.id} className={`border-t hover:bg-muted/30 ${(u as any).accountStatus === 'suspended' ? 'opacity-50' : ''}`}>
                             <td className="p-2 font-medium">
                               {u.name || "-"}
-                              {u.id === authUser?.id && (
-                                <span className="ml-1 text-xs text-blue-500">(你)</span>
-                              )}
+                              {u.id === authUser?.id && <span className="ml-1 text-xs text-blue-500">(你)</span>}
                             </td>
                             <td className="p-2 text-muted-foreground">{u.email || "-"}</td>
                             <td className="p-2">
-                              <span className={`px-1.5 py-0.5 rounded text-xs ${
-                                u.role === 'admin' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
-                              }`}>
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${u.role === 'admin' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
                                 {u.role === 'admin' ? '管理员' : '用户'}
                               </span>
                             </td>
-                            <td className="p-2 text-muted-foreground">
-                              {u.lastSignedIn ? new Date(u.lastSignedIn).toLocaleDateString('zh-CN') : '-'}
+                            <td className="p-2">
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${
+                                (u as any).accountStatus === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                              }`}>
+                                {(u as any).accountStatus === 'suspended' ? '已暂停' : '正常'}
+                              </span>
                             </td>
                             <td className="p-2 text-right">
-                              <div className="flex gap-1 justify-end">
+                              <div className="flex gap-1 justify-end flex-wrap">
                                 {u.id !== authUser?.id && (
                                   <>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 px-2 text-xs"
-                                      title="以该用户身份查看"
+                                    {/* 编辑 */}
+                                    <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" title="编辑用户"
+                                      onClick={() => {
+                                        setEditingUser({ id: u.id, name: u.name || "", email: u.email || "", role: u.role });
+                                        setEditName(u.name || "");
+                                        setEditEmail(u.email || "");
+                                        setEditRole(u.role as "user" | "admin");
+                                      }}
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                    {/* 切换视角 */}
+                                    <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" title="以该用户身份查看"
                                       onClick={async () => {
-                                        if (!confirm(`确定切换到用户 "${u.name}" 的视角？`)) return;
+                                        if (!confirm(`切换到用户 "${u.name}" 的视角？`)) return;
                                         try {
                                           await impersonateMut.mutateAsync({ userId: u.id });
                                           window.location.reload();
-                                        } catch (err: any) {
-                                          alert("切换失败: " + (err?.message || "未知错误"));
-                                        }
+                                        } catch (err: any) { alert("切换失败: " + (err?.message || "未知错误")); }
                                       }}
                                       disabled={impersonateMut.isPending}
                                     >
-                                      <Eye className="h-3 w-3 mr-0.5" />
-                                      切换
+                                      <Eye className="h-3 w-3" />
                                     </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 px-2 text-xs text-destructive hover:text-destructive"
-                                      title="删除用户"
+                                    {/* 暂停/恢复 */}
+                                    {(u as any).accountStatus === 'suspended' ? (
+                                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-green-600 hover:text-green-700" title="恢复用户"
+                                        onClick={async () => {
+                                          try {
+                                            await activateUserMut.mutateAsync({ userId: u.id });
+                                            usersQuery.refetch();
+                                          } catch (err: any) { alert("恢复失败: " + (err?.message || "未知错误")); }
+                                        }}
+                                        disabled={activateUserMut.isPending}
+                                      >
+                                        <UserCheck className="h-3 w-3" />
+                                      </Button>
+                                    ) : (
+                                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-orange-600 hover:text-orange-700" title="暂停用户（保留数据）"
+                                        onClick={async () => {
+                                          if (!confirm(`暂停用户 "${u.name}"？\n\n暂停后该用户立即无法使用系统，但所有数据保留。可随时恢复。`)) return;
+                                          try {
+                                            await suspendUserMut.mutateAsync({ userId: u.id });
+                                            usersQuery.refetch();
+                                          } catch (err: any) { alert("暂停失败: " + (err?.message || "未知错误")); }
+                                        }}
+                                        disabled={suspendUserMut.isPending}
+                                      >
+                                        <Ban className="h-3 w-3" />
+                                      </Button>
+                                    )}
+                                    {/* 删除 */}
+                                    <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-destructive hover:text-destructive" title="彻底删除用户及所有数据"
                                       onClick={async () => {
-                                        if (!confirm(`确定删除用户 "${u.name}"？此操作不可逆。`)) return;
+                                        if (!confirm(`⚠️ 彻底删除用户 "${u.name}"？\n\n此操作将永久清除该用户的所有数据：\n- 个人配置\n- 作业管理记录\n- 批量任务记录\n- 批改/打分记录\n- 后台任务记录\n\n此操作不可逆！`)) return;
                                         try {
                                           await deleteUserMut.mutateAsync({ userId: u.id });
                                           usersQuery.refetch();
-                                        } catch (err: any) {
-                                          alert("删除失败: " + (err?.message || "未知错误"));
-                                        }
+                                        } catch (err: any) { alert("删除失败: " + (err?.message || "未知错误")); }
                                       }}
                                       disabled={deleteUserMut.isPending}
                                     >
@@ -1055,7 +1030,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                         ))}
                         {(!usersQuery.data || usersQuery.data.length === 0) && (
                           <tr>
-                            <td colSpan={6} className="p-4 text-center text-muted-foreground">
+                            <td colSpan={5} className="p-4 text-center text-muted-foreground">
                               {usersQuery.isLoading ? "加载中..." : "暂无用户"}
                             </td>
                           </tr>
@@ -1065,9 +1040,10 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                   </div>
                 </div>
 
-                <p className="text-xs text-muted-foreground">
-                  手动创建的用户使用 manual 登录方式。切换用户后页面会刷新，以该用户身份查看所有数据。
-                </p>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>操作说明：<Pencil className="h-3 w-3 inline" /> 编辑 | <Eye className="h-3 w-3 inline" /> 切换视角 | <Ban className="h-3 w-3 inline text-orange-600" /> 暂停 | <UserCheck className="h-3 w-3 inline text-green-600" /> 恢复 | <Trash2 className="h-3 w-3 inline text-destructive" /> 删除</p>
+                  <p>暂停 = 保留数据但禁止使用（适合未续费用户）。删除 = 彻底清除所有数据（不可逆）。</p>
+                </div>
               </div>
             </TabsContent>
           )}
