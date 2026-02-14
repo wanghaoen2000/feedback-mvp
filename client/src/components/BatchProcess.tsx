@@ -533,7 +533,7 @@ export function BatchProcess() {
             <div className="border rounded-lg p-4 space-y-3 bg-purple-50/30">
               <Label className="flex items-center gap-2 text-purple-700">
                 <FolderOpen className="w-4 h-4" />
-                共享文件（发送给所有任务）
+                公用文档（所有任务都能看到的参考资料）
               </Label>
               <p className="text-xs text-gray-500">最多支持 100 个文件，单个文件最大 20MB</p>
 
@@ -609,7 +609,7 @@ export function BatchProcess() {
             <div className="border rounded-lg p-4 space-y-3 bg-blue-50/30">
               <Label className="flex items-center gap-2 text-blue-700">
                 <FolderOpen className="w-4 h-4" />
-                独立文件（每个任务对应不同文件，按文件名排序）
+                每个任务单独的文档（按文件名排序，一个文件对应一个任务）
               </Label>
               <p className="text-xs text-gray-500">最多支持 100 个文件，单个文件最大 20MB</p>
 
@@ -769,24 +769,24 @@ export function BatchProcess() {
                 className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
               >
                 <Eye className="w-3 h-3" />
-                预览发送内容
+                看看发给AI什么
               </button>
             </div>
             {showPromptPreview && (
               <div className="w-full border rounded bg-gray-50 p-3 space-y-2 text-left">
-                <div className="text-xs font-medium text-gray-500">系统提示词（每个任务共用）</div>
+                <div className="text-xs font-medium text-gray-500">AI收到的指令（路书 + 格式要求，所有任务共用）</div>
                 <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-60 overflow-y-auto">{
                   `<路书提示词>\n${roadmap.trim() || '(未填写路书)'}\n</路书提示词>\n${
                     templateType === 'word_card' ? '【输出格式要求 - 词汇卡片】\n(JSON结构: listNumber, sceneName, words[...])\n' :
                     templateType === 'writing_material' ? '【输出格式要求 - 写作素材】\n(JSON结构: partNum, categories[...])\n' : ''
                   }【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`
                 }</pre>
-                <div className="text-xs font-medium text-gray-500">用户消息（示例：任务1）</div>
+                <div className="text-xs font-medium text-gray-500">发给AI的任务内容（以第1个任务为例）</div>
                 <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-20 overflow-y-auto">{
                   `这是任务编号 ${startNumber || 1}，请按照路书要求生成内容。${
-                    sharedFiles.length > 0 ? `\n\n<共享文档>\n(${sharedFiles.length}个共享文件的提取文本)\n</共享文档>` : ''
+                    sharedFiles.length > 0 ? `\n\n<公用文档>\n(${sharedFiles.length}个公用文档的提取文本)\n</公用文档>` : ''
                   }${
-                    uploadedFiles.size > 0 ? `\n\n<单独文档>\n(该任务对应的独立文件文本)\n</单独文档>` : ''
+                    uploadedFiles.size > 0 ? `\n\n<本任务文档>\n(该任务对应的单独文档文本)\n</本任务文档>` : ''
                   }`
                 }</pre>
               </div>

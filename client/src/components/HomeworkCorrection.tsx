@@ -551,7 +551,7 @@ export function HomeworkCorrection() {
                 className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
               >
                 <Eye className="w-3 h-3" />
-                预览
+                看看发给AI什么
               </button>
             )}
             <Button
@@ -577,13 +577,13 @@ export function HomeworkCorrection() {
         </div>
         {showCorrPreview && selectedStudent && selectedType && (
           <div className="border rounded bg-gray-50 p-3 space-y-2 mt-2">
-            <div className="text-xs font-medium text-gray-500">系统提示词</div>
+            <div className="text-xs font-medium text-gray-500">AI收到的指令（批改规则和要求）</div>
             {corrPreviewQuery.isLoading ? (
               <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />加载中...</div>
             ) : corrPreviewQuery.data ? (
               <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-48 overflow-y-auto">{corrPreviewQuery.data.systemPrompt}</pre>
             ) : null}
-            <div className="text-xs font-medium text-gray-500">用户消息格式</div>
+            <div className="text-xs font-medium text-gray-500">AI收到的作业内容（大致格式）</div>
             {corrPreviewQuery.data && (
               <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-20 overflow-y-auto">{corrPreviewQuery.data.userMessageFormat}</pre>
             )}

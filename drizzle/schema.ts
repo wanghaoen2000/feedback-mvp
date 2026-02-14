@@ -197,3 +197,28 @@ export const correctionTasks = mysqlTable("correction_tasks", {
 
 export type CorrectionTask = typeof correctionTasks.$inferSelect;
 export type InsertCorrectionTask = typeof correctionTasks.$inferInsert;
+
+// 一键打分任务表（后台执行，180天留存）
+export const gradingTasks = mysqlTable("grading_tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(),
+  startDate: varchar("start_date", { length: 10 }).notNull(), // YYYY-MM-DD
+  endDate: varchar("end_date", { length: 10 }).notNull(),
+  gradingPrompt: mediumtext("grading_prompt").notNull(),
+  userNotes: text("user_notes"),
+  studentCount: int("student_count").default(0),
+  systemPrompt: mediumtext("system_prompt"),          // 完整系统提示词快照
+  result: mediumtext("result"),                       // AI打分结果
+  aiModel: varchar("ai_model", { length: 128 }),
+  taskStatus: varchar("task_status", { length: 20 }).notNull().default("pending"), // pending | processing | completed | failed
+  errorMessage: text("error_message"),
+  streamingChars: int("streaming_chars").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_grading_userId").on(table.userId),
+]);
+
+export type GradingTask = typeof gradingTasks.$inferSelect;
+export type InsertGradingTask = typeof gradingTasks.$inferInsert;

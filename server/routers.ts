@@ -68,9 +68,14 @@ import {
   previewBackup,
   importStudentBackup,
   autoBackupToGDrive,
-  performWeeklyGrading,
   previewEntryPrompt,
 } from "./homeworkManager";
+import {
+  submitGrading,
+  getGradingTask,
+  listGradingTasks,
+  exportGradingBackup,
+} from "./gradingRunner";
 
 // 设置配置值
 async function setConfig(key: string, value: string, description?: string): Promise<void> {
@@ -2714,8 +2719,8 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    // 一键打分
-    weeklyGrading: protectedProcedure
+    // 一键打分（后台任务模式）
+    submitGrading: protectedProcedure
       .input(z.object({
         startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -2723,13 +2728,28 @@ export const appRouter = router({
         userNotes: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        return performWeeklyGrading(
-          ctx.user.id,
-          input.startDate,
-          input.endDate,
-          input.gradingPrompt,
-          input.userNotes || "",
-        );
+        return submitGrading(ctx.user.id, {
+          startDate: input.startDate,
+          endDate: input.endDate,
+          gradingPrompt: input.gradingPrompt,
+          userNotes: input.userNotes,
+        });
+      }),
+
+    getGradingTask: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        return getGradingTask(ctx.user.id, input.id);
+      }),
+
+    listGradingTasks: protectedProcedure
+      .query(async ({ ctx }) => {
+        return listGradingTasks(ctx.user.id);
+      }),
+
+    exportGradingBackup: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        return exportGradingBackup(ctx.user.id);
       }),
 
     // 预览发送处理的系统提示词

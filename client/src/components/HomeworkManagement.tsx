@@ -216,10 +216,30 @@ export function HomeworkManagement() {
   const [gradingEndDay, setGradingEndDay] = useState("");
   const [gradingPrompt, setGradingPrompt] = useState("");
   const [gradingNotes, setGradingNotes] = useState("");
-  const [gradingResult, setGradingResult] = useState("");
-  const [gradingResultCopied, setGradingResultCopied] = useState(false);
   const [showGradingPreview, setShowGradingPreview] = useState(false);
-  const weeklyGradingMut = trpc.homework.weeklyGrading.useMutation();
+  const [expandedGradingId, setExpandedGradingId] = useState<number | null>(null);
+  const [gradingCopiedId, setGradingCopiedId] = useState<number | null>(null);
+  const [activeGradingId, setActiveGradingId] = useState<number | null>(null);
+  const submitGradingMut = trpc.homework.submitGrading.useMutation();
+  const gradingHistoryQuery = trpc.homework.listGradingTasks.useQuery(undefined, {
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 5000;
+      const hasActive = data.some((t: any) => t.taskStatus === "pending" || t.taskStatus === "processing");
+      return hasActive ? 3000 : 10000;
+    },
+  });
+  const activeGradingQuery = trpc.homework.getGradingTask.useQuery(
+    { id: activeGradingId! },
+    {
+      enabled: activeGradingId !== null,
+      refetchInterval: (query) => {
+        const data = query.state.data;
+        if (!data) return 2000;
+        return (data.taskStatus === "pending" || data.taskStatus === "processing") ? 2000 : false;
+      },
+    }
+  );
 
   // 计算星期（硬编码）
   const getDayOfWeek = useCallback((y: number, m: number, d: number): string => {
@@ -832,21 +852,21 @@ export function HomeworkManagement() {
                   if (!gradingPrompt.trim()) return;
                   const y = gradingYear, sm = gradingStartMonth.padStart(2, '0'), sd = gradingStartDay.padStart(2, '0');
                   const em = gradingEndMonth.padStart(2, '0'), ed = gradingEndDay.padStart(2, '0');
-                  setGradingResult("");
                   try {
-                    const res = await weeklyGradingMut.mutateAsync({
+                    const res = await submitGradingMut.mutateAsync({
                       startDate: `${y}-${sm}-${sd}`,
                       endDate: `${y}-${em}-${ed}`,
                       gradingPrompt: gradingPrompt.trim(),
                       userNotes: gradingNotes.trim(),
                     });
-                    setGradingResult(res.result);
+                    setActiveGradingId(res.id);
+                    gradingHistoryQuery.refetch();
                   } catch {}
                 }}
-                disabled={weeklyGradingMut.isPending || !gradingPrompt.trim() || !gradingYear || !gradingStartMonth || !gradingStartDay || !gradingEndMonth || !gradingEndDay}
+                disabled={submitGradingMut.isPending || !gradingPrompt.trim() || !gradingYear || !gradingStartMonth || !gradingStartDay || !gradingEndMonth || !gradingEndDay}
                 className="bg-amber-500 hover:bg-amber-600 text-white"
               >
-                {weeklyGradingMut.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-1" />打分中...</> : <><Star className="w-4 h-4 mr-1" />开始打分</>}
+                {submitGradingMut.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-1" />提交中...</> : <><Star className="w-4 h-4 mr-1" />开始打分</>}
               </Button>
               <button
                 type="button"
@@ -854,46 +874,124 @@ export function HomeworkManagement() {
                 className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
               >
                 <Eye className="w-3 h-3" />
-                预览发送内容
+                预览发给AI的内容
               </button>
             </div>
 
-            {/* 系统提示词预览 */}
+            {/* 提示词预览 */}
             {showGradingPreview && (
               <div className="border rounded bg-white p-3 space-y-2">
-                <div className="text-xs font-medium text-gray-500">系统提示词（发送给AI）</div>
+                <div className="text-xs font-medium text-gray-500">AI收到的指令（打分规则+日期+说明）</div>
                 <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-gray-50 p-2 rounded max-h-40 overflow-y-auto">{gradingSystemPromptPreview}</pre>
-                <div className="text-xs font-medium text-gray-500">用户消息</div>
-                <p className="text-xs text-gray-500">= 所有学生的完整状态数据（与「一键导出」相同格式）</p>
+                <div className="text-xs font-medium text-gray-500">AI收到的学生数据</div>
+                <p className="text-xs text-gray-500">= 所有学生的完整状态信息（与「一键导出」相同格式）</p>
               </div>
             )}
 
-            {/* 错误提示 */}
-            {weeklyGradingMut.isError && (
-              <p className="text-xs text-red-500">打分失败: {weeklyGradingMut.error?.message}</p>
+            {/* 提交错误 */}
+            {submitGradingMut.isError && (
+              <p className="text-xs text-red-500">提交失败: {submitGradingMut.error?.message}</p>
             )}
 
-            {/* 打分结果 */}
-            {gradingResult && (
-              <div className="border rounded bg-white p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-gray-500">打分结果</span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 text-xs"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(gradingResult);
-                        setGradingResultCopied(true);
-                        setTimeout(() => setGradingResultCopied(false), 2000);
-                      } catch {}
-                    }}
-                  >
-                    {gradingResultCopied ? <><Check className="w-3 h-3 mr-1" />已复制</> : <><Copy className="w-3 h-3 mr-1" />复制</>}
-                  </Button>
+            {/* 当前进行中的任务 */}
+            {activeGradingId && activeGradingQuery.data && (activeGradingQuery.data.taskStatus === "pending" || activeGradingQuery.data.taskStatus === "processing") && (
+              <div className="border border-blue-200 rounded bg-blue-50 p-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+                  <span className="text-blue-700">正在打分...</span>
+                  {(activeGradingQuery.data.streamingChars ?? 0) > 0 && (
+                    <span className="text-xs text-blue-500">已生成 {activeGradingQuery.data.streamingChars} 字</span>
+                  )}
                 </div>
-                <pre className="text-sm text-gray-800 whitespace-pre-wrap bg-gray-50 p-3 rounded max-h-96 overflow-y-auto">{gradingResult}</pre>
+                <p className="text-xs text-blue-500 mt-1">可以关闭页面，服务器会继续处理。打分完成后会显示在下方历史记录中。</p>
+              </div>
+            )}
+
+            {/* 打分历史记录 */}
+            {(gradingHistoryQuery.data && gradingHistoryQuery.data.length > 0) && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <History className="w-4 h-4" />
+                  <span>打分历史（保留180天）</span>
+                </div>
+                <div className="space-y-1.5">
+                  {gradingHistoryQuery.data.map((task: any) => (
+                    <div key={task.id} className={`border rounded-lg p-2.5 ${
+                      task.taskStatus === "failed" ? "border-red-200 bg-red-50" :
+                      task.taskStatus === "completed" ? "border-green-200 bg-green-50" :
+                      "border-blue-200 bg-blue-50"
+                    }`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                          {task.taskStatus === "completed" ? (
+                            <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                          ) : task.taskStatus === "failed" ? (
+                            <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                          ) : (
+                            <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
+                          )}
+                          <span className="text-sm font-medium">{task.startDate} ~ {task.endDate}</span>
+                          <span className="text-xs text-gray-500">{task.studentCount || 0}人</span>
+                          {task.aiModel && <span className="text-xs text-gray-400">({shortModelName(task.aiModel)})</span>}
+                          {(task.taskStatus === "pending" || task.taskStatus === "processing") && (task.streamingChars ?? 0) > 0 && (
+                            <span className="text-xs text-blue-500">已生成{task.streamingChars}字</span>
+                          )}
+                          {task.taskStatus === "failed" && task.errorMessage && (
+                            <span className="text-xs text-red-500 truncate max-w-[200px]" title={task.errorMessage}>{task.errorMessage}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {task.taskStatus === "completed" && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-xs px-1.5"
+                                onClick={async () => {
+                                  // 展开/收起需要先获取完整数据
+                                  if (expandedGradingId === task.id) {
+                                    setExpandedGradingId(null);
+                                  } else {
+                                    setActiveGradingId(task.id);
+                                    setExpandedGradingId(task.id);
+                                  }
+                                }}
+                              >
+                                {expandedGradingId === task.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                              </Button>
+                            </>
+                          )}
+                          <span className="text-xs text-gray-400">
+                            {task.createdAt ? new Date(task.createdAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }) : ""}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 展开查看完整结果 */}
+                      {expandedGradingId === task.id && activeGradingQuery.data?.result && (
+                        <div className="mt-2 border-t pt-2 space-y-1">
+                          <div className="flex items-center justify-end">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 text-xs"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(activeGradingQuery.data!.result!);
+                                  setGradingCopiedId(task.id);
+                                  setTimeout(() => setGradingCopiedId(null), 2000);
+                                } catch {}
+                              }}
+                            >
+                              {gradingCopiedId === task.id ? <><Check className="w-3 h-3 mr-1" />已复制</> : <><Copy className="w-3 h-3 mr-1" />复制结果</>}
+                            </Button>
+                          </div>
+                          <pre className="text-sm text-gray-800 whitespace-pre-wrap bg-white p-3 rounded border max-h-96 overflow-y-auto">{activeGradingQuery.data.result}</pre>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </CardContent>
@@ -951,7 +1049,7 @@ export function HomeworkManagement() {
               className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
             >
               <Eye className="w-3 h-3" />
-              预览发送内容
+              看看发给AI什么
             </button>
           )}
           <Button
@@ -969,13 +1067,13 @@ export function HomeworkManagement() {
         </div>
         {showEntryPreview && selectedStudent && (
           <div className="border rounded bg-gray-50 p-3 space-y-2">
-            <div className="text-xs font-medium text-gray-500">系统提示词</div>
+            <div className="text-xs font-medium text-gray-500">AI收到的指令（处理规则和格式要求）</div>
             {entryPreviewQuery.isLoading ? (
               <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />加载中...</div>
             ) : entryPreviewQuery.data ? (
               <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-48 overflow-y-auto">{entryPreviewQuery.data.systemPrompt}</pre>
             ) : null}
-            <div className="text-xs font-medium text-gray-500">用户消息格式</div>
+            <div className="text-xs font-medium text-gray-500">AI收到的学生数据（大致格式）</div>
             {entryPreviewQuery.data && (
               <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-20 overflow-y-auto">{entryPreviewQuery.data.userMessageFormat}</pre>
             )}

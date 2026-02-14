@@ -3706,7 +3706,7 @@ export default function Home() {
                   className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5 shrink-0"
                 >
                   <Eye className="w-3 h-3" />
-                  预览
+                  看看发给AI什么
                 </button>
                 <Button
                   type="submit"
@@ -3748,7 +3748,7 @@ export default function Home() {
             {/* 提示词预览面板 */}
             {showFeedbackPreview && (
               <div className="mt-3 border rounded bg-gray-50 p-3 space-y-2">
-                <div className="text-xs font-medium text-gray-500">各步骤系统提示词（{courseType === 'oneToOne' ? '一对一' : '小班课'}）</div>
+                <div className="text-xs font-medium text-gray-500">AI收到的指令 - 每个步骤的规则和要求（{courseType === 'oneToOne' ? '一对一' : '小班课'}）</div>
                 {feedbackPreviewQuery.isLoading ? (
                   <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />加载中...</div>
                 ) : feedbackPreviewQuery.data ? (
@@ -3759,7 +3759,7 @@ export default function Home() {
                     </details>
                   ))
                 ) : null}
-                <div className="text-xs text-gray-500">用户消息 = 学生信息 + 上次反馈 + 本次课笔记 + 录音转文字</div>
+                <div className="text-xs text-gray-500">AI还会收到：学生信息 + 上次反馈 + 本次课笔记 + 录音转文字</div>
               </div>
             )}
 

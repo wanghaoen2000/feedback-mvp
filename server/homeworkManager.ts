@@ -950,96 +950,24 @@ export async function autoBackupToGDrive(userId: number): Promise<void> {
     } else {
       console.warn(`[学生管理] 自动备份上传失败: ${result.error || result.message}`);
     }
+
+    // 同时备份打分记录
+    try {
+      const { exportGradingBackup } = await import("./gradingRunner");
+      const gradingBackup = await exportGradingBackup(userId);
+      if (gradingBackup.recordCount > 0) {
+        const gradingFileName = `打分记录备份_${timestamp}.md`;
+        const gradingResult = await uploadToGoogleDrive(gradingBackup.content, gradingFileName, folderPath);
+        if (gradingResult.status === "success") {
+          console.log(`[学生管理] 打分记录备份成功: ${gradingFileName} (${gradingBackup.recordCount}条)`);
+        }
+      }
+    } catch (gradingErr: any) {
+      console.warn(`[学生管理] 打分记录备份失败:`, gradingErr?.message);
+    }
   } catch (err: any) {
     console.error(`[学生管理] 自动备份异常:`, err?.message);
   }
 }
 
-// ============= 一键打分 =============
-
-/**
- * 计算日期对应的星期几（硬编码计算，绝对准确）
- */
-function getDayOfWeek(dateStr: string): string {
-  const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  return days[date.getDay()];
-}
-
-/**
- * 一键打分：汇总所有学生数据，发送给AI进行周评分
- */
-export async function performWeeklyGrading(
-  userId: number,
-  startDate: string, // YYYY-MM-DD
-  endDate: string,   // YYYY-MM-DD
-  gradingPrompt: string,
-  userNotes: string,
-): Promise<{ result: string; model: string; studentCount: number; systemPrompt: string }> {
-  await ensureHwTables();
-
-  // 1. 获取所有学生数据
-  const backup = await exportStudentBackup(userId);
-  if (backup.studentCount === 0) {
-    throw new Error("没有找到任何活跃学生数据");
-  }
-
-  // 2. 计算星期（硬编码计算）
-  const startDow = getDayOfWeek(startDate);
-  const endDow = getDayOfWeek(endDate);
-
-  // 3. 构建系统提示词
-  const systemParts: string[] = [
-    `评分时间段：${startDate}（${startDow}）至 ${endDate}（${endDow}）`,
-    '',
-    '<打分要求>',
-    gradingPrompt.trim(),
-    '</打分要求>',
-  ];
-  if (userNotes.trim()) {
-    systemParts.push('', '<额外说明>', userNotes.trim(), '</额外说明>');
-  }
-  const systemPrompt = systemParts.join('\n');
-
-  // 4. 用户消息 = 所有学生数据
-  const userMessage = backup.content;
-
-  // 5. 获取API配置
-  const apiKey = await getConfigValue("apiKey", userId);
-  const apiUrl = await getConfigValue("apiUrl", userId);
-  const modelToUse = await getConfigValue("hwAiModel", userId)
-    || await getConfigValue("apiModel", userId)
-    || "claude-sonnet-4-5-20250929";
-
-  // 6. 调用AI
-  const messages = [
-    { role: "system" as const, content: systemPrompt },
-    { role: "user" as const, content: userMessage },
-  ];
-
-  console.log(`[一键打分] 开始: ${backup.studentCount}个学生, 日期范围 ${startDate}~${endDate}, 模型 ${modelToUse}`);
-
-  const content = await invokeWhatAIStream(messages, {
-    max_tokens: 16000,
-    temperature: 0.3,
-    retries: 1,
-  }, {
-    apiModel: modelToUse,
-    apiKey,
-    apiUrl,
-  });
-
-  if (!content) {
-    throw new Error("AI 返回空内容");
-  }
-
-  console.log(`[一键打分] 完成: ${content.length}字`);
-
-  return {
-    result: content,
-    model: modelToUse,
-    studentCount: backup.studentCount,
-    systemPrompt,
-  };
-}
+// 一键打分功能已迁移到 gradingRunner.ts（后台任务模式）
