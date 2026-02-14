@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 import { COOKIE_NAME, ADMIN_COOKIE_NAME, NOT_ALLOWED_ERR_MSG } from "@shared/const";
 import { z } from "zod";
-import { eq, gte, desc, and, inArray, sql } from "drizzle-orm";
+import { eq, gte, desc, and, not, inArray, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -270,6 +270,20 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) throw new Error("数据库不可用");
 
+        // Check email uniqueness before creating
+        if (input.email) {
+          const existing = await db.select({ id: users.id })
+            .from(users)
+            .where(eq(users.email, input.email))
+            .limit(1);
+          if (existing.length > 0) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `邮箱 ${input.email} 已被其他用户使用`,
+            });
+          }
+        }
+
         const openId = `manual_${crypto.randomUUID()}`;
 
         await db.insert(users).values({
@@ -307,6 +321,20 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("数据库不可用");
+
+        // Check email uniqueness when changing email
+        if (input.email) {
+          const existing = await db.select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.email, input.email), not(eq(users.id, input.userId))))
+            .limit(1);
+          if (existing.length > 0) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `邮箱 ${input.email} 已被其他用户使用`,
+            });
+          }
+        }
 
         const updateFields: Record<string, any> = {};
         if (input.name !== undefined) updateFields.name = input.name;

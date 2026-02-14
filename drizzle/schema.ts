@@ -14,7 +14,13 @@ export const users = mysqlTable("users", {
   /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
-  email: varchar("email", { length: 320 }),
+  /**
+   * Email is the **business unique identifier** for a user.
+   * Used to match pre-created (manual) users with real OAuth logins.
+   * Must be unique when non-null — two records with the same email are
+   * treated as the same person and will be merged on OAuth login.
+   */
+  email: varchar("email", { length: 320 }).unique(),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   /** 用户状态: active=正常使用, suspended=暂停(数据保留但不能登录) */
