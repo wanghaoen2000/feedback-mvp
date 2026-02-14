@@ -178,18 +178,20 @@ function DownloadButton({ label, files }: {
 
 /** 一键导入学生管理按钮 */
 function HwImportButton({ taskId, studentName }: { taskId: string; studentName: string }) {
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const wasImported = localStorage.getItem(`hw-imported-${taskId}`) === '1';
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">(wasImported ? "success" : "idle");
   const [errorMsg, setErrorMsg] = useState("");
   const importMutation = trpc.homework.importFromTask.useMutation();
 
   const handleImport = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (status === "loading" || status === "success") return;
+    if (status === "loading") return;
     setStatus("loading");
     setErrorMsg("");
     try {
       await importMutation.mutateAsync({ taskId, studentName });
       setStatus("success");
+      localStorage.setItem(`hw-imported-${taskId}`, '1');
     } catch (err: any) {
       setErrorMsg(err?.message || "导入失败");
       setStatus("error");
@@ -201,11 +203,11 @@ function HwImportButton({ taskId, studentName }: { taskId: string; studentName: 
       className={`w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
         status === "idle" ? "bg-emerald-500 hover:bg-emerald-600 text-white active:bg-emerald-700" :
         status === "loading" ? "bg-emerald-400 text-white/90 cursor-wait" :
-        status === "success" ? "bg-green-500 text-white" :
+        status === "success" ? "bg-gray-400 hover:bg-gray-500 text-white" :
         "bg-red-500 hover:bg-red-600 text-white"
       }`}
       onClick={handleImport}
-      disabled={status === "loading" || status === "success"}
+      disabled={status === "loading"}
     >
       {status === "loading" && <Loader2 className="h-4 w-4 animate-spin" />}
       {status === "success" && <CheckCircle2 className="h-4 w-4" />}
@@ -227,20 +229,22 @@ function HwClassImportButton({ taskId, classNumber, attendanceStudents }: {
   classNumber: string;
   attendanceStudents: string[];
 }) {
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const wasImported = localStorage.getItem(`hw-imported-${taskId}`) === '1';
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">(wasImported ? "success" : "idle");
   const [errorMsg, setErrorMsg] = useState("");
   const importMutation = trpc.homework.importClassFromTask.useMutation();
   const validStudents = attendanceStudents.filter(s => s.trim());
 
   const handleImport = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (status === "loading" || status === "success") return;
+    if (status === "loading") return;
     setStatus("loading");
     setErrorMsg("");
     try {
       const result = await importMutation.mutateAsync({ taskId, classNumber, attendanceStudents: validStudents });
       console.log(`[学生管理导入] 小班课导入完成: ${result.className}, 共${result.total}条`);
       setStatus("success");
+      localStorage.setItem(`hw-imported-${taskId}`, '1');
     } catch (err: any) {
       setErrorMsg(err?.message || "导入失败");
       setStatus("error");
@@ -252,11 +256,11 @@ function HwClassImportButton({ taskId, classNumber, attendanceStudents }: {
       className={`w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
         status === "idle" ? "bg-emerald-500 hover:bg-emerald-600 text-white active:bg-emerald-700" :
         status === "loading" ? "bg-emerald-400 text-white/90 cursor-wait" :
-        status === "success" ? "bg-green-500 text-white" :
+        status === "success" ? "bg-gray-400 hover:bg-gray-500 text-white" :
         "bg-red-500 hover:bg-red-600 text-white"
       }`}
       onClick={handleImport}
-      disabled={status === "loading" || status === "success"}
+      disabled={status === "loading"}
     >
       {status === "loading" && <Loader2 className="h-4 w-4 animate-spin" />}
       {status === "success" && <CheckCircle2 className="h-4 w-4" />}
