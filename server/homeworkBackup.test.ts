@@ -10,7 +10,7 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col, val) => ({ _eq: val })),
   desc: vi.fn(),
   sql: vi.fn(),
-  and: vi.fn(),
+  and: vi.fn((...args: any[]) => ({ _and: args })),
   inArray: vi.fn(),
 }));
 vi.mock("./whatai", () => ({ invokeWhatAIStream: vi.fn() }));
@@ -67,15 +67,21 @@ function createMockDb(existingStudents: Array<{ id: number; name: string }> = []
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockImplementation(() => ({
         where: vi.fn().mockImplementation((condition: any) => {
-          // exportStudentBackup: .where(eq(status, "active")).orderBy(...)
-          if (condition?._eq === "active") {
+          // Unwrap and() conditions into flat array of _eq values
+          const eqs: any[] = condition?._and
+            ? condition._and.map((e: any) => e?._eq)
+            : [condition?._eq];
+          // exportStudentBackup: .where(and(eq(userId,x), eq(status, "active"))).orderBy(...)
+          if (eqs.includes("active")) {
             return {
               orderBy: vi.fn().mockResolvedValue(existingStudents),
             };
           }
-          // importStudentBackup: .where(eq(name, x)).limit(1)
-          const matchName = condition?._eq;
-          const found = existingStudents.filter((s) => s.name === matchName);
+          // importStudentBackup: .where(and(eq(userId,x), eq(name, x))).limit(1)
+          const matchName = eqs.find((v: any) => typeof v === "string");
+          const found = matchName !== undefined
+            ? existingStudents.filter((s) => s.name === matchName)
+            : [];
           return {
             limit: vi.fn().mockResolvedValue(found),
           };
@@ -350,14 +356,14 @@ describe("exportStudentBackup - 数据库导出", () => {
 
   it("数据库不可用时抛出异常", async () => {
     (getDb as any).mockResolvedValue(null);
-    await expect(exportStudentBackup()).rejects.toThrow("数据库不可用");
+    await expect(exportStudentBackup(1)).rejects.toThrow("数据库不可用");
   });
 
   it("无活跃学生时返回空备份", async () => {
     const { mockDb } = createMockDb([]);
     (getDb as any).mockResolvedValue(mockDb);
 
-    const result = await exportStudentBackup();
+    const result = await exportStudentBackup(1);
     expect(result.studentCount).toBe(0);
     expect(result.content).toContain("学生总数: 0");
     expect(result.timestamp).toMatch(/^\d{14}$/);
@@ -370,7 +376,7 @@ describe("exportStudentBackup - 数据库导出", () => {
     const { mockDb } = createMockDb(students as any);
     (getDb as any).mockResolvedValue(mockDb);
 
-    const result = await exportStudentBackup();
+    const result = await exportStudentBackup(1);
     expect(result.studentCount).toBe(1);
     expect(result.content).toContain("学生: 张三");
     expect(result.content).toContain("### 计划类型");
@@ -387,7 +393,7 @@ describe("exportStudentBackup - 数据库导出", () => {
     const { mockDb } = createMockDb(students as any);
     (getDb as any).mockResolvedValue(mockDb);
 
-    const result = await exportStudentBackup();
+    const result = await exportStudentBackup(1);
     expect(result.studentCount).toBe(2);
     expect(result.content).toContain("学生: A");
     expect(result.content).toContain("学生: B");
@@ -402,7 +408,7 @@ describe("exportStudentBackup - 数据库导出", () => {
     const { mockDb } = createMockDb(students as any);
     (getDb as any).mockResolvedValue(mockDb);
 
-    const result = await exportStudentBackup();
+    const result = await exportStudentBackup(1);
     expect(result.content).toContain("(无状态记录)");
   });
 
@@ -413,7 +419,7 @@ describe("exportStudentBackup - 数据库导出", () => {
     const { mockDb } = createMockDb(students as any);
     (getDb as any).mockResolvedValue(mockDb);
 
-    const result = await exportStudentBackup();
+    const result = await exportStudentBackup(1);
     expect(result.content).toContain("weekly");
   });
 
@@ -425,7 +431,7 @@ describe("exportStudentBackup - 数据库导出", () => {
     const { mockDb } = createMockDb(students as any);
     (getDb as any).mockResolvedValue(mockDb);
 
-    const { content } = await exportStudentBackup();
+    const { content } = await exportStudentBackup(1);
     const parsed = parseBackupContent(content);
 
     expect(parsed).toHaveLength(2);
@@ -443,19 +449,19 @@ describe("importStudentBackup - 数据库导入", () => {
   it("数据库不可用时抛出异常", async () => {
     (getDb as any).mockResolvedValue(null);
     const content = makeBackup([{ name: "测试" }]);
-    await expect(importStudentBackup(content)).rejects.toThrow("数据库不可用");
+    await expect(importStudentBackup(1, content)).rejects.toThrow("数据库不可用");
   });
 
   it("空备份内容抛出异常", async () => {
     const { mockDb } = createMockDb();
     (getDb as any).mockResolvedValue(mockDb);
-    await expect(importStudentBackup("")).rejects.toThrow("备份文件中未找到学生数据");
+    await expect(importStudentBackup(1, "")).rejects.toThrow("备份文件中未找到学生数据");
   });
 
   it("无学生段的文本抛出异常", async () => {
     const { mockDb } = createMockDb();
     (getDb as any).mockResolvedValue(mockDb);
-    await expect(importStudentBackup("# 标题\n无效内容")).rejects.toThrow("备份文件中未找到学生数据");
+    await expect(importStudentBackup(1, "# 标题\n无效内容")).rejects.toThrow("备份文件中未找到学生数据");
   });
 
   it("全部新建 → created 计数正确", async () => {
@@ -466,18 +472,20 @@ describe("importStudentBackup - 数据库导入", () => {
       { name: "张三", planType: "daily", status: "状态A" },
       { name: "李四", planType: "weekly", status: "状态B" },
     ]);
-    const result = await importStudentBackup(content);
+    const result = await importStudentBackup(1, content);
 
     expect(result.imported).toBe(2);
     expect(result.created).toBe(2);
     expect(result.updated).toBe(0);
     expect(insertValues).toHaveBeenCalledTimes(2);
     expect(insertValues).toHaveBeenCalledWith({
+      userId: 1,
       name: "张三",
       planType: "daily",
       currentStatus: "状态A",
     });
     expect(insertValues).toHaveBeenCalledWith({
+      userId: 1,
       name: "李四",
       planType: "weekly",
       currentStatus: "状态B",
@@ -496,7 +504,7 @@ describe("importStudentBackup - 数据库导入", () => {
       { name: "张三", planType: "daily", status: "新状态A" },
       { name: "李四", planType: "weekly", status: "新状态B" },
     ]);
-    const result = await importStudentBackup(content);
+    const result = await importStudentBackup(1, content);
 
     expect(result.imported).toBe(2);
     expect(result.created).toBe(0);
@@ -518,7 +526,7 @@ describe("importStudentBackup - 数据库导入", () => {
       { name: "张三", planType: "weekly", status: "更新状态" },
       { name: "李四", planType: "daily", status: "新状态" },
     ]);
-    const result = await importStudentBackup(content);
+    const result = await importStudentBackup(1, content);
 
     expect(result.imported).toBe(2);
     expect(result.created).toBe(1);
@@ -532,9 +540,10 @@ describe("importStudentBackup - 数据库导入", () => {
     (getDb as any).mockResolvedValue(mockDb);
 
     const content = makeBackup([{ name: "新生" }]); // 无状态记录
-    await importStudentBackup(content);
+    await importStudentBackup(1, content);
 
     expect(insertValues).toHaveBeenCalledWith({
+      userId: 1,
       name: "新生",
       planType: "weekly",
       currentStatus: null,
@@ -558,7 +567,7 @@ describe("Round-trip - 导出→解析→导入 完整流程", () => {
     (getDb as any).mockResolvedValue(mockDb);
 
     // 导出
-    const { content, studentCount } = await exportStudentBackup();
+    const { content, studentCount } = await exportStudentBackup(1);
     expect(studentCount).toBe(3);
 
     // 解析
@@ -604,7 +613,7 @@ describe("Round-trip - 导出→解析→导入 完整流程", () => {
     const { mockDb } = createMockDb(students as any);
     (getDb as any).mockResolvedValue(mockDb);
 
-    const { content } = await exportStudentBackup();
+    const { content } = await exportStudentBackup(1);
     const parsed = parseBackupContent(content);
 
     expect(parsed).toHaveLength(1);
@@ -625,7 +634,7 @@ describe("Round-trip - 导出→解析→导入 完整流程", () => {
     const { mockDb } = createMockDb(students as any);
     (getDb as any).mockResolvedValue(mockDb);
 
-    const { content, studentCount } = await exportStudentBackup();
+    const { content, studentCount } = await exportStudentBackup(1);
     expect(studentCount).toBe(count);
 
     const parsed = parseBackupContent(content);

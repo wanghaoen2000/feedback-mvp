@@ -618,7 +618,7 @@ export async function importFromTaskExtraction(
   const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
   const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
     .from(bgTasksTable)
-    .where(eq(bgTasksTable.id, taskId))
+    .where(and(eq(bgTasksTable.id, taskId), eq(bgTasksTable.userId, userId)))
     .limit(1);
 
   if (tasks.length === 0) throw new Error("任务不存在");
@@ -657,7 +657,7 @@ export async function importClassFromTaskExtraction(
   const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
   const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
     .from(bgTasksTable)
-    .where(eq(bgTasksTable.id, taskId))
+    .where(and(eq(bgTasksTable.id, taskId), eq(bgTasksTable.userId, userId)))
     .limit(1);
 
   if (tasks.length === 0) throw new Error("任务不存在");

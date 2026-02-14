@@ -2255,7 +2255,7 @@ export const appRouter = router({
             status: "cancelled",
             errorMessage: "用户手动取消",
             completedAt: new Date(),
-          }).where(eq(bgTasksTable.id, input.taskId));
+          }).where(and(eq(bgTasksTable.id, input.taskId), eq(bgTasksTable.userId, ctx.user.id)));
         }
         return { success: true, message: "取消请求已发送" };
       }),
@@ -2501,7 +2501,7 @@ export const appRouter = router({
             status: "stopped",
             errorMessage: "用户手动停止",
             completedAt: new Date(),
-          }).where(eq(batchTasksTable.id, input.batchId));
+          }).where(and(eq(batchTasksTable.id, input.batchId), eq(batchTasksTable.userId, ctx.user.id)));
         }
         return { success: true, message: "停止请求已发送" };
       }),
@@ -2798,9 +2798,9 @@ export const appRouter = router({
 
     // 获取批改类型列表
     getTypes: protectedProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
         const { getCorrectionTypes } = await import("./correctionRunner");
-        return getCorrectionTypes();
+        return getCorrectionTypes(ctx.user.id);
       }),
 
     // 更新批改类型配置
@@ -2817,9 +2817,9 @@ export const appRouter = router({
 
     // 获取通用批改提示词
     getPrompt: protectedProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
         const { getCorrectionPrompt } = await import("./correctionRunner");
-        return { prompt: await getCorrectionPrompt() };
+        return { prompt: await getCorrectionPrompt(ctx.user.id) };
       }),
 
     // 更新通用批改提示词
