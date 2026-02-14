@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 import { COOKIE_NAME, ADMIN_COOKIE_NAME, NOT_ALLOWED_ERR_MSG } from "@shared/const";
 import { z } from "zod";
-import { eq, gte, desc, and } from "drizzle-orm";
+import { eq, gte, desc, and, inArray, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -12,7 +12,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
-import { systemConfig, users, userConfig } from "../drizzle/schema";
+import { systemConfig, users, userConfig, backgroundTasks, hwStudents, hwEntries, batchTasks, batchTaskItems, correctionTasks, gradingTasks, gradingSyncItems } from "../drizzle/schema";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus, readFileFromGoogleDrive, verifyFileExists, searchFileInGoogleDrive } from "./gdrive";
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
 import { 
@@ -46,7 +46,7 @@ import {
   previewFeedbackPrompts,
 } from "./feedbackGenerator";
 import { storeContent } from "./contentStore";
-import { DEFAULT_CONFIG, getConfigValue as getConfig, isEmailAllowed, setUserConfigValue, deleteUserConfigValue, ensureUserConfigTable } from "./core/aiClient";
+import { DEFAULT_CONFIG, getConfigValue as getConfig, setUserConfigValue, deleteUserConfigValue, ensureUserConfigTable } from "./core/aiClient";
 import { addWeekdayToDate } from "./utils";
 import {
   listStudents,
@@ -151,8 +151,9 @@ export const appRouter = router({
         .find((c: string) => c.trim().startsWith(ADMIN_COOKIE_NAME + '='))
         ?.split('=').slice(1).join('=');
       const isImpersonating = !!adminCookie;
-      // 检查白名单：admin 始终允许，伪装模式也始终允许（管理员已授权）
-      const allowed = user.role === 'admin' || isImpersonating || await isEmailAllowed(user.email);
+      // 权限检查：admin 始终允许，伪装模式始终允许，否则检查用户状态（suspended=被暂停）
+      const isSuspended = (user as any).accountStatus === 'suspended';
+      const allowed = user.role === 'admin' || isImpersonating || !isSuspended;
       return { ...user, allowed, isImpersonating };
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -177,6 +178,7 @@ export const appRouter = router({
         email: users.email,
         loginMethod: users.loginMethod,
         role: users.role,
+        accountStatus: users.accountStatus,
         createdAt: users.createdAt,
         lastSignedIn: users.lastSignedIn,
       }).from(users).orderBy(desc(users.lastSignedIn));
@@ -268,7 +270,6 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) throw new Error("数据库不可用");
 
-        // 生成唯一 openId
         const openId = `manual_${crypto.randomUUID()}`;
 
         await db.insert(users).values({
@@ -280,24 +281,8 @@ export const appRouter = router({
           lastSignedIn: new Date(),
         });
 
-        // 查询创建的用户
         const created = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
         if (created.length === 0) throw new Error("创建失败");
-
-        // 自动同步邮箱到白名单（如果有邮箱且白名单已启用）
-        if (input.email) {
-          try {
-            const raw = await getConfig("allowedEmails");
-            if (raw) {
-              const list = JSON.parse(raw) as string[];
-              const emailLower = input.email.toLowerCase().trim();
-              if (list.length > 0 && !list.some(e => e.toLowerCase().trim() === emailLower)) {
-                list.push(input.email.trim());
-                await setConfig("allowedEmails", JSON.stringify(list), "授权用户邮箱白名单（JSON数组）");
-              }
-            }
-          } catch { /* 白名单同步失败不阻塞用户创建 */ }
-        }
 
         return {
           success: true,
@@ -311,19 +296,108 @@ export const appRouter = router({
         };
       }),
 
-    // 删除用户
+    // 编辑用户（改名、改邮箱、改角色）
+    updateUser: adminProcedure
+      .input(z.object({
+        userId: z.number(),
+        name: z.string().min(1, "用户名不能为空").optional(),
+        email: z.string().email("邮箱格式不正确").optional().nullable(),
+        role: z.enum(["user", "admin"]).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+
+        const updateFields: Record<string, any> = {};
+        if (input.name !== undefined) updateFields.name = input.name;
+        if (input.email !== undefined) updateFields.email = input.email;
+        if (input.role !== undefined) {
+          // 不能把自己降级
+          if (input.userId === ctx.user.id && input.role !== 'admin') {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "不能把自己降级为普通用户" });
+          }
+          updateFields.role = input.role;
+        }
+
+        if (Object.keys(updateFields).length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "没有需要更新的字段" });
+        }
+
+        await db.update(users).set(updateFields).where(eq(users.id, input.userId));
+        return { success: true };
+      }),
+
+    // 暂停用户（保留数据，立即禁止使用）
+    suspendUser: adminProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+
+        if (input.userId === ctx.user.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "不能暂停自己" });
+        }
+
+        await db.update(users)
+          .set({ accountStatus: "suspended" })
+          .where(eq(users.id, input.userId));
+        return { success: true };
+      }),
+
+    // 恢复用户
+    activateUser: adminProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+
+        await db.update(users)
+          .set({ accountStatus: "active" })
+          .where(eq(users.id, input.userId));
+        return { success: true };
+      }),
+
+    // 删除用户（彻底删除，清理所有关联数据）
     deleteUser: adminProcedure
       .input(z.object({ userId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("数据库不可用");
 
-        // 不能删除自己
         if (input.userId === ctx.user.id) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "不能删除自己" });
         }
 
-        const result = await db.delete(users).where(eq(users.id, input.userId));
+        const uid = input.userId;
+
+        // 1. 删除打分同步子项（通过 gradingTasks 级联）
+        const userGradingTasks = await db.select({ id: gradingTasks.id }).from(gradingTasks).where(eq(gradingTasks.userId, uid));
+        if (userGradingTasks.length > 0) {
+          const gradingIds = userGradingTasks.map(t => t.id);
+          await db.delete(gradingSyncItems).where(inArray(gradingSyncItems.gradingTaskId, gradingIds));
+        }
+
+        // 2. 删除批量任务子项（通过 batchTasks 级联）
+        const userBatchTasks = await db.select({ id: batchTasks.id }).from(batchTasks).where(eq(batchTasks.userId, uid));
+        if (userBatchTasks.length > 0) {
+          const batchIds = userBatchTasks.map(t => t.id);
+          await db.delete(batchTaskItems).where(inArray(batchTaskItems.batchId, batchIds));
+        }
+
+        // 3. 删除所有直接关联的表数据
+        await Promise.all([
+          db.delete(userConfig).where(eq(userConfig.userId, uid)),
+          db.delete(backgroundTasks).where(eq(backgroundTasks.userId, uid)),
+          db.delete(hwEntries).where(eq(hwEntries.userId, uid)),
+          db.delete(hwStudents).where(eq(hwStudents.userId, uid)),
+          db.delete(batchTasks).where(eq(batchTasks.userId, uid)),
+          db.delete(correctionTasks).where(eq(correctionTasks.userId, uid)),
+          db.delete(gradingTasks).where(eq(gradingTasks.userId, uid)),
+        ]);
+
+        // 4. 最后删除用户本身
+        await db.delete(users).where(eq(users.id, uid));
+
         return { success: true };
       }),
   }),
@@ -339,13 +413,13 @@ export const appRouter = router({
         roadmap, roadmapClass, firstLessonTemplate, classFirstLessonTemplate,
         driveBasePath, classStoragePath, batchFilePrefix, batchStoragePath,
         batchConcurrency, maxTokens, gdriveLocalBasePath, gdriveDownloadsPath,
-        modelPresets, apiProviderPresets, allowedEmails, gradingStoragePath,
+        modelPresets, apiProviderPresets, gradingStoragePath,
       ] = await Promise.all([
         getConfig("apiModel", uid), getConfig("apiKey", uid), getConfig("apiUrl", uid), getConfig("currentYear", uid),
         getConfig("roadmap", uid), getConfig("roadmapClass", uid), getConfig("firstLessonTemplate", uid), getConfig("classFirstLessonTemplate", uid),
         getConfig("driveBasePath", uid), getConfig("classStoragePath", uid), getConfig("batchFilePrefix", uid), getConfig("batchStoragePath", uid),
         getConfig("batchConcurrency", uid), getConfig("maxTokens", uid), getConfig("gdriveLocalBasePath", uid), getConfig("gdriveDownloadsPath", uid),
-        getConfig("modelPresets", uid), getConfig("apiProviderPresets", uid), getConfig("allowedEmails"), getConfig("gradingStoragePath", uid),
+        getConfig("modelPresets", uid), getConfig("apiProviderPresets", uid), getConfig("gradingStoragePath", uid),
       ]);
 
       // 解析供应商预设，遮蔽密钥
@@ -384,8 +458,6 @@ export const appRouter = router({
         gradingStoragePath: gradingStoragePath || "",
         modelPresets: modelPresets || "",
         apiProviderPresets: providerPresetsForClient,
-        // 白名单（JSON 字符串，前端解析为数组）
-        allowedEmails: allowedEmails || "",
         // 返回是否使用默认值（apiKey 特殊处理：表示是否已配置）
         hasApiKey: !!apiKey,
         isDefault: {
@@ -423,7 +495,6 @@ export const appRouter = router({
         modelPresets: z.string().optional(),
         apiProviderPresets: z.string().optional(), // JSON 格式的供应商预设列表
         applyProviderKey: z.string().optional(), // 选中的供应商名称，应用其密钥
-        allowedEmails: z.string().optional(), // JSON 格式的邮箱白名单
       }))
       .mutation(async ({ input }) => {
         const updates: string[] = [];
@@ -586,11 +657,6 @@ export const appRouter = router({
             await setConfig("apiProviderPresets", input.apiProviderPresets, "API供应商预设列表");
           }
           updates.push("apiProviderPresets");
-        }
-
-        if (input.allowedEmails !== undefined) {
-          await setConfig("allowedEmails", input.allowedEmails, "授权用户邮箱白名单（JSON数组）");
-          updates.push("allowedEmails");
         }
 
         // 应用选中供应商的密钥和地址

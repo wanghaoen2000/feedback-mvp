@@ -4,12 +4,11 @@
  */
 import { Request, Response, NextFunction } from "express";
 import { sdk } from "./sdk";
-import { isEmailAllowed } from "../core/aiClient";
 
 /**
- * 认证中间件 - 验证用户是否已登录 + 白名单检查
+ * 认证中间件 - 验证用户是否已登录 + 账户状态检查
  * 如果未登录，返回 401 错误
- * 如果已登录但不在白名单中，返回 403 错误
+ * 如果已登录但账户被暂停，返回 403 错误
  */
 export async function requireAuth(
   req: Request,
@@ -18,20 +17,16 @@ export async function requireAuth(
 ): Promise<void> {
   try {
     const user = await sdk.authenticateRequest(req);
-    // 将用户信息附加到请求对象上，供后续处理使用
     (req as any).user = user;
 
-    // 白名单检查：admin 角色始终放行
-    if (user.role !== 'admin') {
-      const allowed = await isEmailAllowed(user.email);
-      if (!allowed) {
-        res.status(403).json({
-          error: "Forbidden",
-          message: "您的账号未被授权使用此系统，请联系管理员",
-          code: "NOT_ALLOWED",
-        });
-        return;
-      }
+    // 账户状态检查：admin 始终放行，被暂停的用户拒绝
+    if (user.role !== 'admin' && (user as any).accountStatus === 'suspended') {
+      res.status(403).json({
+        error: "Forbidden",
+        message: "您的账号已被暂停，请联系管理员",
+        code: "NOT_ALLOWED",
+      });
+      return;
     }
 
     next();
