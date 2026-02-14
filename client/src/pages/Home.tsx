@@ -12,7 +12,14 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import {
   Loader2,
   CheckCircle2,
@@ -38,6 +45,7 @@ import {
   BookOpen,
   PenLine,
   Eye,
+  LogOut,
 } from "lucide-react";
 import { VERSION_DISPLAY } from "../version.generated";
 import { TaskHistory } from "@/components/TaskHistory";
@@ -349,6 +357,8 @@ async function svgToPngBase64(svgString: string): Promise<string> {
 const MAX_CLASS_STUDENTS = 10; // 班级最多记录10个学生
 
 export default function Home() {
+  const { user: authUser, logout } = useAuth();
+
   // 课程类型：'oneToOne' 或 'class'
   const [courseType, setCourseType] = useState<'oneToOne' | 'class'>('oneToOne');
   
@@ -2992,8 +3002,33 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
-      {/* 右上角：全局设置 + 版本号 */}
-      <div className="fixed top-2 right-2 flex items-center gap-2 z-50">
+      {/* 右上角：用户菜单 + 全局设置 + 版本号 */}
+      <div className="fixed top-2 right-2 flex items-center gap-1 z-50">
+        {authUser && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground">
+                <User className="h-3.5 w-3.5" />
+                <span className="max-w-[80px] truncate hidden sm:inline">{authUser.name || authUser.email || '用户'}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <div className="px-2 py-1.5 text-xs text-muted-foreground border-b mb-1">
+                {authUser.email || authUser.name || '未知用户'}
+              </div>
+              <DropdownMenuItem
+                onClick={async () => {
+                  await logout();
+                  window.location.reload();
+                }}
+                className="cursor-pointer text-destructive focus:text-destructive"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                退出登录
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         <GlobalSettings disabled={isGenerating} />
         <span className="text-xs text-muted-foreground">{VERSION_DISPLAY}</span>
       </div>
