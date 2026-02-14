@@ -90,6 +90,18 @@ export async function ensureHwTables(): Promise<void> {
     await safeDropColumn("hw_students", "next_class_date");
     await safeDropColumn("hw_students", "exam_target");
     await safeDropColumn("hw_students", "exam_date");
+    // 清理孤儿数据：数据隔离改造前的旧记录（userId=0），无人可见，占空间
+    try {
+      const r1 = await db.execute(sql.raw(`DELETE FROM \`hw_students\` WHERE \`user_id\` = 0`));
+      const r2 = await db.execute(sql.raw(`DELETE FROM \`hw_entries\` WHERE \`user_id\` = 0`));
+      const d1 = (r1 as any)?.[0]?.affectedRows ?? 0;
+      const d2 = (r2 as any)?.[0]?.affectedRows ?? 0;
+      if (d1 > 0 || d2 > 0) {
+        console.log(`[学生管理] 已清理孤儿数据: hw_students=${d1}条, hw_entries=${d2}条`);
+      }
+    } catch (e: any) {
+      console.warn("[学生管理] 清理孤儿数据警告:", e?.message);
+    }
     tableEnsured = true;
     console.log("[学生管理] 表已就绪");
     // 恢复卡死的条目：服务器重启后 processing/pending 状态的条目不会继续处理
