@@ -209,10 +209,17 @@ export const gradingTasks = mysqlTable("grading_tasks", {
   studentCount: int("student_count").default(0),
   systemPrompt: mediumtext("system_prompt"),          // 完整系统提示词快照
   result: mediumtext("result"),                       // AI打分结果
+  editedResult: mediumtext("edited_result"),           // 教师编辑后的打分结果
   aiModel: varchar("ai_model", { length: 128 }),
   taskStatus: varchar("task_status", { length: 20 }).notNull().default("pending"), // pending | processing | completed | failed
   errorMessage: text("error_message"),
   streamingChars: int("streaming_chars").default(0),
+  // 同步到学生状态相关字段
+  syncStatus: varchar("sync_status", { length: 20 }),  // null | syncing | completed | failed
+  syncTotal: int("sync_total").default(0),
+  syncCompleted: int("sync_completed").default(0),
+  syncFailed: int("sync_failed").default(0),
+  syncError: text("sync_error"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completed_at"),

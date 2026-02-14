@@ -220,13 +220,28 @@ export function HomeworkManagement() {
   const [expandedGradingId, setExpandedGradingId] = useState<number | null>(null);
   const [gradingCopiedId, setGradingCopiedId] = useState<number | null>(null);
   const [activeGradingId, setActiveGradingId] = useState<number | null>(null);
+  const [editedGradingText, setEditedGradingText] = useState<string>("");
+  const [gradingEditSaved, setGradingEditSaved] = useState(false);
   const submitGradingMut = trpc.homework.submitGrading.useMutation();
+  const updateGradingResultMut = trpc.homework.updateGradingResult.useMutation({
+    onSuccess: () => {
+      setGradingEditSaved(true);
+      setTimeout(() => setGradingEditSaved(false), 2000);
+    },
+  });
+  const syncGradingMut = trpc.homework.syncGradingToStudents.useMutation({
+    onSuccess: () => {
+      // 同步启动成功，开始轮询
+      gradingHistoryQuery.refetch();
+    },
+  });
   const gradingHistoryQuery = trpc.homework.listGradingTasks.useQuery(undefined, {
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return 5000;
       const hasActive = data.some((t: any) => t.taskStatus === "pending" || t.taskStatus === "processing");
-      return hasActive ? 3000 : 10000;
+      const hasSyncing = data.some((t: any) => t.syncStatus === "syncing");
+      return (hasActive || hasSyncing) ? 3000 : 10000;
     },
   });
   const activeGradingQuery = trpc.homework.getGradingTask.useQuery(
@@ -236,10 +251,21 @@ export function HomeworkManagement() {
       refetchInterval: (query) => {
         const data = query.state.data;
         if (!data) return 2000;
+        if (data.syncStatus === "syncing") return 2000;
         return (data.taskStatus === "pending" || data.taskStatus === "processing") ? 2000 : false;
       },
     }
   );
+
+  // 初始化编辑文本：展开时加载已有的编辑结果或原始结果
+  useEffect(() => {
+    if (expandedGradingId !== null && activeGradingQuery.data) {
+      const data = activeGradingQuery.data;
+      const text = data.editedResult || data.result || "";
+      // 仅当编辑文本为空时初始化（避免轮询覆盖用户编辑）
+      setEditedGradingText(prev => prev || text);
+    }
+  }, [expandedGradingId, activeGradingQuery.data?.editedResult, activeGradingQuery.data?.result]);
 
   // 计算星期（硬编码）
   const getDayOfWeek = useCallback((y: number, m: number, d: number): string => {
@@ -939,6 +965,17 @@ export function HomeworkManagement() {
                           {task.taskStatus === "failed" && task.errorMessage && (
                             <span className="text-xs text-red-500 truncate max-w-[200px]" title={task.errorMessage}>{task.errorMessage}</span>
                           )}
+                          {/* 同步状态标签 */}
+                          {task.syncStatus === "syncing" && (
+                            <span className="text-xs text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded flex items-center gap-1">
+                              <Loader2 className="w-3 h-3 animate-spin" />同步中 {task.syncCompleted}/{task.syncTotal}
+                            </span>
+                          )}
+                          {task.syncStatus === "completed" && (
+                            <span className="text-xs text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">
+                              已同步{task.syncCompleted}人{(task.syncFailed || 0) > 0 ? ` (${task.syncFailed}失败)` : ""}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           {task.taskStatus === "completed" && (
@@ -954,6 +991,8 @@ export function HomeworkManagement() {
                                   } else {
                                     setActiveGradingId(task.id);
                                     setExpandedGradingId(task.id);
+                                    // 初始化编辑文本（先置空，等数据加载后填充）
+                                    setEditedGradingText("");
                                   }
                                 }}
                               >
@@ -967,17 +1006,40 @@ export function HomeworkManagement() {
                         </div>
                       </div>
 
-                      {/* 展开查看完整结果 */}
+                      {/* 展开查看/编辑完整结果 */}
                       {expandedGradingId === task.id && activeGradingQuery.data?.result && (
-                        <div className="mt-2 border-t pt-2 space-y-1">
-                          <div className="flex items-center justify-end">
+                        <div className="mt-2 border-t pt-2 space-y-2">
+                          {/* 操作按钮行 */}
+                          <div className="flex items-center justify-between flex-wrap gap-1">
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                onClick={() => {
+                                  updateGradingResultMut.mutate({
+                                    id: task.id,
+                                    editedResult: editedGradingText,
+                                  });
+                                }}
+                                disabled={updateGradingResultMut.isPending}
+                              >
+                                {updateGradingResultMut.isPending ? (
+                                  <><Loader2 className="w-3 h-3 animate-spin mr-1" />保存中</>
+                                ) : gradingEditSaved ? (
+                                  <><Check className="w-3 h-3 mr-1" />已保存</>
+                                ) : (
+                                  <><Save className="w-3 h-3 mr-1" />保存编辑</>
+                                )}
+                              </Button>
+                            </div>
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="h-6 text-xs"
+                              className="h-7 text-xs"
                               onClick={async () => {
                                 try {
-                                  await navigator.clipboard.writeText(activeGradingQuery.data!.result!);
+                                  await navigator.clipboard.writeText(editedGradingText);
                                   setGradingCopiedId(task.id);
                                   setTimeout(() => setGradingCopiedId(null), 2000);
                                 } catch {}
@@ -986,7 +1048,87 @@ export function HomeworkManagement() {
                               {gradingCopiedId === task.id ? <><Check className="w-3 h-3 mr-1" />已复制</> : <><Copy className="w-3 h-3 mr-1" />复制结果</>}
                             </Button>
                           </div>
-                          <pre className="text-sm text-gray-800 whitespace-pre-wrap bg-white p-3 rounded border max-h-96 overflow-y-auto">{activeGradingQuery.data.result}</pre>
+
+                          {/* 可编辑的打分结果 */}
+                          <Textarea
+                            value={editedGradingText}
+                            onChange={(e) => setEditedGradingText(e.target.value)}
+                            className="text-sm text-gray-800 bg-white font-mono resize-none !field-sizing-fixed"
+                            style={{ fieldSizing: 'fixed', minHeight: '200px', maxHeight: '60vh' } as React.CSSProperties}
+                            rows={15}
+                          />
+
+                          {/* 一键同步到学生状态 */}
+                          <div className="border-t pt-2 space-y-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  // 先保存编辑，再启动同步
+                                  const doSync = async () => {
+                                    try {
+                                      await updateGradingResultMut.mutateAsync({
+                                        id: task.id,
+                                        editedResult: editedGradingText,
+                                      });
+                                      syncGradingMut.mutate({ id: task.id });
+                                    } catch {}
+                                  };
+                                  if (confirm("确定将打分结果同步到所有学生的状态管理吗？\n（班级会自动排除，仅同步个人学生）")) {
+                                    doSync();
+                                  }
+                                }}
+                                disabled={syncGradingMut.isPending || activeGradingQuery.data?.syncStatus === "syncing"}
+                                className="bg-purple-500 hover:bg-purple-600 text-white h-8"
+                              >
+                                {(syncGradingMut.isPending || activeGradingQuery.data?.syncStatus === "syncing") ? (
+                                  <><Loader2 className="w-4 h-4 animate-spin mr-1" />同步中...</>
+                                ) : (
+                                  <><Send className="w-4 h-4 mr-1" />一键同步到所有学生</>
+                                )}
+                              </Button>
+                              <span className="text-xs text-gray-400">将评分记录写入每个学生的【作业完成评分记录】</span>
+                            </div>
+
+                            {/* 同步进度 */}
+                            {activeGradingQuery.data?.syncStatus === "syncing" && (
+                              <div className="flex items-center gap-2 text-xs text-purple-600 bg-purple-50 border border-purple-200 rounded px-3 py-2">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                <span>正在同步: {activeGradingQuery.data.syncCompleted || 0}/{activeGradingQuery.data.syncTotal || 0} 个学生</span>
+                                {(activeGradingQuery.data.syncFailed || 0) > 0 && (
+                                  <span className="text-red-500">（{activeGradingQuery.data.syncFailed}个失败）</span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* 同步完成 */}
+                            {activeGradingQuery.data?.syncStatus === "completed" && (
+                              <div className="flex items-center gap-2 text-xs text-green-600 bg-green-50 border border-green-200 rounded px-3 py-2">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>同步完成: {activeGradingQuery.data.syncCompleted || 0}/{activeGradingQuery.data.syncTotal || 0} 个学生已更新</span>
+                                {(activeGradingQuery.data.syncFailed || 0) > 0 && (
+                                  <span className="text-red-500">（{activeGradingQuery.data.syncFailed}个失败）</span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* 同步失败 */}
+                            {activeGradingQuery.data?.syncStatus === "failed" && (
+                              <div className="text-xs text-red-500 bg-red-50 border border-red-200 rounded px-3 py-2">
+                                <div className="flex items-center gap-1">
+                                  <XCircle className="w-3 h-3" />
+                                  <span>同步失败</span>
+                                </div>
+                                {activeGradingQuery.data.syncError && (
+                                  <pre className="mt-1 whitespace-pre-wrap text-red-400">{activeGradingQuery.data.syncError}</pre>
+                                )}
+                              </div>
+                            )}
+
+                            {syncGradingMut.isError && (
+                              <p className="text-xs text-red-500">启动同步失败: {syncGradingMut.error?.message}</p>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>

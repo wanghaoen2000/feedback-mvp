@@ -74,6 +74,8 @@ import {
   submitGrading,
   getGradingTask,
   listGradingTasks,
+  updateGradingEditedResult,
+  syncGradingToStudents,
 } from "./gradingRunner";
 
 // 设置配置值
@@ -2755,6 +2757,24 @@ export const appRouter = router({
     listGradingTasks: protectedProcedure
       .query(async ({ ctx }) => {
         return listGradingTasks(ctx.user.id);
+      }),
+
+    // 保存编辑后的打分结果
+    updateGradingResult: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        editedResult: z.string().min(1),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        await updateGradingEditedResult(ctx.user.id, input.id, input.editedResult);
+        return { success: true };
+      }),
+
+    // 一键同步打分结果到所有学生状态
+    syncGradingToStudents: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        return syncGradingToStudents(ctx.user.id, input.id);
       }),
 
     // 预览发送处理的系统提示词
