@@ -263,7 +263,7 @@ export const appRouter = router({
     createUser: adminProcedure
       .input(z.object({
         name: z.string().min(1, "用户名不能为空"),
-        email: z.string().email("邮箱格式不正确").optional(),
+        email: z.string().email("邮箱格式不正确").min(1, "邮箱不能为空"),
         role: z.enum(["user", "admin"]).default("user"),
       }))
       .mutation(async ({ input }) => {
@@ -271,17 +271,15 @@ export const appRouter = router({
         if (!db) throw new Error("数据库不可用");
 
         // Check email uniqueness before creating
-        if (input.email) {
-          const existing = await db.select({ id: users.id })
-            .from(users)
-            .where(eq(users.email, input.email))
-            .limit(1);
-          if (existing.length > 0) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: `邮箱 ${input.email} 已被其他用户使用`,
-            });
-          }
+        const existing = await db.select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, input.email))
+          .limit(1);
+        if (existing.length > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `邮箱 ${input.email} 已被其他用户使用`,
+          });
         }
 
         const openId = `manual_${crypto.randomUUID()}`;
@@ -289,7 +287,7 @@ export const appRouter = router({
         await db.insert(users).values({
           openId,
           name: input.name,
-          email: input.email || null,
+          email: input.email,
           loginMethod: "manual",
           role: input.role,
           lastSignedIn: new Date(),

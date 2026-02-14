@@ -3794,6 +3794,11 @@ export default function Home() {
                 </div>
                 {feedbackPreviewQuery.isLoading ? (
                   <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />加载中...</div>
+                ) : feedbackPreviewQuery.isError ? (
+                  <div className="text-xs text-red-500 bg-red-50 border border-red-200 rounded p-2">
+                    加载失败：{feedbackPreviewQuery.error?.message || '未知错误'}
+                    <button className="ml-2 underline" onClick={() => feedbackPreviewQuery.refetch()}>重试</button>
+                  </div>
                 ) : feedbackPreviewQuery.data ? (
                   Object.entries(feedbackPreviewQuery.data).map(([step, prompt]) => (
                     <details key={step} className="group">
