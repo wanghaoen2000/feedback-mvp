@@ -413,6 +413,7 @@ export async function syncGradingToStudents(
   if (tasks.length === 0) throw new Error("任务不存在");
   const task = tasks[0];
   if (task.taskStatus !== "completed") throw new Error("打分任务尚未完成");
+  if (task.syncStatus === "syncing") throw new Error("同步正在进行中，请等待完成");
 
   // 使用编辑后的结果，如果没有编辑过则用原始结果
   const gradingResult = task.editedResult || task.result;
@@ -496,9 +497,6 @@ async function processGradingSyncInBackground(
     || await getConfigValue("apiModel", userId)
     || "claude-sonnet-4-5-20250929";
 
-  let completedCount = 0;
-  let failedCount = 0;
-
   // 使用并发池并行处理
   const pool = new ConcurrencyPool(concurrency);
   pool.addTasks(students.map((_, i) => i));
@@ -521,7 +519,6 @@ async function processGradingSyncInBackground(
         const currentStatus = await getStudentLatestStatus(userId, student.name);
         if (!currentStatus) {
           console.warn(`[打分同步] 学生 ${student.name} 没有状态文档，跳过`);
-          completedCount++;
           await db.update(gradingSyncItems)
             .set({ status: "completed", result: null, completedAt: new Date() })
             .where(and(
@@ -529,9 +526,8 @@ async function processGradingSyncInBackground(
               eq(gradingSyncItems.studentId, student.id),
             ))
             .catch(() => {});
-          await db.update(gradingTasks)
-            .set({ syncCompleted: completedCount })
-            .where(eq(gradingTasks.id, taskId))
+          // 原子递增
+          await db.execute(sql`UPDATE grading_tasks SET sync_completed = sync_completed + 1 WHERE id = ${taskId}`)
             .catch(() => {});
           return;
         }
@@ -597,10 +593,11 @@ ${currentStatus}
             eq(gradingSyncItems.studentId, student.id),
           ));
 
-        completedCount++;
-        console.log(`[打分同步] ${student.name} 同步成功 (${completedCount}/${students.length})`);
+        // 原子递增完成数
+        await db.execute(sql`UPDATE grading_tasks SET sync_completed = sync_completed + 1 WHERE id = ${taskId}`)
+          .catch(() => {});
+        console.log(`[打分同步] ${student.name} 同步成功`);
       } catch (err: any) {
-        failedCount++;
         const errMsg = err?.message || "未知错误";
         console.error(`[打分同步] ${student.name} 同步失败:`, errMsg);
 
@@ -615,21 +612,23 @@ ${currentStatus}
             eq(gradingSyncItems.studentId, student.id),
           ))
           .catch(() => {});
-      }
 
-      // 更新进度
-      await db.update(gradingTasks)
-        .set({ syncCompleted: completedCount, syncFailed: failedCount })
-        .where(eq(gradingTasks.id, taskId))
-        .catch(() => {});
+        // 原子递增失败数
+        await db.execute(sql`UPDATE grading_tasks SET sync_failed = sync_failed + 1 WHERE id = ${taskId}`)
+          .catch(() => {});
+      }
     },
   );
 
-  // 最终状态更新
-  const finalStatus = failedCount === 0 ? "completed" : (completedCount === 0 ? "failed" : "completed");
+  // 最终状态：从DB读取准确计数
+  const finalTask = await db.select({ syncCompleted: gradingTasks.syncCompleted, syncFailed: gradingTasks.syncFailed })
+    .from(gradingTasks).where(eq(gradingTasks.id, taskId)).limit(1);
+  const finalCompleted = finalTask[0]?.syncCompleted || 0;
+  const finalFailed = finalTask[0]?.syncFailed || 0;
+
+  const finalStatus = finalFailed === 0 ? "completed" : (finalCompleted === 0 ? "failed" : "completed");
   const errors: string[] = [];
-  if (failedCount > 0) {
-    // 收集失败信息
+  if (finalFailed > 0) {
     const failedItems = await db.select({ studentName: gradingSyncItems.studentName, error: gradingSyncItems.error })
       .from(gradingSyncItems)
       .where(and(eq(gradingSyncItems.gradingTaskId, taskId), eq(gradingSyncItems.status, "failed")));
@@ -641,13 +640,11 @@ ${currentStatus}
   await db.update(gradingTasks)
     .set({
       syncStatus: finalStatus,
-      syncCompleted: completedCount,
-      syncFailed: failedCount,
       syncError: errors.length > 0 ? errors.join("\n") : null,
     })
     .where(eq(gradingTasks.id, taskId));
 
-  console.log(`[打分同步] 任务${taskId}同步完成: 成功${completedCount}, 失败${failedCount}, 共${students.length}个学生`);
+  console.log(`[打分同步] 任务${taskId}同步完成: 成功${finalCompleted}, 失败${finalFailed}, 共${students.length}个学生`);
 }
 
 // ============= 查询同步子任务 =============
@@ -710,6 +707,12 @@ export async function retrySyncItem(userId: number, taskId: number, itemId: numb
     if (items.length === 0) throw new Error("子任务不存在");
     const item = items[0];
 
+    // 防止重试正在运行的任务
+    if (item.status === "running") throw new Error("该学生正在同步中，请等待完成");
+
+    // 记录之前的状态，用于正确调整计数器
+    const previousStatus = item.status; // "completed" | "failed"
+
     // 使用编辑后的结果
     const gradingResult = task.editedResult || task.result;
     if (!gradingResult) throw new Error("没有打分结果");
@@ -727,7 +730,13 @@ export async function retrySyncItem(userId: number, taskId: number, itemId: numb
       || await getConfigValue("apiModel", userId)
       || "claude-sonnet-4-5-20250929";
 
-    // 标记为 running
+    // 标记为 running，先调整计数器（减去旧状态的计数）
+    if (previousStatus === "completed") {
+      await db.execute(sql`UPDATE grading_tasks SET sync_completed = GREATEST(0, sync_completed - 1) WHERE id = ${taskId}`).catch(() => {});
+    } else if (previousStatus === "failed") {
+      await db.execute(sql`UPDATE grading_tasks SET sync_failed = GREATEST(0, sync_failed - 1) WHERE id = ${taskId}`).catch(() => {});
+    }
+
     await db.update(gradingSyncItems)
       .set({ status: "running", chars: 0, error: null, result: null, startedAt: new Date(), completedAt: null })
       .where(eq(gradingSyncItems.id, itemId));
@@ -739,10 +748,9 @@ export async function retrySyncItem(userId: number, taskId: number, itemId: numb
         await db.update(gradingSyncItems)
           .set({ status: "completed", result: null, completedAt: new Date() })
           .where(eq(gradingSyncItems.id, itemId));
-        // 更新计数：从 failed 变为 completed
+        // 更新计数：旧状态计数已在上方扣减，只需增加 completed
         await db.execute(sql`UPDATE grading_tasks SET
-          sync_completed = sync_completed + 1,
-          sync_failed = GREATEST(0, sync_failed - 1)
+          sync_completed = sync_completed + 1
           WHERE id = ${taskId}`);
         return;
       }
@@ -800,10 +808,9 @@ ${currentStatus}
         })
         .where(eq(gradingSyncItems.id, itemId));
 
-      // 更新计数
+      // 更新计数：旧状态计数已在上方扣减，只需增加 completed
       await db.execute(sql`UPDATE grading_tasks SET
-        sync_completed = sync_completed + 1,
-        sync_failed = GREATEST(0, sync_failed - 1)
+        sync_completed = sync_completed + 1
         WHERE id = ${taskId}`);
 
       console.log(`[打分同步] 重试 ${item.studentName} 成功`);
@@ -812,6 +819,10 @@ ${currentStatus}
       await db.update(gradingSyncItems)
         .set({ status: "failed", error: errMsg, completedAt: new Date() })
         .where(eq(gradingSyncItems.id, itemId));
+      // 更新计数：旧状态计数已在上方扣减，只需增加 failed
+      await db.execute(sql`UPDATE grading_tasks SET
+        sync_failed = sync_failed + 1
+        WHERE id = ${taskId}`).catch(() => {});
       console.error(`[打分同步] 重试 ${item.studentName} 失败:`, errMsg);
       throw err;
     }
@@ -839,6 +850,7 @@ export async function importSyncToStudents(userId: number, taskId: number): Prom
   if (tasks.length === 0) throw new Error("任务不存在");
   const task = tasks[0];
   if (task.syncImported === "imported") throw new Error("该任务的同步结果已导入");
+  if (task.syncStatus === "syncing") throw new Error("同步正在进行中，请等待完成后再导入");
 
   // 获取所有成功的同步子任务
   const successItems = await db.select()

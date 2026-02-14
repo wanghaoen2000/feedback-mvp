@@ -12,16 +12,19 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List, Plus, Trash2, Shield } from "lucide-react";
+import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List, Plus, Trash2, Shield, Crown, UserPlus, Eye, ArrowLeftRight } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 interface GlobalSettingsProps {
   disabled?: boolean;
 }
 
 export function GlobalSettings({ disabled }: GlobalSettingsProps) {
+  const { user: authUser } = useAuth();
+  const isAdmin = authUser?.role === 'admin';
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -73,6 +76,19 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
     total: number;
     allPassed: boolean;
   } | null>(null);
+
+  // 管理员功能状态
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserRole, setNewUserRole] = useState<"user" | "admin">("user");
+
+  // 管理员查询
+  const usersQuery = trpc.admin.listUsers.useQuery(undefined, {
+    enabled: open && isAdmin,
+  });
+  const impersonateMut = trpc.admin.impersonateUser.useMutation();
+  const createUserMut = trpc.admin.createUser.useMutation();
+  const deleteUserMut = trpc.admin.deleteUser.useMutation();
 
   // 获取配置
   const configQuery = trpc.config.getAll.useQuery(undefined, {
@@ -245,7 +261,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         </DialogHeader>
 
         <Tabs defaultValue="api" className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
             <TabsTrigger value="api" className="flex items-center gap-1 px-1 text-xs">
               <Key className="h-4 w-4 shrink-0" />
               <span className="hidden sm:inline">API</span>配置
@@ -266,6 +282,12 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
               <Search className="h-4 w-4 shrink-0" />
               自检
             </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="admin" className="flex items-center gap-1 px-1 text-xs">
+                <Crown className="h-4 w-4 shrink-0" />
+                管理
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="api" className="space-y-4 mt-4">
@@ -869,6 +891,180 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
               )}
             </div>
           </TabsContent>
+
+          {/* 管理员面板 */}
+          {isAdmin && (
+            <TabsContent value="admin" className="space-y-4 mt-4">
+              {/* 用户列表 */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">用户管理</Label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => usersQuery.refetch()}
+                    disabled={usersQuery.isRefetching}
+                  >
+                    <RefreshCw className={`h-3 w-3 mr-1 ${usersQuery.isRefetching ? 'animate-spin' : ''}`} />
+                    刷新
+                  </Button>
+                </div>
+
+                {/* 创建用户 */}
+                <div className="border rounded-lg p-3 space-y-2">
+                  <Label className="text-xs text-muted-foreground">创建新用户</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="用户名"
+                      value={newUserName}
+                      onChange={(e) => setNewUserName(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Input
+                      placeholder="邮箱（可选）"
+                      value={newUserEmail}
+                      onChange={(e) => setNewUserEmail(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Select value={newUserRole} onValueChange={(v) => setNewUserRole(v as "user" | "admin")}>
+                      <SelectTrigger className="w-24">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="user">用户</SelectItem>
+                        <SelectItem value="admin">管理员</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      if (!newUserName.trim()) return;
+                      try {
+                        await createUserMut.mutateAsync({
+                          name: newUserName.trim(),
+                          email: newUserEmail.trim() || undefined,
+                          role: newUserRole,
+                        });
+                        setNewUserName("");
+                        setNewUserEmail("");
+                        setNewUserRole("user");
+                        usersQuery.refetch();
+                      } catch (err: any) {
+                        alert("创建失败: " + (err?.message || "未知错误"));
+                      }
+                    }}
+                    disabled={!newUserName.trim() || createUserMut.isPending}
+                  >
+                    {createUserMut.isPending ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <UserPlus className="h-3 w-3 mr-1" />
+                    )}
+                    创建用户
+                  </Button>
+                </div>
+
+                {/* 用户列表表格 */}
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="max-h-[300px] overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/50 sticky top-0">
+                        <tr>
+                          <th className="text-left p-2">ID</th>
+                          <th className="text-left p-2">用户名</th>
+                          <th className="text-left p-2">邮箱</th>
+                          <th className="text-left p-2">角色</th>
+                          <th className="text-left p-2">最后登录</th>
+                          <th className="text-right p-2">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {usersQuery.data?.map((u) => (
+                          <tr key={u.id} className="border-t hover:bg-muted/30">
+                            <td className="p-2 text-muted-foreground">{u.id}</td>
+                            <td className="p-2 font-medium">
+                              {u.name || "-"}
+                              {u.id === authUser?.id && (
+                                <span className="ml-1 text-xs text-blue-500">(你)</span>
+                              )}
+                            </td>
+                            <td className="p-2 text-muted-foreground">{u.email || "-"}</td>
+                            <td className="p-2">
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${
+                                u.role === 'admin' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {u.role === 'admin' ? '管理员' : '用户'}
+                              </span>
+                            </td>
+                            <td className="p-2 text-muted-foreground">
+                              {u.lastSignedIn ? new Date(u.lastSignedIn).toLocaleDateString('zh-CN') : '-'}
+                            </td>
+                            <td className="p-2 text-right">
+                              <div className="flex gap-1 justify-end">
+                                {u.id !== authUser?.id && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-2 text-xs"
+                                      title="以该用户身份查看"
+                                      onClick={async () => {
+                                        if (!confirm(`确定切换到用户 "${u.name}" 的视角？`)) return;
+                                        try {
+                                          await impersonateMut.mutateAsync({ userId: u.id });
+                                          window.location.reload();
+                                        } catch (err: any) {
+                                          alert("切换失败: " + (err?.message || "未知错误"));
+                                        }
+                                      }}
+                                      disabled={impersonateMut.isPending}
+                                    >
+                                      <Eye className="h-3 w-3 mr-0.5" />
+                                      切换
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                                      title="删除用户"
+                                      onClick={async () => {
+                                        if (!confirm(`确定删除用户 "${u.name}"？此操作不可逆。`)) return;
+                                        try {
+                                          await deleteUserMut.mutateAsync({ userId: u.id });
+                                          usersQuery.refetch();
+                                        } catch (err: any) {
+                                          alert("删除失败: " + (err?.message || "未知错误"));
+                                        }
+                                      }}
+                                      disabled={deleteUserMut.isPending}
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {(!usersQuery.data || usersQuery.data.length === 0) && (
+                          <tr>
+                            <td colSpan={6} className="p-4 text-center text-muted-foreground">
+                              {usersQuery.isLoading ? "加载中..." : "暂无用户"}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  手动创建的用户使用 manual 登录方式。切换用户后页面会刷新，以该用户身份查看所有数据。
+                </p>
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
 
         <DialogFooter>

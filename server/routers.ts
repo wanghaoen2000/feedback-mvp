@@ -2,16 +2,17 @@ import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { COOKIE_NAME, NOT_ALLOWED_ERR_MSG } from "@shared/const";
+import { COOKIE_NAME, ADMIN_COOKIE_NAME, NOT_ALLOWED_ERR_MSG } from "@shared/const";
 import { z } from "zod";
 import { eq, gte, desc, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
-import { systemConfig } from "../drizzle/schema";
+import { systemConfig, users } from "../drizzle/schema";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus, readFileFromGoogleDrive, verifyFileExists, searchFileInGoogleDrive } from "./gdrive";
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
 import { 
@@ -147,7 +148,11 @@ export const appRouter = router({
       if (!user) return null;
       // 检查白名单，admin 始终允许
       const allowed = user.role === 'admin' || await isEmailAllowed(user.email);
-      return { ...user, allowed };
+      // 检查是否在伪装模式
+      const adminCookie = opts.ctx.req.cookies?.[ADMIN_COOKIE_NAME] || opts.ctx.req.headers.cookie?.split(';')
+        .find((c: string) => c.trim().startsWith(ADMIN_COOKIE_NAME + '='))
+        ?.split('=').slice(1).join('=');
+      return { ...user, allowed, isImpersonating: !!adminCookie };
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -156,6 +161,155 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
+  }),
+
+  // 管理员功能
+  admin: router({
+    // 列出所有用户
+    listUsers: adminProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) throw new Error("数据库不可用");
+      const allUsers = await db.select({
+        id: users.id,
+        openId: users.openId,
+        name: users.name,
+        email: users.email,
+        loginMethod: users.loginMethod,
+        role: users.role,
+        createdAt: users.createdAt,
+        lastSignedIn: users.lastSignedIn,
+      }).from(users).orderBy(desc(users.lastSignedIn));
+      return allUsers;
+    }),
+
+    // 切换到指定用户（God Mode）
+    impersonateUser: adminProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+
+        // 查找目标用户
+        const target = await db.select().from(users)
+          .where(eq(users.id, input.userId)).limit(1);
+        if (target.length === 0) throw new Error("用户不存在");
+
+        const targetUser = target[0];
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+
+        // 保存管理员原始session到admin cookie
+        const adminCookie = ctx.req.cookies?.[COOKIE_NAME] || ctx.req.headers.cookie?.split(';')
+          .find(c => c.trim().startsWith(COOKIE_NAME + '='))
+          ?.split('=').slice(1).join('=');
+
+        if (adminCookie) {
+          ctx.res.cookie(ADMIN_COOKIE_NAME, adminCookie, {
+            ...cookieOptions,
+            maxAge: 24 * 60 * 60 * 1000, // 24小时
+          });
+        }
+
+        // 创建目标用户的session token
+        const sessionToken = await sdk.createSessionToken(targetUser.openId, {
+          name: targetUser.name || "",
+        });
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: 24 * 60 * 60 * 1000, // 24小时（不是永久的）
+        });
+
+        return {
+          success: true,
+          targetUser: { id: targetUser.id, name: targetUser.name, email: targetUser.email },
+        };
+      }),
+
+    // 退出伪装模式，恢复管理员session
+    stopImpersonating: protectedProcedure.mutation(async ({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+
+      // 读取admin原始session
+      const adminCookie = ctx.req.cookies?.[ADMIN_COOKIE_NAME] || ctx.req.headers.cookie?.split(';')
+        .find(c => c.trim().startsWith(ADMIN_COOKIE_NAME + '='))
+        ?.split('=').slice(1).join('=');
+
+      if (!adminCookie) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "没有管理员session，无法退出伪装模式" });
+      }
+
+      // 恢复管理员session
+      ctx.res.cookie(COOKIE_NAME, adminCookie, {
+        ...cookieOptions,
+        maxAge: 365 * 24 * 60 * 60 * 1000,
+      });
+      // 清除admin cookie
+      ctx.res.clearCookie(ADMIN_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+
+      return { success: true };
+    }),
+
+    // 检查是否在伪装模式
+    checkImpersonation: protectedProcedure.query(({ ctx }) => {
+      const adminCookie = ctx.req.cookies?.[ADMIN_COOKIE_NAME] || ctx.req.headers.cookie?.split(';')
+        .find(c => c.trim().startsWith(ADMIN_COOKIE_NAME + '='))
+        ?.split('=').slice(1).join('=');
+      return { isImpersonating: !!adminCookie };
+    }),
+
+    // 手动创建用户
+    createUser: adminProcedure
+      .input(z.object({
+        name: z.string().min(1, "用户名不能为空"),
+        email: z.string().email("邮箱格式不正确").optional(),
+        role: z.enum(["user", "admin"]).default("user"),
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+
+        // 生成唯一 openId
+        const openId = `manual_${crypto.randomUUID()}`;
+
+        await db.insert(users).values({
+          openId,
+          name: input.name,
+          email: input.email || null,
+          loginMethod: "manual",
+          role: input.role,
+          lastSignedIn: new Date(),
+        });
+
+        // 查询创建的用户
+        const created = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+        if (created.length === 0) throw new Error("创建失败");
+
+        return {
+          success: true,
+          user: {
+            id: created[0].id,
+            name: created[0].name,
+            openId: created[0].openId,
+            email: created[0].email,
+            role: created[0].role,
+          },
+        };
+      }),
+
+    // 删除用户
+    deleteUser: adminProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+
+        // 不能删除自己
+        if (input.userId === ctx.user.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "不能删除自己" });
+        }
+
+        const result = await db.delete(users).where(eq(users.id, input.userId));
+        return { success: true };
+      }),
   }),
 
   // 配置管理
@@ -551,8 +705,8 @@ export const appRouter = router({
       }),
 
     // 获取学生/班级历史记录
-    getStudentHistory: protectedProcedure.query(async () => {
-      const historyJson = await getConfig("studentLessonHistory");
+    getStudentHistory: protectedProcedure.query(async ({ ctx }) => {
+      const historyJson = await getConfig("studentLessonHistory", ctx.user.id);
       if (!historyJson) {
         return {};
       }
@@ -572,8 +726,8 @@ export const appRouter = router({
           students: z.array(z.string()).optional(),
         })),
       }))
-      .mutation(async ({ input }) => {
-        await setConfig("studentLessonHistory", JSON.stringify(input.history));
+      .mutation(async ({ input, ctx }) => {
+        await setUserConfigValue(ctx.user.id, "studentLessonHistory", JSON.stringify(input.history));
         return { success: true };
       }),
   }),
@@ -2697,14 +2851,15 @@ export const appRouter = router({
 
     // 学生管理专用配置（AI模型、提示词）
     getConfig: protectedProcedure
-      .query(async () => {
-        const hwAiModel = await getConfig("hwAiModel");
-        const hwPromptTemplate = await getConfig("hwPromptTemplate");
-        const modelPresets = await getConfig("modelPresets");
-        const gradingPrompt = await getConfig("gradingPrompt");
-        const gradingYear = await getConfig("gradingYear");
-        const gradingSyncPrompt = await getConfig("gradingSyncPrompt");
-        const gradingSyncConcurrency = await getConfig("gradingSyncConcurrency");
+      .query(async ({ ctx }) => {
+        const uid = ctx.user.id;
+        const hwAiModel = await getConfig("hwAiModel", uid);
+        const hwPromptTemplate = await getConfig("hwPromptTemplate", uid);
+        const modelPresets = await getConfig("modelPresets", uid);
+        const gradingPrompt = await getConfig("gradingPrompt", uid);
+        const gradingYear = await getConfig("gradingYear", uid);
+        const gradingSyncPrompt = await getConfig("gradingSyncPrompt", uid);
+        const gradingSyncConcurrency = await getConfig("gradingSyncConcurrency", uid);
         return {
           hwAiModel: hwAiModel || "",
           hwPromptTemplate: hwPromptTemplate || "",
@@ -2725,24 +2880,25 @@ export const appRouter = router({
         gradingSyncPrompt: z.string().optional(),
         gradingSyncConcurrency: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
         if (input.hwAiModel !== undefined) {
-          await setConfig("hwAiModel", input.hwAiModel, "学生管理AI模型");
+          await setUserConfigValue(uid, "hwAiModel", input.hwAiModel);
         }
         if (input.hwPromptTemplate !== undefined) {
-          await setConfig("hwPromptTemplate", input.hwPromptTemplate, "学生管理提示词");
+          await setUserConfigValue(uid, "hwPromptTemplate", input.hwPromptTemplate);
         }
         if (input.gradingPrompt !== undefined) {
-          await setConfig("gradingPrompt", input.gradingPrompt, "打分提示词");
+          await setUserConfigValue(uid, "gradingPrompt", input.gradingPrompt);
         }
         if (input.gradingYear !== undefined) {
-          await setConfig("gradingYear", input.gradingYear, "打分默认年份");
+          await setUserConfigValue(uid, "gradingYear", input.gradingYear);
         }
         if (input.gradingSyncPrompt !== undefined) {
-          await setConfig("gradingSyncPrompt", input.gradingSyncPrompt, "打分同步系统提示词");
+          await setUserConfigValue(uid, "gradingSyncPrompt", input.gradingSyncPrompt);
         }
         if (input.gradingSyncConcurrency !== undefined) {
-          await setConfig("gradingSyncConcurrency", input.gradingSyncConcurrency, "打分同步并发数");
+          await setUserConfigValue(uid, "gradingSyncConcurrency", input.gradingSyncConcurrency);
         }
         return { success: true };
       }),
@@ -2989,9 +3145,10 @@ export const appRouter = router({
 
     // 获取批改配置（AI模型）
     getConfig: protectedProcedure
-      .query(async () => {
-        const corrAiModel = await getConfig("corrAiModel");
-        const modelPresets = await getConfig("modelPresets");
+      .query(async ({ ctx }) => {
+        const uid = ctx.user.id;
+        const corrAiModel = await getConfig("corrAiModel", uid);
+        const modelPresets = await getConfig("modelPresets", uid);
         return {
           corrAiModel: corrAiModel || "",
           modelPresets: modelPresets || "",
@@ -3003,9 +3160,10 @@ export const appRouter = router({
       .input(z.object({
         corrAiModel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
         if (input.corrAiModel !== undefined) {
-          await setConfig("corrAiModel", input.corrAiModel, "作业批改AI模型");
+          await setUserConfigValue(uid, "corrAiModel", input.corrAiModel);
         }
         return { success: true };
       }),
