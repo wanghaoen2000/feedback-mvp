@@ -21,19 +21,19 @@ export async function ensureHwTables(): Promise<void> {
   try {
     await db.execute(sql`CREATE TABLE IF NOT EXISTS \`hw_students\` (
       \`id\` int AUTO_INCREMENT NOT NULL,
+      \`user_id\` int NOT NULL DEFAULT 0,
       \`name\` varchar(64) NOT NULL,
       \`plan_type\` varchar(10) NOT NULL DEFAULT 'weekly',
-      \`next_class_date\` varchar(20),
-      \`exam_target\` varchar(255),
-      \`exam_date\` varchar(20),
       \`status\` varchar(10) NOT NULL DEFAULT 'active',
       \`created_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
       \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (\`id\`),
-      UNIQUE KEY \`hw_students_name_unique\` (\`name\`)
+      UNIQUE KEY \`idx_hw_user_name\` (\`user_id\`, \`name\`),
+      INDEX \`idx_hw_userId\` (\`user_id\`)
     )`);
     await db.execute(sql`CREATE TABLE IF NOT EXISTS \`hw_entries\` (
       \`id\` int AUTO_INCREMENT NOT NULL,
+      \`user_id\` int NOT NULL DEFAULT 0,
       \`student_name\` varchar(64) NOT NULL,
       \`raw_input\` text NOT NULL,
       \`parsed_content\` mediumtext,
@@ -42,7 +42,8 @@ export async function ensureHwTables(): Promise<void> {
       \`error_message\` text,
       \`created_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
       \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (\`id\`)
+      PRIMARY KEY (\`id\`),
+      INDEX \`idx_entry_userId\` (\`user_id\`)
     )`);
     // 安全添加新列（已有表可能没有）
     const safeAddColumn = async (table: string, col: string, def: string) => {
@@ -54,10 +55,41 @@ export async function ensureHwTables(): Promise<void> {
         }
       }
     };
+    // 数据隔离：为已有表添加 user_id 列
+    await safeAddColumn("hw_students", "user_id", "INT NOT NULL DEFAULT 0");
+    await safeAddColumn("hw_entries", "user_id", "INT NOT NULL DEFAULT 0");
+    // 迁移旧 UNIQUE KEY: (name) → (user_id, name)
+    try {
+      await db.execute(sql.raw(`ALTER TABLE \`hw_students\` DROP INDEX \`hw_students_name_unique\``));
+      await db.execute(sql.raw(`ALTER TABLE \`hw_students\` ADD UNIQUE INDEX \`idx_hw_user_name\` (\`user_id\`, \`name\`)`));
+    } catch { /* 索引可能已迁移或不存在 */ }
+    try {
+      await db.execute(sql.raw(`ALTER TABLE \`hw_students\` ADD INDEX \`idx_hw_userId\` (\`user_id\`)`));
+    } catch { /* 索引可能已存在 */ }
+    try {
+      await db.execute(sql.raw(`ALTER TABLE \`hw_entries\` ADD INDEX \`idx_entry_userId\` (\`user_id\`)`));
+    } catch { /* 索引可能已存在 */ }
     await safeAddColumn("hw_students", "current_status", "MEDIUMTEXT");
     await safeAddColumn("hw_entries", "streaming_chars", "INT DEFAULT 0");
     await safeAddColumn("hw_entries", "started_at", "TIMESTAMP NULL");
     await safeAddColumn("hw_entries", "completed_at", "TIMESTAMP NULL");
+    // 清理废弃列（曾定义但从未使用）
+    const safeDropColumn = async (table: string, col: string) => {
+      try {
+        await db.execute(sql.raw(`ALTER TABLE \`${table}\` DROP COLUMN \`${col}\``));
+        console.log(`[学生管理] 已删除废弃列 ${table}.${col}`);
+      } catch (e: any) {
+        // "Can't DROP" = 列不存在，忽略
+        if (!e?.message?.includes("check that column/key exists")) {
+          if (!e?.message?.includes("Can't DROP")) {
+            console.warn(`[学生管理] DROP COLUMN ${table}.${col} 警告:`, e?.message);
+          }
+        }
+      }
+    };
+    await safeDropColumn("hw_students", "next_class_date");
+    await safeDropColumn("hw_students", "exam_target");
+    await safeDropColumn("hw_students", "exam_date");
     tableEnsured = true;
     console.log("[学生管理] 表已就绪");
     // 恢复卡死的条目：服务器重启后 processing/pending 状态的条目不会继续处理
@@ -80,45 +112,40 @@ export async function ensureHwTables(): Promise<void> {
 
 // ============= 学生管理 =============
 
-export async function listStudents(statusFilter?: string) {
+export async function listStudents(userId: number, statusFilter?: string) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) return [];
-  const condition = statusFilter ? eq(hwStudents.status, statusFilter) : undefined;
-  const rows = condition
-    ? await db.select().from(hwStudents).where(condition).orderBy(hwStudents.name)
-    : await db.select().from(hwStudents).orderBy(hwStudents.name);
-  return rows;
+  const condition = statusFilter
+    ? and(eq(hwStudents.userId, userId), eq(hwStudents.status, statusFilter))
+    : eq(hwStudents.userId, userId);
+  return db.select().from(hwStudents).where(condition).orderBy(hwStudents.name);
 }
 
-export async function addStudent(name: string, planType: string = "weekly") {
+export async function addStudent(userId: number, name: string, planType: string = "weekly") {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
-  // 检查是否存在同名的 inactive 学生，有则重新激活
   const existing = await db.select().from(hwStudents)
-    .where(eq(hwStudents.name, name.trim()))
+    .where(and(eq(hwStudents.userId, userId), eq(hwStudents.name, name.trim())))
     .limit(1);
   if (existing.length > 0) {
     if (existing[0].status === "inactive") {
       await db.update(hwStudents)
         .set({ status: "active", planType })
-        .where(eq(hwStudents.id, existing[0].id));
+        .where(and(eq(hwStudents.id, existing[0].id), eq(hwStudents.userId, userId)));
       console.log(`[学生管理] 重新激活学生: ${name}`);
       return { success: true };
     }
     throw new Error(`学生「${name.trim()}」已存在`);
   }
-  await db.insert(hwStudents).values({ name: name.trim(), planType });
+  await db.insert(hwStudents).values({ userId, name: name.trim(), planType });
   return { success: true };
 }
 
-export async function updateStudent(id: number, data: {
+export async function updateStudent(userId: number, id: number, data: {
   name?: string;
   planType?: string;
-  nextClassDate?: string | null;
-  examTarget?: string | null;
-  examDate?: string | null;
   status?: string;
 }) {
   await ensureHwTables();
@@ -127,20 +154,17 @@ export async function updateStudent(id: number, data: {
   const updateObj: Record<string, any> = {};
   if (data.name !== undefined) updateObj.name = data.name.trim();
   if (data.planType !== undefined) updateObj.planType = data.planType;
-  if (data.nextClassDate !== undefined) updateObj.nextClassDate = data.nextClassDate;
-  if (data.examTarget !== undefined) updateObj.examTarget = data.examTarget;
-  if (data.examDate !== undefined) updateObj.examDate = data.examDate;
   if (data.status !== undefined) updateObj.status = data.status;
   if (Object.keys(updateObj).length === 0) return { success: true };
-  await db.update(hwStudents).set(updateObj).where(eq(hwStudents.id, id));
+  await db.update(hwStudents).set(updateObj).where(and(eq(hwStudents.id, id), eq(hwStudents.userId, userId)));
   return { success: true };
 }
 
-export async function removeStudent(id: number) {
+export async function removeStudent(userId: number, id: number) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
-  await db.update(hwStudents).set({ status: "inactive" }).where(eq(hwStudents.id, id));
+  await db.update(hwStudents).set({ status: "inactive" }).where(and(eq(hwStudents.id, id), eq(hwStudents.userId, userId)));
   return { success: true };
 }
 
@@ -174,14 +198,14 @@ function buildSystemContext(studentName: string): string {
 /**
  * 获取学生的最新状态文档（优先取预入库中最新的，否则取正式状态）
  */
-export async function getStudentLatestStatus(studentName: string): Promise<string | null> {
+export async function getStudentLatestStatus(userId: number, studentName: string): Promise<string | null> {
   const db = await getDb();
   if (!db) return null;
 
-  // 先查预入库队列中该学生最新的 pre_staged 条目
   const latestPreStaged = await db.select({ parsedContent: hwEntries.parsedContent })
     .from(hwEntries)
     .where(and(
+      eq(hwEntries.userId, userId),
       eq(hwEntries.studentName, studentName),
       eq(hwEntries.entryStatus, "pre_staged"),
     ))
@@ -192,30 +216,27 @@ export async function getStudentLatestStatus(studentName: string): Promise<strin
     return latestPreStaged[0].parsedContent;
   }
 
-  // 没有预入库的就取正式状态
   const student = await db.select({ currentStatus: hwStudents.currentStatus })
     .from(hwStudents)
-    .where(eq(hwStudents.name, studentName))
+    .where(and(eq(hwStudents.userId, userId), eq(hwStudents.name, studentName)))
     .limit(1);
 
   return student[0]?.currentStatus || null;
 }
 
 export async function processEntry(
+  userId: number,
   studentName: string,
   rawInput: string,
   aiModel?: string,
   onProgress?: (chars: number) => void,
 ): Promise<{ parsedContent: string; model: string }> {
-  // Build API config
-  const apiKey = await getConfigValue("apiKey");
-  const apiUrl = await getConfigValue("apiUrl");
-  const modelToUse = aiModel || await getConfigValue("apiModel") || "claude-sonnet-4-5-20250929";
+  const apiKey = await getConfigValue("apiKey", userId);
+  const apiUrl = await getConfigValue("apiUrl", userId);
+  const modelToUse = aiModel || await getConfigValue("apiModel", userId) || "claude-sonnet-4-5-20250929";
 
-  // 读取用户自定义提示词
-  const hwPromptTemplate = await getConfigValue("hwPromptTemplate");
+  const hwPromptTemplate = await getConfigValue("hwPromptTemplate", userId);
 
-  // 构建系统提示词：时间戳+学生姓名（固定）+ 自定义提示词或默认提示词
   let systemPrompt: string;
   if (hwPromptTemplate && hwPromptTemplate.trim()) {
     systemPrompt = `${buildSystemContext(studentName)}\n\n${hwPromptTemplate.trim()}`;
@@ -223,8 +244,7 @@ export async function processEntry(
     systemPrompt = `${buildSystemContext(studentName)}\n\n${HW_DEFAULT_SYSTEM_PROMPT}`;
   }
 
-  // 获取学生的当前状态文档（用于迭代更新）
-  const existingStatus = await getStudentLatestStatus(studentName);
+  const existingStatus = await getStudentLatestStatus(userId, studentName);
 
   let userPrompt: string;
   if (existingStatus) {
@@ -275,11 +295,12 @@ export async function processEntry(
 
 // ============= 条目管理（预入库队列） =============
 
-export async function createEntry(studentName: string, rawInput: string, aiModel?: string) {
+export async function createEntry(userId: number, studentName: string, rawInput: string, aiModel?: string) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
   const result = await db.insert(hwEntries).values({
+    userId,
     studentName: studentName.trim(),
     rawInput: rawInput.trim(),
     aiModel: aiModel || null,
@@ -294,22 +315,21 @@ export async function createEntry(studentName: string, rawInput: string, aiModel
 }
 
 export async function submitAndProcessEntry(
+  userId: number,
   studentName: string,
   rawInput: string,
   aiModel?: string,
 ): Promise<{ id: number; status: string }> {
-  // Create entry first
-  const { id } = await createEntry(studentName, rawInput, aiModel);
+  const { id } = await createEntry(userId, studentName, rawInput, aiModel);
 
-  // 后台异步处理 — 立即返回，不阻塞用户继续提交其他条目
-  // 前端通过 5 秒轮询 listPendingEntries 获取最新状态
-  processEntryInBackground(id, studentName, rawInput, aiModel);
+  processEntryInBackground(userId, id, studentName, rawInput, aiModel);
 
   return { id, status: "pending" };
 }
 
 /** 后台处理单个条目（不阻塞调用方） */
 async function processEntryInBackground(
+  userId: number,
   id: number,
   studentName: string,
   rawInput: string,
@@ -333,7 +353,7 @@ async function processEntryInBackground(
     };
 
     // Process with AI
-    const { parsedContent, model } = await processEntry(studentName, rawInput, aiModel, onProgress);
+    const { parsedContent, model } = await processEntry(userId, studentName, rawInput, aiModel, onProgress);
 
     // Validate: check for empty fields
     const hasEmptyFields = parsedContent.includes("【】") || /【[^】]+】\s*\n\s*\n/.test(parsedContent);
@@ -368,39 +388,38 @@ async function processEntryInBackground(
   }
 }
 
-export async function listEntries(statusFilter?: string) {
+export async function listEntries(userId: number, statusFilter?: string) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) return [];
   const condition = statusFilter
-    ? eq(hwEntries.entryStatus, statusFilter)
-    : undefined;
-  const rows = condition
-    ? await db.select().from(hwEntries).where(condition).orderBy(desc(hwEntries.createdAt))
-    : await db.select().from(hwEntries).orderBy(desc(hwEntries.createdAt));
-  return rows;
+    ? and(eq(hwEntries.userId, userId), eq(hwEntries.entryStatus, statusFilter))
+    : eq(hwEntries.userId, userId);
+  return db.select().from(hwEntries).where(condition).orderBy(desc(hwEntries.createdAt));
 }
 
-export async function listPendingEntries() {
+export async function listPendingEntries(userId: number) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) return [];
   return db.select().from(hwEntries)
-    .where(
-      inArray(hwEntries.entryStatus, ["pending", "processing", "pre_staged", "failed"])
-    )
+    .where(and(
+      eq(hwEntries.userId, userId),
+      inArray(hwEntries.entryStatus, ["pending", "processing", "pre_staged", "failed"]),
+    ))
     .orderBy(desc(hwEntries.createdAt));
 }
 
 /** 查询某学生的已入库记录（confirmed），支持分页 */
-export async function listStudentEntries(studentName: string, limit: number = 50, offset: number = 0) {
+export async function listStudentEntries(userId: number, studentName: string, limit: number = 50, offset: number = 0) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) return { entries: [], total: 0 };
 
   const condition = and(
+    eq(hwEntries.userId, userId),
     eq(hwEntries.studentName, studentName),
-    eq(hwEntries.entryStatus, "confirmed")
+    eq(hwEntries.entryStatus, "confirmed"),
   );
 
   const [rows, countResult] = await Promise.all([
@@ -416,12 +435,12 @@ export async function listStudentEntries(studentName: string, limit: number = 50
   return { entries: rows, total: Number(countResult[0]?.count ?? 0) };
 }
 
-export async function retryEntry(id: number) {
+export async function retryEntry(userId: number, id: number) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
 
-  const rows = await db.select().from(hwEntries).where(eq(hwEntries.id, id)).limit(1);
+  const rows = await db.select().from(hwEntries).where(and(eq(hwEntries.id, id), eq(hwEntries.userId, userId))).limit(1);
   if (rows.length === 0) throw new Error("条目不存在");
   const entry = rows[0];
   if (entry.entryStatus !== "failed" && entry.entryStatus !== "pre_staged") {
@@ -443,6 +462,7 @@ export async function retryEntry(id: number) {
     };
 
     const { parsedContent, model } = await processEntry(
+      userId,
       entry.studentName,
       entry.rawInput,
       entry.aiModel || undefined,
@@ -470,23 +490,22 @@ export async function retryEntry(id: number) {
   }
 }
 
-export async function deleteEntry(id: number) {
+export async function deleteEntry(userId: number, id: number) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
-  await db.delete(hwEntries).where(eq(hwEntries.id, id));
+  await db.delete(hwEntries).where(and(eq(hwEntries.id, id), eq(hwEntries.userId, userId)));
   return { success: true };
 }
 
-export async function confirmEntries(ids: number[]) {
+export async function confirmEntries(userId: number, ids: number[]) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
   if (ids.length === 0) return { count: 0 };
 
-  // 获取指定的 pre_staged 条目
   const entries = await db.select().from(hwEntries)
-    .where(and(inArray(hwEntries.id, ids), eq(hwEntries.entryStatus, "pre_staged")))
+    .where(and(eq(hwEntries.userId, userId), inArray(hwEntries.id, ids), eq(hwEntries.entryStatus, "pre_staged")))
     .orderBy(desc(hwEntries.createdAt));
 
   if (entries.length === 0) return { count: 0 };
@@ -503,23 +522,21 @@ export async function confirmEntries(ids: number[]) {
   for (const name of studentNames) {
     await db.update(hwStudents)
       .set({ currentStatus: studentLatest.get(name)! })
-      .where(eq(hwStudents.name, name));
+      .where(and(eq(hwStudents.userId, userId), eq(hwStudents.name, name)));
   }
 
-  // 删除这些条目
-  await db.delete(hwEntries).where(inArray(hwEntries.id, ids));
+  await db.delete(hwEntries).where(and(eq(hwEntries.userId, userId), inArray(hwEntries.id, ids)));
 
   return { count: entries.length };
 }
 
-export async function confirmAllPreStaged() {
+export async function confirmAllPreStaged(userId: number) {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
 
-  // 1. 获取所有 pre_staged 条目
   const preStagedEntries = await db.select().from(hwEntries)
-    .where(eq(hwEntries.entryStatus, "pre_staged"))
+    .where(and(eq(hwEntries.userId, userId), eq(hwEntries.entryStatus, "pre_staged")))
     .orderBy(desc(hwEntries.createdAt));
 
   if (preStagedEntries.length === 0) return { success: true, updatedStudents: [] };
@@ -532,18 +549,16 @@ export async function confirmAllPreStaged() {
     }
   }
 
-  // 3. 更新每个学生的 current_status
   const updatedStudents: string[] = Array.from(studentLatest.keys());
   for (const name of updatedStudents) {
     await db.update(hwStudents)
       .set({ currentStatus: studentLatest.get(name)! })
-      .where(eq(hwStudents.name, name));
+      .where(and(eq(hwStudents.userId, userId), eq(hwStudents.name, name)));
     console.log(`[学生管理] 入库: ${name} 的状态已更新`);
   }
 
-  // 4. 删除所有 pre_staged 条目（旧记录不保留）
   const entryIds = preStagedEntries.map(e => e.id);
-  await db.delete(hwEntries).where(inArray(hwEntries.id, entryIds));
+  await db.delete(hwEntries).where(and(eq(hwEntries.userId, userId), inArray(hwEntries.id, entryIds)));
   console.log(`[学生管理] 入库完成: 已删除 ${entryIds.length} 条预入库记录`);
 
   return { success: true, updatedStudents };
@@ -552,6 +567,7 @@ export async function confirmAllPreStaged() {
 // ============= 从课后信息提取一键导入 =============
 
 export async function importFromExtraction(
+  userId: number,
   studentName: string,
   extractionContent: string,
 ): Promise<{ id: number; studentCreated: boolean }> {
@@ -559,13 +575,13 @@ export async function importFromExtraction(
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
 
-  // 自动创建学生（如不存在）或重新激活（如已删除）
   let studentCreated = false;
   const existing = await db.select().from(hwStudents)
-    .where(eq(hwStudents.name, studentName.trim()))
+    .where(and(eq(hwStudents.userId, userId), eq(hwStudents.name, studentName.trim())))
     .limit(1);
   if (existing.length === 0) {
     await db.insert(hwStudents).values({
+      userId,
       name: studentName.trim(),
       planType: "weekly",
       status: "active",
@@ -573,19 +589,16 @@ export async function importFromExtraction(
     studentCreated = true;
     console.log(`[学生管理] 自动创建学生: ${studentName}`);
   } else if (existing[0].status === "inactive") {
-    // 学生曾被删除，重新激活
-    await db.update(hwStudents).set({ status: "active" }).where(eq(hwStudents.id, existing[0].id));
+    await db.update(hwStudents).set({ status: "active" }).where(and(eq(hwStudents.id, existing[0].id), eq(hwStudents.userId, userId)));
     studentCreated = true;
     console.log(`[学生管理] 重新激活学生: ${studentName}`);
   }
 
-  // 创建 pending 条目，走 AI 处理流程（课后信息提取内容格式与学生管理格式不同，需要 AI 转换）
   const rawInput = `[从课后信息提取导入]\n${extractionContent.trim()}`;
-  const { id } = await createEntry(studentName, rawInput);
+  const { id } = await createEntry(userId, studentName, rawInput);
   console.log(`[学生管理] 从课后信息提取导入: ${studentName}, 条目ID: ${id}, 将进行AI处理`);
 
-  // 后台异步 AI 处理（不阻塞返回）
-  processEntryInBackground(id, studentName, rawInput);
+  processEntryInBackground(userId, id, studentName, rawInput);
 
   return { id, studentCreated };
 }
@@ -594,6 +607,7 @@ export async function importFromExtraction(
  * 从后台任务ID获取课后信息提取内容并导入
  */
 export async function importFromTaskExtraction(
+  userId: number,
   taskId: string,
   studentName: string,
 ): Promise<{ id: number; studentCreated: boolean }> {
@@ -604,7 +618,7 @@ export async function importFromTaskExtraction(
   const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
   const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
     .from(bgTasksTable)
-    .where(eq(bgTasksTable.id, taskId))
+    .where(and(eq(bgTasksTable.id, taskId), eq(bgTasksTable.userId, userId)))
     .limit(1);
 
   if (tasks.length === 0) throw new Error("任务不存在");
@@ -619,7 +633,7 @@ export async function importFromTaskExtraction(
   const content = stepResults?.extraction?.content;
   if (!content) throw new Error("课后信息提取内容不可用（可能任务未完成或该步骤失败）");
 
-  return importFromExtraction(studentName, content);
+  return importFromExtraction(userId, studentName, content);
 }
 
 /**
@@ -627,6 +641,7 @@ export async function importFromTaskExtraction(
  * 为班级整体 + 每个出勤学生各创建一条导入记录
  */
 export async function importClassFromTaskExtraction(
+  userId: number,
   taskId: string,
   classNumber: string,
   attendanceStudents: string[],
@@ -642,7 +657,7 @@ export async function importClassFromTaskExtraction(
   const { backgroundTasks: bgTasksTable } = await import("../drizzle/schema");
   const tasks = await db.select({ stepResults: bgTasksTable.stepResults })
     .from(bgTasksTable)
-    .where(eq(bgTasksTable.id, taskId))
+    .where(and(eq(bgTasksTable.id, taskId), eq(bgTasksTable.userId, userId)))
     .limit(1);
 
   if (tasks.length === 0) throw new Error("任务不存在");
@@ -660,17 +675,15 @@ export async function importClassFromTaskExtraction(
   const className = `${classNumber.trim()}班`;
   const results: Array<{ name: string; id: number; studentCreated: boolean }> = [];
 
-  // 1. 导入班级整体记录
-  const classResult = await importFromExtraction(className, content);
+  const classResult = await importFromExtraction(userId, className, content);
   results.push({ name: className, ...classResult });
   console.log(`[学生管理] 小班课导入: 班级 ${className}, 条目ID: ${classResult.id}`);
 
-  // 2. 逐个导入出勤学生（去重 + 容错：单个失败不影响其他）
-  const validStudents = [...new Set(attendanceStudents.map(s => s.trim()).filter(Boolean))];
+  const validStudents = Array.from(new Set(attendanceStudents.map(s => s.trim()).filter(Boolean)));
   let failCount = 0;
   for (const trimmed of validStudents) {
     try {
-      const studentResult = await importFromExtraction(trimmed, content);
+      const studentResult = await importFromExtraction(userId, trimmed, content);
       results.push({ name: trimmed, ...studentResult });
       console.log(`[学生管理] 小班课导入: 学生 ${trimmed}, 条目ID: ${studentResult.id}`);
     } catch (err: any) {
@@ -697,19 +710,21 @@ const FIELD_STATUS = "### 状态记录";
  * 导出所有活跃学生数据为 Markdown 格式
  * 每个学生只存三项：姓名、计划类型、完整状态记录
  */
-export async function exportStudentBackup(): Promise<{ content: string; studentCount: number; timestamp: string }> {
+export async function exportStudentBackup(userId: number): Promise<{ content: string; studentCount: number; timestamp: string }> {
   await ensureHwTables();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
 
   const students = await db.select().from(hwStudents)
-    .where(eq(hwStudents.status, "active"))
+    .where(and(eq(hwStudents.userId, userId), eq(hwStudents.status, "active")))
     .orderBy(hwStudents.name);
 
   const now = new Date();
   const timestamp = now.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })
     .replace(/\//g, "-");
-  const fileTimestamp = now.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  // 文件名时间戳也用北京时间（UTC+8）
+  const bjDate = new Date(now.getTime() + 8 * 3600_000);
+  const fileTimestamp = bjDate.toISOString().replace(/[-:T]/g, "").slice(0, 14);
 
   const lines: string[] = [];
   lines.push("# 学生管理数据备份");
@@ -841,7 +856,7 @@ export function previewBackup(content: string): {
 /**
  * 从备份内容导入（覆盖/创建学生记录）
  */
-export async function importStudentBackup(content: string): Promise<{
+export async function importStudentBackup(userId: number, content: string): Promise<{
   imported: number;
   created: number;
   updated: number;
@@ -858,20 +873,19 @@ export async function importStudentBackup(content: string): Promise<{
 
   for (const s of students) {
     const existing = await db.select().from(hwStudents)
-      .where(eq(hwStudents.name, s.name))
+      .where(and(eq(hwStudents.userId, userId), eq(hwStudents.name, s.name)))
       .limit(1);
 
     if (existing.length > 0) {
-      // 更新已有学生（只覆盖计划类型和状态记录）
       await db.update(hwStudents).set({
         planType: s.planType,
         currentStatus: s.currentStatus || null,
         status: "active",
-      }).where(eq(hwStudents.id, existing[0].id));
+      }).where(and(eq(hwStudents.id, existing[0].id), eq(hwStudents.userId, userId)));
       updated++;
     } else {
-      // 创建新学生
       await db.insert(hwStudents).values({
+        userId,
         name: s.name,
         planType: s.planType,
         currentStatus: s.currentStatus || null,
@@ -887,9 +901,9 @@ export async function importStudentBackup(content: string): Promise<{
 /**
  * 自动备份到 Google Drive（fire-and-forget）
  */
-export async function autoBackupToGDrive(): Promise<void> {
+export async function autoBackupToGDrive(userId: number): Promise<void> {
   try {
-    const { content, studentCount, timestamp } = await exportStudentBackup();
+    const { content, studentCount, timestamp } = await exportStudentBackup(userId);
     if (studentCount === 0) return;
 
     const { getConfigValue: getConfig } = await import("./core/aiClient");

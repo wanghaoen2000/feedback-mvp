@@ -421,6 +421,7 @@ export async function ensureBatchTables(): Promise<void> {
   try {
     await db.execute(sql`CREATE TABLE IF NOT EXISTS \`batch_tasks\` (
       \`id\` varchar(36) NOT NULL,
+      \`user_id\` int NOT NULL DEFAULT 0,
       \`display_name\` varchar(200) NOT NULL,
       \`status\` varchar(20) NOT NULL DEFAULT 'pending',
       \`total_items\` int NOT NULL DEFAULT 0,
@@ -431,8 +432,16 @@ export async function ensureBatchTables(): Promise<void> {
       \`created_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
       \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       \`completed_at\` timestamp NULL,
-      PRIMARY KEY (\`id\`)
+      PRIMARY KEY (\`id\`),
+      INDEX \`idx_batch_userId\` (\`user_id\`)
     )`);
+    // Migration: add user_id column to existing batch_tasks tables
+    try {
+      await db.execute(sql`ALTER TABLE \`batch_tasks\` ADD COLUMN \`user_id\` INT NOT NULL DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE \`batch_tasks\` ADD INDEX \`idx_batch_userId\` (\`user_id\`)`);
+    } catch (_e: any) {
+      // Column/index already exists — safe to ignore
+    }
     await db.execute(sql`CREATE TABLE IF NOT EXISTS \`batch_task_items\` (
       \`id\` int AUTO_INCREMENT PRIMARY KEY,
       \`batch_id\` varchar(36) NOT NULL,

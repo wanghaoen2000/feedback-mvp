@@ -836,7 +836,7 @@ export default function Home() {
     setIsComplete(false);
     setHasError(false);
     setIsStopping(false);
-    setHwImportStatus('idle'); // 重置学生管理导入状态
+    setHwImportStatus('idle'); // 重置学生管理导入状态（新生成流程，taskId 尚未分配）
     setCurrentGeneratingStudent(studentName.trim()); // 设置当前生成的学生名
     setSteps(initialSteps);
     setCurrentStep(1);
@@ -2389,7 +2389,8 @@ export default function Home() {
         });
         transcriptSegmentsRef.current = null; // 提交后清除
         setActiveTaskId(result.taskId);
-        setHwImportStatus('idle'); // 新任务开始，重置导入状态
+        // 新任务：检查 localStorage 是否曾导入过（通常不会，但保持一致）
+        setHwImportStatus(localStorage.getItem(`hw-imported-${result.taskId}`) === '1' ? 'success' : 'idle');
 
         // 保存学生/班级课次到历史（用于下次自动填充课次+1）
         const lessonNum = parseInt((lessonNumber || '').replace(/[^0-9]/g, ''), 10);
@@ -2933,6 +2934,7 @@ export default function Home() {
         });
       }
       setHwImportStatus('success');
+      if (activeTaskId) localStorage.setItem(`hw-imported-${activeTaskId}`, '1');
     } catch (err: any) {
       console.error("[学生管理导入] 失败:", err);
       setHwImportStatus('error');
@@ -3887,10 +3889,10 @@ export default function Home() {
                                     {step.name === '课后信息提取' && activeTaskId && (
                                       <button
                                         onClick={handleHwImport}
-                                        disabled={hwImportStatus === 'loading' || hwImportStatus === 'success'}
+                                        disabled={hwImportStatus === 'loading'}
                                         className={`text-xs flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
                                           hwImportStatus === 'success'
-                                            ? 'text-green-600 bg-green-50'
+                                            ? 'text-gray-500 bg-gray-100 hover:bg-gray-200'
                                             : hwImportStatus === 'error'
                                               ? 'text-red-600 hover:bg-red-50'
                                               : 'text-emerald-600 hover:bg-emerald-50 hover:underline'

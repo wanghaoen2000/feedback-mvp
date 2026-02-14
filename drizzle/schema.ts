@@ -1,4 +1,4 @@
-import { int, mediumtext, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mediumtext, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, index, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -37,6 +37,21 @@ export const systemConfig = mysqlTable("system_config", {
 export type SystemConfig = typeof systemConfig.$inferSelect;
 export type InsertSystemConfig = typeof systemConfig.$inferInsert;
 
+// 用户级配置表（per-user overrides for systemConfig）
+export const userConfig = mysqlTable("user_config", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  key: varchar("key", { length: 64 }).notNull(),
+  value: mediumtext("value").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("idx_user_key").on(table.userId, table.key),
+  index("idx_userId").on(table.userId),
+]);
+
+export type UserConfig = typeof userConfig.$inferSelect;
+export type InsertUserConfig = typeof userConfig.$inferInsert;
+
 // Google Drive OAuth Token表
 export const googleTokens = mysqlTable("google_tokens", {
   id: int("id").autoincrement().primaryKey(),
@@ -53,6 +68,7 @@ export type InsertGoogleToken = typeof googleTokens.$inferInsert;
 // 后台任务表 - 支持服务器端离线生成
 export const backgroundTasks = mysqlTable("background_tasks", {
   id: varchar("id", { length: 36 }).primaryKey(), // UUID
+  userId: int("user_id").notNull(), // 所属用户
   courseType: varchar("course_type", { length: 20 }).notNull(), // 'one-to-one' | 'class'
   displayName: varchar("display_name", { length: 200 }).notNull(), // "孙浩然 第12次" 等
   status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | running | completed | failed | partial
@@ -64,7 +80,9 @@ export const backgroundTasks = mysqlTable("background_tasks", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => [
+  index("idx_background_tasks_user_id").on(table.userId),
+]);
 
 export type BackgroundTask = typeof backgroundTasks.$inferSelect;
 export type InsertBackgroundTask = typeof backgroundTasks.$inferInsert;
@@ -72,16 +90,17 @@ export type InsertBackgroundTask = typeof backgroundTasks.$inferInsert;
 // 学生管理系统 - 学生名册
 export const hwStudents = mysqlTable("hw_students", {
   id: int("id").autoincrement().primaryKey(),
-  name: varchar("name", { length: 64 }).notNull().unique(),
+  userId: int("user_id").notNull(), // 所属用户
+  name: varchar("name", { length: 64 }).notNull(),
   planType: varchar("plan_type", { length: 10 }).notNull().default("weekly"), // 'daily' | 'weekly'
-  nextClassDate: varchar("next_class_date", { length: 20 }),
-  examTarget: varchar("exam_target", { length: 255 }),
-  examDate: varchar("exam_date", { length: 20 }),
   currentStatus: mediumtext("current_status"), // 学生当前正式状态文档（迭代更新）
   status: varchar("status", { length: 10 }).notNull().default("active"), // 'active' | 'inactive'
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [
+  uniqueIndex("idx_hw_user_name").on(table.userId, table.name),
+  index("idx_hw_userId").on(table.userId),
+]);
 
 export type HwStudent = typeof hwStudents.$inferSelect;
 export type InsertHwStudent = typeof hwStudents.$inferInsert;
@@ -89,6 +108,7 @@ export type InsertHwStudent = typeof hwStudents.$inferInsert;
 // 学生管理系统 - 语音输入条目（预入库队列）
 export const hwEntries = mysqlTable("hw_entries", {
   id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(), // 所属用户
   studentName: varchar("student_name", { length: 64 }).notNull(),
   rawInput: text("raw_input").notNull(),
   parsedContent: mediumtext("parsed_content"),
@@ -100,7 +120,9 @@ export const hwEntries = mysqlTable("hw_entries", {
   completedAt: timestamp("completed_at"),                   // AI处理完成时间
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [
+  index("idx_entry_userId").on(table.userId),
+]);
 
 export type HwEntry = typeof hwEntries.$inferSelect;
 export type InsertHwEntry = typeof hwEntries.$inferInsert;
@@ -108,6 +130,7 @@ export type InsertHwEntry = typeof hwEntries.$inferInsert;
 // 批量任务表（服务器端后台执行）
 export const batchTasks = mysqlTable("batch_tasks", {
   id: varchar("id", { length: 36 }).primaryKey(),
+  userId: int("user_id").notNull(), // 所属用户
   displayName: varchar("display_name", { length: 200 }).notNull(),
   status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | running | completed | failed | stopped | cancelled
   totalItems: int("total_items").notNull().default(0),
@@ -118,7 +141,9 @@ export const batchTasks = mysqlTable("batch_tasks", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => [
+  index("idx_batch_userId").on(table.userId),
+]);
 
 export type BatchTask = typeof batchTasks.$inferSelect;
 export type InsertBatchTask = typeof batchTasks.$inferInsert;
@@ -137,7 +162,9 @@ export const batchTaskItems = mysqlTable("batch_task_items", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => [
+  index("idx_batch_id").on(table.batchId),
+]);
 
 export type BatchTaskItem = typeof batchTaskItems.$inferSelect;
 export type InsertBatchTaskItem = typeof batchTaskItems.$inferInsert;
@@ -145,6 +172,7 @@ export type InsertBatchTaskItem = typeof batchTaskItems.$inferInsert;
 // 作业批改任务表
 export const correctionTasks = mysqlTable("correction_tasks", {
   id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(), // 所属用户
   studentName: varchar("student_name", { length: 64 }).notNull(),
   correctionType: varchar("correction_type", { length: 64 }).notNull(),
   rawText: mediumtext("raw_text"),                    // 用户输入的文本内容
@@ -163,7 +191,9 @@ export const correctionTasks = mysqlTable("correction_tasks", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => [
+  index("idx_corr_userId").on(table.userId),
+]);
 
 export type CorrectionTask = typeof correctionTasks.$inferSelect;
 export type InsertCorrectionTask = typeof correctionTasks.$inferInsert;

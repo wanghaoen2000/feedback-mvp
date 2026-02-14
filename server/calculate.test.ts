@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import type { User } from "../drizzle/schema";
 
 // Mock LLM调用
 vi.mock("./_core/llm", () => ({
@@ -19,7 +20,17 @@ vi.mock("./gdrive", () => ({
 
 function createTestContext(): TrpcContext {
   return {
-    user: null,
+    user: {
+      id: 1,
+      openId: "test-open-id",
+      name: "测试用户",
+      email: "admin@test.com",
+      loginMethod: "password",
+      role: "admin",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    } as User,
     req: {
       protocol: "https",
       headers: {},

@@ -411,7 +411,17 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     // 步骤2: 复习文档
     (async () => {
       const t = Date.now();
-      const reviewResult = await generateReviewContent('oneToOne', feedbackInput!, feedbackContent, dateStr, config);
+      let reviewChars = 0;
+      let reviewLastUpdate = 0;
+      const reviewResult = await generateReviewContent('oneToOne', feedbackInput!, feedbackContent, dateStr, config, (chunk) => {
+        reviewChars += chunk.length;
+        const now = Date.now();
+        if (now - reviewLastUpdate >= 1000) {
+          stepResults.review = { ...stepResults.review!, status: "running", chars: reviewChars };
+          updateStepResults(taskId, stepResults, completedSteps).catch(() => {});
+          reviewLastUpdate = now;
+        }
+      });
       if (!reviewResult.buffer || reviewResult.buffer.length === 0) throw new Error("复习文档生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}复习文档.docx`;
@@ -424,7 +434,17 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     // 步骤3: 测试本
     (async () => {
       const t = Date.now();
-      const testResult = await generateTestContent('oneToOne', feedbackInput!, feedbackContent, dateStr, config);
+      let testChars = 0;
+      let testLastUpdate = 0;
+      const testResult = await generateTestContent('oneToOne', feedbackInput!, feedbackContent, dateStr, config, (chunk) => {
+        testChars += chunk.length;
+        const now = Date.now();
+        if (now - testLastUpdate >= 1000) {
+          stepResults.test = { ...stepResults.test!, status: "running", chars: testChars };
+          updateStepResults(taskId, stepResults, completedSteps).catch(() => {});
+          testLastUpdate = now;
+        }
+      });
       if (!testResult.buffer || testResult.buffer.length === 0) throw new Error("测试本生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}测试文档.docx`;
@@ -437,7 +457,17 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     // 步骤4: 课后信息提取
     (async () => {
       const t = Date.now();
-      const extractionContent = await generateExtractionContent('oneToOne', feedbackInput!, feedbackContent, config);
+      let extractChars = 0;
+      let extractLastUpdate = 0;
+      const extractionContent = await generateExtractionContent('oneToOne', feedbackInput!, feedbackContent, config, (chunk) => {
+        extractChars += chunk.length;
+        const now = Date.now();
+        if (now - extractLastUpdate >= 1000) {
+          stepResults.extraction = { ...stepResults.extraction!, status: "running", chars: extractChars };
+          updateStepResults(taskId, stepResults, completedSteps).catch(() => {});
+          extractLastUpdate = now;
+        }
+      });
       if (!extractionContent || !extractionContent.trim()) throw new Error("课后信息提取生成为空");
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}课后信息提取.md`;
@@ -678,7 +708,17 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     // 步骤2: 复习文档
     (async () => {
       const t = Date.now();
-      const reviewResult = await generateClassReviewContent(classInput, feedbackContent, roadmapClass, apiConfig);
+      let reviewChars = 0;
+      let reviewLastUpdate = 0;
+      const reviewResult = await generateClassReviewContent(classInput, feedbackContent, roadmapClass, apiConfig, (chunk) => {
+        reviewChars += chunk.length;
+        const now = Date.now();
+        if (now - reviewLastUpdate >= 1000) {
+          stepResults.review = { ...stepResults.review!, status: "running", chars: reviewChars };
+          updateStepResults(taskId, stepResults, completedSteps).catch(() => {});
+          reviewLastUpdate = now;
+        }
+      });
       if (!reviewResult.buffer || reviewResult.buffer.length === 0) throw new Error("复习文档生成为空");
       const fileName = `${folderName}${params.lessonNumber || ""}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
@@ -690,7 +730,17 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     // 步骤3: 测试本
     (async () => {
       const t = Date.now();
-      const testResult = await generateClassTestContent(classInput, feedbackContent, roadmapClass, apiConfig);
+      let testChars = 0;
+      let testLastUpdate = 0;
+      const testResult = await generateClassTestContent(classInput, feedbackContent, roadmapClass, apiConfig, (chunk) => {
+        testChars += chunk.length;
+        const now = Date.now();
+        if (now - testLastUpdate >= 1000) {
+          stepResults.test = { ...stepResults.test!, status: "running", chars: testChars };
+          updateStepResults(taskId, stepResults, completedSteps).catch(() => {});
+          testLastUpdate = now;
+        }
+      });
       if (!testResult.buffer || testResult.buffer.length === 0) throw new Error("测试本生成为空");
       const fileName = `${folderName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
@@ -702,7 +752,17 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
     // 步骤4: 课后信息提取
     (async () => {
       const t = Date.now();
-      const extractionContent = await generateClassExtractionContent(classInput, feedbackContent, roadmapClass, apiConfig);
+      let extractChars = 0;
+      let extractLastUpdate = 0;
+      const extractionContent = await generateClassExtractionContent(classInput, feedbackContent, roadmapClass, apiConfig, (chunk) => {
+        extractChars += chunk.length;
+        const now = Date.now();
+        if (now - extractLastUpdate >= 1000) {
+          stepResults.extraction = { ...stepResults.extraction!, status: "running", chars: extractChars };
+          updateStepResults(taskId, stepResults, completedSteps).catch(() => {});
+          extractLastUpdate = now;
+        }
+      });
       if (!extractionContent || !extractionContent.trim()) throw new Error("课后信息提取为空");
       const fileName = `${folderName}${params.lessonNumber || ""}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
@@ -893,10 +953,12 @@ async function ensureTable(): Promise<void> {
       \`input_params\` mediumtext NOT NULL,
       \`step_results\` mediumtext,
       \`error_message\` text,
+      \`user_id\` int NOT NULL DEFAULT 0,
       \`created_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
       \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       \`completed_at\` timestamp NULL,
-      PRIMARY KEY (\`id\`)
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_background_tasks_user_id\` (\`user_id\`)
     )`);
     // 兼容旧表：text → mediumtext 升级（防止大文本超过 64KB 限制）
     try {
@@ -906,6 +968,14 @@ async function ensureTable(): Promise<void> {
     } catch (alterErr: any) {
       // ALTER TABLE 失败可能有多种原因，不能盲目忽略
       console.warn("[后台任务] 列类型升级失败(可能已是mediumtext):", alterErr?.message || alterErr);
+    }
+    // 兼容旧表：添加 user_id 列用于数据隔离
+    try {
+      await db.execute(sql`ALTER TABLE \`background_tasks\` ADD COLUMN \`user_id\` INT NOT NULL DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE \`background_tasks\` ADD INDEX \`idx_background_tasks_user_id\` (\`user_id\`)`);
+      console.log("[后台任务] 已添加 user_id 列和索引");
+    } catch (userIdErr: any) {
+      // 列已存在时会报 Duplicate column，安全忽略
     }
     console.log("[后台任务] 表已就绪");
   } catch (err: any) {

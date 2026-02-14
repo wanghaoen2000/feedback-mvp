@@ -5,7 +5,7 @@
 
 import { getDb } from "./db";
 import { correctionTasks } from "../drizzle/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { invokeAIStream, getConfigValue, FileInfo, getAPIConfig } from "./core/aiClient";
 import { getStudentLatestStatus, importFromExtraction } from "./homeworkManager";
 import { getBeijingTimeContext } from "./utils";
@@ -74,6 +74,7 @@ export async function ensureCorrectionTable(): Promise<void> {
   try {
     await db.execute(sql`CREATE TABLE IF NOT EXISTS \`correction_tasks\` (
       \`id\` int AUTO_INCREMENT NOT NULL,
+      \`user_id\` int NOT NULL DEFAULT 0,
       \`student_name\` varchar(64) NOT NULL,
       \`correction_type\` varchar(64) NOT NULL,
       \`raw_text\` mediumtext,
@@ -94,11 +95,9 @@ export async function ensureCorrectionTable(): Promise<void> {
       PRIMARY KEY (\`id\`)
     )`);
     // 安全添加新列
-    try {
-      await db.execute(sql`ALTER TABLE \`correction_tasks\` ADD COLUMN \`streaming_chars\` INT DEFAULT 0`);
-    } catch (e: any) {
-      if (!e?.message?.includes("Duplicate column")) console.warn("[作业批改] ALTER TABLE 警告:", e?.message);
-    }
+    try { await db.execute(sql`ALTER TABLE \`correction_tasks\` ADD COLUMN \`streaming_chars\` INT DEFAULT 0`); } catch (e: any) { if (!e?.message?.includes("Duplicate column")) console.warn("[作业批改] ALTER TABLE 警告:", e?.message); }
+    try { await db.execute(sql`ALTER TABLE \`correction_tasks\` ADD COLUMN \`user_id\` INT NOT NULL DEFAULT 0`); } catch { /* 列可能已存在 */ }
+    try { await db.execute(sql.raw(`ALTER TABLE \`correction_tasks\` ADD INDEX \`idx_corr_userId\` (\`user_id\`)`)); } catch { /* 索引可能已存在 */ }
     tableEnsured = true;
     console.log("[作业批改] 表已就绪");
 
@@ -128,8 +127,8 @@ async function cleanupOldTasks(): Promise<void> {
 
 // ============= 批改类型配置管理 =============
 
-export async function getCorrectionTypes(): Promise<CorrectionType[]> {
-  const stored = await getConfigValue("correctionTypes");
+export async function getCorrectionTypes(userId?: number): Promise<CorrectionType[]> {
+  const stored = await getConfigValue("correctionTypes", userId);
   if (stored) {
     try {
       return JSON.parse(stored);
@@ -140,8 +139,8 @@ export async function getCorrectionTypes(): Promise<CorrectionType[]> {
   return DEFAULT_CORRECTION_TYPES;
 }
 
-export async function getCorrectionPrompt(): Promise<string> {
-  const stored = await getConfigValue("correctionPrompt");
+export async function getCorrectionPrompt(userId?: number): Promise<string> {
+  const stored = await getConfigValue("correctionPrompt", userId);
   return stored || DEFAULT_CORRECTION_PROMPT;
 }
 
@@ -156,13 +155,12 @@ export interface SubmitCorrectionParams {
   aiModel?: string;
 }
 
-export async function submitCorrection(params: SubmitCorrectionParams): Promise<{ id: number }> {
+export async function submitCorrection(userId: number, params: SubmitCorrectionParams): Promise<{ id: number }> {
   await ensureCorrectionTable();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
 
-  // 获取学生当前状态快照
-  const studentStatus = await getStudentLatestStatus(params.studentName);
+  const studentStatus = await getStudentLatestStatus(userId, params.studentName);
 
   // 处理文件：提取文本
   const processedFiles: Array<{ name: string; extractedText: string }> = [];
@@ -174,6 +172,7 @@ export async function submitCorrection(params: SubmitCorrectionParams): Promise<
   }
 
   const result = await db.insert(correctionTasks).values({
+    userId,
     studentName: params.studentName.trim(),
     correctionType: params.correctionType,
     rawText: params.rawText || null,
@@ -187,8 +186,7 @@ export async function submitCorrection(params: SubmitCorrectionParams): Promise<
   const taskId = Number((result as any)[0]?.insertId || (result as any).insertId);
   console.log(`[作业批改] 任务已创建: ID=${taskId}, 学生=${params.studentName}, 类型=${params.correctionType}`);
 
-  // 后台异步处理
-  processCorrectionInBackground(taskId);
+  processCorrectionInBackground(userId, taskId);
 
   return { id: taskId };
 }
@@ -231,7 +229,7 @@ async function extractTextFromFile(name: string, base64Content: string, mimeType
 
 // ============= 后台处理 =============
 
-async function processCorrectionInBackground(taskId: number): Promise<void> {
+async function processCorrectionInBackground(userId: number, taskId: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
 
@@ -248,13 +246,11 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
     if (tasks.length === 0) throw new Error("任务不存在");
     const task = tasks[0];
 
-    // 获取批改类型配置
-    const correctionTypes = await getCorrectionTypes();
+    const correctionTypes = await getCorrectionTypes(userId);
     const typeConfig = correctionTypes.find(t => t.id === task.correctionType);
     if (!typeConfig) throw new Error(`未知的批改类型: ${task.correctionType}`);
 
-    // 构建系统提示词
-    const generalPrompt = await getCorrectionPrompt();
+    const generalPrompt = await getCorrectionPrompt(userId);
     const timeContext = getBeijingTimeContext();
     const systemPrompt = `${timeContext}\n\n学生姓名：${task.studentName}\n批改类型：${typeConfig.name}\n\n${generalPrompt}\n\n【本次批改类型说明】\n${typeConfig.prompt}`;
 
@@ -303,8 +299,7 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
       } catch {}
     }
 
-    // 获取 AI 配置
-    const apiConfig = await getAPIConfig();
+    const apiConfig = await getAPIConfig(userId);
     if (task.aiModel) {
       apiConfig.apiModel = task.aiModel;
     }
@@ -357,6 +352,7 @@ async function processCorrectionInBackground(taskId: number): Promise<void> {
         ? statusUpdate
         : `作业批改完成摘要：\n批改类型：${typeConfig.name}\n批改时间：${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}\n\n${correction.slice(0, 500)}`;
       const importResult = await importFromExtraction(
+        userId,
         task.studentName,
         `[从作业批改导入]\n批改类型：${typeConfig.name}\n${importContent}`,
       );
@@ -418,7 +414,7 @@ function parseAIResult(content: string): { correction: string; statusUpdate: str
 
 // ============= 查询接口 =============
 
-export async function getCorrectionTask(taskId: number) {
+export async function getCorrectionTask(userId: number, taskId: number) {
   await ensureCorrectionTable();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
@@ -436,18 +432,23 @@ export async function getCorrectionTask(taskId: number) {
     createdAt: correctionTasks.createdAt,
     completedAt: correctionTasks.completedAt,
   }).from(correctionTasks)
-    .where(eq(correctionTasks.id, taskId))
+    .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)))
     .limit(1);
 
   return tasks[0] || null;
 }
 
-export async function listCorrectionTasks(studentName?: string, limit: number = 20) {
+export async function listCorrectionTasks(userId: number, studentName?: string, limit: number = 20) {
   await ensureCorrectionTable();
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
 
-  const query = db.select({
+  const baseCondition = eq(correctionTasks.userId, userId);
+  const condition = studentName
+    ? and(baseCondition, eq(correctionTasks.studentName, studentName))
+    : baseCondition;
+
+  return db.select({
     id: correctionTasks.id,
     studentName: correctionTasks.studentName,
     correctionType: correctionTasks.correctionType,
@@ -458,16 +459,8 @@ export async function listCorrectionTasks(studentName?: string, limit: number = 
     errorMessage: correctionTasks.errorMessage,
     createdAt: correctionTasks.createdAt,
     completedAt: correctionTasks.completedAt,
-  }).from(correctionTasks);
-
-  if (studentName) {
-    return query
-      .where(eq(correctionTasks.studentName, studentName))
-      .orderBy(desc(correctionTasks.createdAt))
-      .limit(limit);
-  }
-
-  return query
+  }).from(correctionTasks)
+    .where(condition)
     .orderBy(desc(correctionTasks.createdAt))
     .limit(limit);
 }
