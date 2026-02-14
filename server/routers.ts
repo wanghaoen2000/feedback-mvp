@@ -12,7 +12,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
-import { systemConfig, users } from "../drizzle/schema";
+import { systemConfig, users, userConfig } from "../drizzle/schema";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus, readFileFromGoogleDrive, verifyFileExists, searchFileInGoogleDrive } from "./gdrive";
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
 import { 
@@ -46,7 +46,7 @@ import {
   previewFeedbackPrompts,
 } from "./feedbackGenerator";
 import { storeContent } from "./contentStore";
-import { DEFAULT_CONFIG, getConfigValue as getConfig, isEmailAllowed, setUserConfigValue, deleteUserConfigValue } from "./core/aiClient";
+import { DEFAULT_CONFIG, getConfigValue as getConfig, isEmailAllowed, setUserConfigValue, deleteUserConfigValue, ensureUserConfigTable } from "./core/aiClient";
 import { addWeekdayToDate } from "./utils";
 import {
   listStudents,
@@ -701,6 +701,123 @@ export const appRouter = router({
           success: true,
           reset: input.keys,
           message: `已恢复默认: ${input.keys.join(", ")}`,
+        };
+      }),
+
+    // ===== 一键备份/恢复 =====
+
+    // 导出当前用户的所有配置（一键备份）
+    exportBackup: protectedProcedure.query(async ({ ctx }) => {
+      const uid = ctx.user.id;
+      const db = await getDb();
+      if (!db) throw new Error("数据库不可用");
+      await ensureUserConfigTable();
+
+      // 1. 读取用户级配置
+      const userConfigs = await db.select({
+        key: userConfig.key,
+        value: userConfig.value,
+      }).from(userConfig).where(eq(userConfig.userId, uid));
+
+      const userConfigMap: Record<string, string> = {};
+      for (const c of userConfigs) {
+        userConfigMap[c.key] = c.value;
+      }
+
+      // 2. 读取全局系统配置（作为 fallback，用户可能依赖全局值）
+      const sysConfigs = await db.select({
+        key: systemConfig.key,
+        value: systemConfig.value,
+      }).from(systemConfig);
+
+      const sysConfigMap: Record<string, string> = {};
+      for (const c of sysConfigs) {
+        // 跳过 allowedEmails（全局管理，非用户数据）
+        if (c.key === "allowedEmails") continue;
+        sysConfigMap[c.key] = c.value;
+      }
+
+      // 3. 合并：用户配置优先，不存在的 key 用全局配置填充
+      const mergedConfig: Record<string, string> = { ...sysConfigMap, ...userConfigMap };
+
+      // 4. 安全处理：遮蔽 API Key（只保留后4位）
+      if (mergedConfig.apiKey) {
+        const key = mergedConfig.apiKey;
+        mergedConfig.apiKey = key.length > 4 ? `****${key.slice(-4)}` : "****";
+      }
+      // apiProviderPresets 中的 key 也需要遮蔽
+      if (mergedConfig.apiProviderPresets) {
+        try {
+          const presets = JSON.parse(mergedConfig.apiProviderPresets) as { name: string; apiKey: string; apiUrl: string }[];
+          mergedConfig.apiProviderPresets = JSON.stringify(presets.map(p => ({
+            ...p,
+            apiKey: p.apiKey && p.apiKey.length > 4 ? `****${p.apiKey.slice(-4)}` : "****",
+          })));
+        } catch {}
+      }
+
+      return {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        userId: uid,
+        userName: ctx.user.name,
+        userEmail: ctx.user.email,
+        config: mergedConfig,
+        // 单独标记哪些是用户级覆盖（恢复时只写 userConfig）
+        userOverrideKeys: Object.keys(userConfigMap),
+      };
+    }),
+
+    // 导入配置（一键恢复）
+    importBackup: protectedProcedure
+      .input(z.object({
+        config: z.record(z.string(), z.string()),
+        // 如果为 true，只恢复用户级配置；false 则全部写入用户级
+        onlyUserOverrides: z.boolean().default(false),
+        // 要恢复的 key 列表（如果不指定则恢复所有）
+        keys: z.array(z.string()).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+        await ensureUserConfigTable();
+
+        // 安全过滤：不允许恢复的 key
+        const blockedKeys = new Set(["allowedEmails"]);
+        // API Key 如果是被遮蔽的就跳过
+        const isMasked = (value: string) => value.startsWith("****");
+
+        const keysToRestore = input.keys || Object.keys(input.config);
+        let restored = 0;
+        let skipped = 0;
+        const restoredKeys: string[] = [];
+
+        for (const key of keysToRestore) {
+          if (blockedKeys.has(key)) { skipped++; continue; }
+          const value = input.config[key];
+          if (value === undefined || value === null) { skipped++; continue; }
+          // 跳过被遮蔽的敏感字段
+          if (key === "apiKey" && isMasked(value)) { skipped++; continue; }
+          if (key === "apiProviderPresets") {
+            try {
+              const presets = JSON.parse(value) as { apiKey?: string }[];
+              const allMasked = presets.every(p => !p.apiKey || isMasked(p.apiKey));
+              if (allMasked) { skipped++; continue; }
+            } catch {}
+          }
+
+          await setUserConfigValue(uid, key, value);
+          restored++;
+          restoredKeys.push(key);
+        }
+
+        return {
+          success: true,
+          restored,
+          skipped,
+          restoredKeys,
+          message: `已恢复 ${restored} 项配置，跳过 ${skipped} 项`,
         };
       }),
 

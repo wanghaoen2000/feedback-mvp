@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List, Plus, Trash2, Shield, Crown, UserPlus, Eye, ArrowLeftRight } from "lucide-react";
+import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List, Plus, Trash2, Shield, Crown, UserPlus, Eye, ArrowLeftRight, Download, Upload } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
@@ -76,6 +76,12 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
     total: number;
     allPassed: boolean;
   } | null>(null);
+
+  // 备份/恢复状态
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const exportBackupQuery = trpc.config.exportBackup.useQuery(undefined, { enabled: false });
+  const importBackupMut = trpc.config.importBackup.useMutation();
 
   // 管理员功能状态
   const [newUserName, setNewUserName] = useState("");
@@ -1067,7 +1073,91 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
           )}
         </Tabs>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          <div className="flex gap-2 mr-auto">
+            {/* 一键备份 */}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isExporting}
+              onClick={async () => {
+                setIsExporting(true);
+                try {
+                  const result = await exportBackupQuery.refetch();
+                  if (result.data) {
+                    const json = JSON.stringify(result.data, null, 2);
+                    const blob = new Blob([json], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    const date = new Date().toISOString().slice(0, 10);
+                    a.download = `config-backup-${date}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }
+                } catch (err: any) {
+                  alert("导出失败: " + (err?.message || "未知错误"));
+                } finally {
+                  setIsExporting(false);
+                }
+              }}
+            >
+              {isExporting ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="mr-1 h-3.5 w-3.5" />
+              )}
+              一键备份
+            </Button>
+
+            {/* 一键恢复 */}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isImporting}
+              onClick={() => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = ".json";
+                input.onchange = async (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (!file) return;
+                  setIsImporting(true);
+                  try {
+                    const text = await file.text();
+                    const backup = JSON.parse(text);
+                    if (!backup.config || backup.version !== 1) {
+                      alert("无效的备份文件格式");
+                      return;
+                    }
+                    const keyCount = Object.keys(backup.config).length;
+                    if (!confirm(`确认从备份恢复 ${keyCount} 项配置？\n\n来源: ${backup.userName || '未知'} (${backup.exportedAt || '未知时间'})\n\n注意: API密钥等敏感信息会被跳过，需要手动重新配置。`)) {
+                      return;
+                    }
+                    const result = await importBackupMut.mutateAsync({
+                      config: backup.config,
+                    });
+                    alert(`恢复完成！\n已恢复: ${result.restored} 项\n跳过: ${result.skipped} 项`);
+                    // 刷新配置
+                    configQuery.refetch();
+                  } catch (err: any) {
+                    alert("恢复失败: " + (err?.message || "JSON格式错误"));
+                  } finally {
+                    setIsImporting(false);
+                  }
+                };
+                input.click();
+              }}
+            >
+              {isImporting ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="mr-1 h-3.5 w-3.5" />
+              )}
+              一键恢复
+            </Button>
+          </div>
+
           <Button onClick={handleSave} disabled={saving}>
             {saving ? (
               <>
