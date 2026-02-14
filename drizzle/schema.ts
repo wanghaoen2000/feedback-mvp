@@ -81,7 +81,7 @@ export const backgroundTasks = mysqlTable("background_tasks", {
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completed_at"),
 }, (table) => [
-  index("idx_bg_userId").on(table.userId),
+  index("idx_background_tasks_user_id").on(table.userId),
 ]);
 
 export type BackgroundTask = typeof backgroundTasks.$inferSelect;
@@ -162,7 +162,9 @@ export const batchTaskItems = mysqlTable("batch_task_items", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => [
+  index("idx_batch_id").on(table.batchId),
+]);
 
 export type BatchTaskItem = typeof batchTaskItems.$inferSelect;
 export type InsertBatchTaskItem = typeof batchTaskItems.$inferInsert;

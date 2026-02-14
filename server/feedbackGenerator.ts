@@ -676,7 +676,7 @@ function getAllFontCandidates(): string[] {
     '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
   ];
   // 去重
-  return [...new Set(paths)];
+  return Array.from(new Set(paths));
 }
 
 function getAllFontDirs(): string[] {
@@ -689,7 +689,7 @@ function getAllFontDirs(): string[] {
     '/usr/share/fonts/opentype/noto',  // Noto CJK 在 opentype 目录
     '/usr/local/share/fonts',
   ];
-  return [...new Set(dirs)];
+  return Array.from(new Set(dirs));
 }
 
 // 全面诊断：收集环境信息（首次调用时运行）

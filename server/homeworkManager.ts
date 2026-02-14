@@ -679,7 +679,7 @@ export async function importClassFromTaskExtraction(
   results.push({ name: className, ...classResult });
   console.log(`[学生管理] 小班课导入: 班级 ${className}, 条目ID: ${classResult.id}`);
 
-  const validStudents = [...new Set(attendanceStudents.map(s => s.trim()).filter(Boolean))];
+  const validStudents = Array.from(new Set(attendanceStudents.map(s => s.trim()).filter(Boolean)));
   let failCount = 0;
   for (const trimmed of validStudents) {
     try {

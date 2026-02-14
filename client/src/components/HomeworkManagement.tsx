@@ -790,7 +790,7 @@ export function HomeworkManagement() {
                     {(entry.entryStatus === "pending" || entry.entryStatus === "processing") ? (
                       // 处理中：实时进度
                       <>
-                        {entry.streamingChars > 0 ? (
+                        {(entry.streamingChars ?? 0) > 0 ? (
                           <span className="text-xs text-blue-500 tabular-nums">已接收{entry.streamingChars}字</span>
                         ) : entry.entryStatus === "processing" ? (
                           <span className="text-xs text-blue-400">等待AI响应...</span>
@@ -813,7 +813,7 @@ export function HomeworkManagement() {
                             {formatDuration(Math.round((new Date(entry.completedAt).getTime() - new Date(entry.startedAt).getTime()) / 1000))}
                           </span>
                         )}
-                        {entry.streamingChars > 0 && (
+                        {(entry.streamingChars ?? 0) > 0 && (
                           <span className="text-xs text-gray-400">{entry.streamingChars}字</span>
                         )}
                       </>

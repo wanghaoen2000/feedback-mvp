@@ -4,7 +4,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('./db', () => ({
   getDb: vi.fn(() => Promise.resolve({
     select: vi.fn(() => ({
-      from: vi.fn(() => Promise.resolve([]))
+      from: vi.fn(() => ({
+        limit: vi.fn(() => Promise.resolve([]))
+      }))
     })),
     insert: vi.fn(() => ({
       values: vi.fn(() => Promise.resolve())
@@ -29,8 +31,8 @@ describe('googleAuth', () => {
   });
 
   describe('getAuthUrl', () => {
-    it('should generate a valid Google OAuth URL', async () => {
-      const url = await getAuthUrl();
+    it('should generate a valid Google OAuth URL', () => {
+      const url = getAuthUrl();
       expect(url).toContain('https://accounts.google.com/o/oauth2/v2/auth');
       expect(url).toContain('scope=');
       expect(url).toContain('redirect_uri=');
@@ -38,9 +40,10 @@ describe('googleAuth', () => {
       expect(url).toContain('access_type=offline');
     });
 
-    it('should include drive.file scope', async () => {
-      const url = await getAuthUrl();
-      expect(url).toContain('drive.file');
+    it('should include drive scope', () => {
+      const url = getAuthUrl();
+      // 源码使用 https://www.googleapis.com/auth/drive 完整权限
+      expect(url).toContain('drive');
     });
   });
 

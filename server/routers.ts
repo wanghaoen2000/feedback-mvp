@@ -2810,8 +2810,8 @@ export const appRouter = router({
         name: z.string().min(1),
         prompt: z.string(),
       })))
-      .mutation(async ({ input }) => {
-        await setConfig("correctionTypes", JSON.stringify(input), "作业批改类型配置");
+      .mutation(async ({ input, ctx }) => {
+        await setUserConfigValue(ctx.user.id, "correctionTypes", JSON.stringify(input));
         return { success: true };
       }),
 
@@ -2825,8 +2825,8 @@ export const appRouter = router({
     // 更新通用批改提示词
     updatePrompt: protectedProcedure
       .input(z.object({ prompt: z.string() }))
-      .mutation(async ({ input }) => {
-        await setConfig("correctionPrompt", input.prompt, "作业批改通用提示词");
+      .mutation(async ({ input, ctx }) => {
+        await setUserConfigValue(ctx.user.id, "correctionPrompt", input.prompt);
         return { success: true };
       }),
 
