@@ -17,6 +17,7 @@ import {
   File,
   Image,
   Trash2,
+  Eye,
 } from "lucide-react";
 import { BatchTaskHistory } from "./BatchTaskHistory";
 
@@ -67,6 +68,7 @@ export function BatchProcess() {
 
   // 路书内容
   const [roadmap, setRoadmap] = useState("");
+  const [showPromptPreview, setShowPromptPreview] = useState(false);
 
   // 独立文件上传（每个任务对应不同文件）
   const [uploadedFiles, setUploadedFiles] = useState<Map<number, UploadedFile>>(new Map());
@@ -531,7 +533,7 @@ export function BatchProcess() {
             <div className="border rounded-lg p-4 space-y-3 bg-purple-50/30">
               <Label className="flex items-center gap-2 text-purple-700">
                 <FolderOpen className="w-4 h-4" />
-                共享文件（发送给所有任务）
+                公用文档（所有任务都能看到的参考资料）
               </Label>
               <p className="text-xs text-gray-500">最多支持 100 个文件，单个文件最大 20MB</p>
 
@@ -607,7 +609,7 @@ export function BatchProcess() {
             <div className="border rounded-lg p-4 space-y-3 bg-blue-50/30">
               <Label className="flex items-center gap-2 text-blue-700">
                 <FolderOpen className="w-4 h-4" />
-                独立文件（每个任务对应不同文件，按文件名排序）
+                每个任务单独的文档（按文件名排序，一个文件对应一个任务）
               </Label>
               <p className="text-xs text-gray-500">最多支持 100 个文件，单个文件最大 20MB</p>
 
@@ -741,25 +743,67 @@ export function BatchProcess() {
           )}
 
           {/* 按钮区域 */}
-          <div className="flex justify-center pt-4">
-            <Button
-              onClick={handleSubmit}
-              size="lg"
-              className="px-8"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  正在提交...
-                </>
-              ) : (
-                <>
-                  <Play className="w-5 h-5 mr-2" />
-                  开始批量生成
-                </>
-              )}
-            </Button>
+          <div className="flex flex-col items-center gap-2 pt-4">
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={handleSubmit}
+                size="lg"
+                className="px-8"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    正在提交...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-5 h-5 mr-2" />
+                    开始批量生成
+                  </>
+                )}
+              </Button>
+              <button
+                type="button"
+                onClick={() => setShowPromptPreview(!showPromptPreview)}
+                className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
+              >
+                <Eye className="w-3 h-3" />
+                看看发给AI什么
+              </button>
+            </div>
+            {showPromptPreview && (
+              <div className="w-full border rounded bg-gray-50 p-3 space-y-3 text-left">
+                <div className="text-xs text-gray-600 space-y-1 bg-amber-50 border border-amber-200 rounded p-2">
+                  <div className="font-medium text-amber-800">发送给AI的数据结构（每个任务都会收到）：</div>
+                  <div>1. <b>系统提示词</b>：路书内容 + 输出格式要求（所有任务共用同一份）</div>
+                  <div>2. <b>用户消息</b>：任务编号{sharedFiles.length > 0 ? ' + 公用文档的文字' : ''}{uploadedFiles.size > 0 ? ' + 该任务对应的单独文档文字' : ''}</div>
+                  <div className="text-gray-500 mt-1">
+                    <b>系统提示词</b>就是给AI的"工作说明书"，每个任务都先看到同样的路书。
+                    <b>用户消息</b>就是每个具体任务的内容，不同任务的编号和文档可能不同。
+                  </div>
+                </div>
+                <details>
+                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看完整的系统提示词（所有任务共用）</summary>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-60 overflow-y-auto mt-1">{
+                    `<路书提示词>\n${roadmap.trim() || '(未填写路书)'}\n</路书提示词>\n${
+                      templateType === 'word_card' ? '【输出格式要求 - 词汇卡片】\n(JSON结构: listNumber, sceneName, words[...])\n' :
+                      templateType === 'writing_material' ? '【输出格式要求 - 写作素材】\n(JSON结构: partNum, categories[...])\n' : ''
+                    }【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`
+                  }</pre>
+                </details>
+                <details>
+                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看用户消息（以第1个任务为例）</summary>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-40 overflow-y-auto mt-1">{
+                    `这是任务编号 ${startNumber || 1}，请按照路书要求生成内容。${
+                      sharedFiles.length > 0 ? `\n\n<公用文档>\n(${sharedFiles.length}个公用文档的提取文本，提交后才会提取)\n</公用文档>` : ''
+                    }${
+                      uploadedFiles.size > 0 ? `\n\n<本任务文档>\n(该任务对应的单独文档文本，提交后才会提取)\n</本任务文档>` : ''
+                    }`
+                  }</pre>
+                </details>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

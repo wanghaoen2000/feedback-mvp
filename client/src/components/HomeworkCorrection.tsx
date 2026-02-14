@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ChevronUp,
   UserPlus,
+  Eye,
 } from "lucide-react";
 
 // ============= 类型定义 =============
@@ -132,6 +133,13 @@ export function HomeworkCorrection() {
   const expandedTaskQuery = trpc.correction.getTask.useQuery(
     { id: expandedTaskId! },
     { enabled: expandedTaskId !== null },
+  );
+
+  // 提示词预览
+  const [showCorrPreview, setShowCorrPreview] = useState(false);
+  const corrPreviewQuery = trpc.correction.previewPrompt.useQuery(
+    { studentName: selectedStudent, correctionType: selectedType },
+    { enabled: !!selectedStudent && !!selectedType && showCorrPreview },
   );
 
   const submitMut = trpc.correction.submit.useMutation({
@@ -535,26 +543,78 @@ export function HomeworkCorrection() {
               支持拖拽/粘贴图片、Word、PDF、TXT
             </span>
           </div>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting || !selectedStudent || !selectedType}
-            size="sm"
-            className="bg-purple-600 hover:bg-purple-700"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                提交中...
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4 mr-1" />
-                提交批改
-              </>
+          <div className="flex items-center gap-2">
+            {selectedStudent && selectedType && (
+              <button
+                type="button"
+                onClick={() => setShowCorrPreview(!showCorrPreview)}
+                className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
+              >
+                <Eye className="w-3 h-3" />
+                看看发给AI什么
+              </button>
             )}
-          </Button>
+            <Button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isSubmitting || !selectedStudent || !selectedType}
+              size="sm"
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  提交中...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-1" />
+                  提交批改
+                </>
+              )}
+            </Button>
+          </div>
         </div>
+        {showCorrPreview && selectedStudent && selectedType && (
+          <div className="border rounded bg-gray-50 p-3 space-y-3 mt-2">
+            {corrPreviewQuery.isLoading ? (
+              <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />加载中...</div>
+            ) : corrPreviewQuery.data ? (
+              <>
+                <div className="text-xs text-gray-600 space-y-1 bg-amber-50 border border-amber-200 rounded p-2">
+                  <div className="font-medium text-amber-800">发送给AI的数据结构：</div>
+                  <div>1. <b>系统提示词</b>：当前时间 + 学生姓名 + 批改类型 + 批改规则</div>
+                  <div>2. <b>用户消息</b>：{[
+                    corrPreviewQuery.data.studentStatus ? '学生状态信息' : null,
+                    textContent.trim() ? '你输入的文字' : null,
+                    files.length > 0 ? `${files.length}个文件的提取文字` : null,
+                    images.length > 0 ? `${images.length}张图片` : null,
+                  ].filter(Boolean).join(' + ') || '(还没有输入内容)'}</div>
+                  <div className="text-gray-500 mt-1">
+                    <b>系统提示词</b>就是给AI的"工作说明书"，包含批改规则和格式要求。
+                    <b>用户消息</b>就是你提交的作业内容，AI看完"说明书"后再处理这些内容。
+                  </div>
+                </div>
+                <details>
+                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看完整的系统提示词</summary>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-60 overflow-y-auto mt-1">{corrPreviewQuery.data.systemPrompt}</pre>
+                </details>
+                <details open={!!textContent.trim() || images.length > 0 || files.length > 0}>
+                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看完整的用户消息</summary>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-60 overflow-y-auto mt-1">{
+                    [
+                      corrPreviewQuery.data.studentStatus ? `【学生当前状态信息】\n${corrPreviewQuery.data.studentStatus}` : null,
+                      textContent.trim() ? `【作业内容】\n${textContent.trim()}` : null,
+                      ...files.map(f => `【文件: ${f.name}】\n(提交后会提取文件中的文字)`),
+                      images.length > 0 ? `【图片】\n共 ${images.length} 张图片，AI会直接看到图片内容` : null,
+                      (!textContent.trim() && files.length === 0 && images.length === 0) ? '(还没有输入任何内容)' : null,
+                    ].filter(Boolean).join('\n\n')
+                  }</pre>
+                </details>
+              </>
+            ) : null}
+          </div>
+        )}
 
         <input
           ref={imageInputRef}

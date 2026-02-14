@@ -2,16 +2,17 @@ import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { COOKIE_NAME, NOT_ALLOWED_ERR_MSG } from "@shared/const";
+import { COOKIE_NAME, ADMIN_COOKIE_NAME, NOT_ALLOWED_ERR_MSG } from "@shared/const";
 import { z } from "zod";
 import { eq, gte, desc, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
-import { systemConfig } from "../drizzle/schema";
+import { systemConfig, users, userConfig } from "../drizzle/schema";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus, readFileFromGoogleDrive, verifyFileExists, searchFileInGoogleDrive } from "./gdrive";
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
 import { 
@@ -42,9 +43,10 @@ import {
   generateClassTestContent,
   generateClassExtractionContent,
   generateClassBubbleChartSVG,
+  previewFeedbackPrompts,
 } from "./feedbackGenerator";
 import { storeContent } from "./contentStore";
-import { DEFAULT_CONFIG, getConfigValue as getConfig, isEmailAllowed, setUserConfigValue, deleteUserConfigValue } from "./core/aiClient";
+import { DEFAULT_CONFIG, getConfigValue as getConfig, isEmailAllowed, setUserConfigValue, deleteUserConfigValue, ensureUserConfigTable } from "./core/aiClient";
 import { addWeekdayToDate } from "./utils";
 import {
   listStudents,
@@ -67,7 +69,19 @@ import {
   previewBackup,
   importStudentBackup,
   autoBackupToGDrive,
+  previewEntryPrompt,
 } from "./homeworkManager";
+import {
+  submitGrading,
+  getGradingTask,
+  listGradingTasks,
+  updateGradingEditedResult,
+  syncGradingToStudents,
+  getGradingSyncItems,
+  retrySyncItem,
+  importSyncToStudents,
+  DEFAULT_SYNC_SYSTEM_PROMPT,
+} from "./gradingRunner";
 
 // 设置配置值
 async function setConfig(key: string, value: string, description?: string): Promise<void> {
@@ -134,7 +148,11 @@ export const appRouter = router({
       if (!user) return null;
       // 检查白名单，admin 始终允许
       const allowed = user.role === 'admin' || await isEmailAllowed(user.email);
-      return { ...user, allowed };
+      // 检查是否在伪装模式
+      const adminCookie = opts.ctx.req.cookies?.[ADMIN_COOKIE_NAME] || opts.ctx.req.headers.cookie?.split(';')
+        .find((c: string) => c.trim().startsWith(ADMIN_COOKIE_NAME + '='))
+        ?.split('=').slice(1).join('=');
+      return { ...user, allowed, isImpersonating: !!adminCookie };
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -143,6 +161,155 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
+  }),
+
+  // 管理员功能
+  admin: router({
+    // 列出所有用户
+    listUsers: adminProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) throw new Error("数据库不可用");
+      const allUsers = await db.select({
+        id: users.id,
+        openId: users.openId,
+        name: users.name,
+        email: users.email,
+        loginMethod: users.loginMethod,
+        role: users.role,
+        createdAt: users.createdAt,
+        lastSignedIn: users.lastSignedIn,
+      }).from(users).orderBy(desc(users.lastSignedIn));
+      return allUsers;
+    }),
+
+    // 切换到指定用户（God Mode）
+    impersonateUser: adminProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+
+        // 查找目标用户
+        const target = await db.select().from(users)
+          .where(eq(users.id, input.userId)).limit(1);
+        if (target.length === 0) throw new Error("用户不存在");
+
+        const targetUser = target[0];
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+
+        // 保存管理员原始session到admin cookie
+        const adminCookie = ctx.req.cookies?.[COOKIE_NAME] || ctx.req.headers.cookie?.split(';')
+          .find(c => c.trim().startsWith(COOKIE_NAME + '='))
+          ?.split('=').slice(1).join('=');
+
+        if (adminCookie) {
+          ctx.res.cookie(ADMIN_COOKIE_NAME, adminCookie, {
+            ...cookieOptions,
+            maxAge: 24 * 60 * 60 * 1000, // 24小时
+          });
+        }
+
+        // 创建目标用户的session token
+        const sessionToken = await sdk.createSessionToken(targetUser.openId, {
+          name: targetUser.name || "",
+        });
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: 24 * 60 * 60 * 1000, // 24小时（不是永久的）
+        });
+
+        return {
+          success: true,
+          targetUser: { id: targetUser.id, name: targetUser.name, email: targetUser.email },
+        };
+      }),
+
+    // 退出伪装模式，恢复管理员session
+    stopImpersonating: protectedProcedure.mutation(async ({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+
+      // 读取admin原始session
+      const adminCookie = ctx.req.cookies?.[ADMIN_COOKIE_NAME] || ctx.req.headers.cookie?.split(';')
+        .find(c => c.trim().startsWith(ADMIN_COOKIE_NAME + '='))
+        ?.split('=').slice(1).join('=');
+
+      if (!adminCookie) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "没有管理员session，无法退出伪装模式" });
+      }
+
+      // 恢复管理员session
+      ctx.res.cookie(COOKIE_NAME, adminCookie, {
+        ...cookieOptions,
+        maxAge: 365 * 24 * 60 * 60 * 1000,
+      });
+      // 清除admin cookie
+      ctx.res.clearCookie(ADMIN_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+
+      return { success: true };
+    }),
+
+    // 检查是否在伪装模式
+    checkImpersonation: protectedProcedure.query(({ ctx }) => {
+      const adminCookie = ctx.req.cookies?.[ADMIN_COOKIE_NAME] || ctx.req.headers.cookie?.split(';')
+        .find(c => c.trim().startsWith(ADMIN_COOKIE_NAME + '='))
+        ?.split('=').slice(1).join('=');
+      return { isImpersonating: !!adminCookie };
+    }),
+
+    // 手动创建用户
+    createUser: adminProcedure
+      .input(z.object({
+        name: z.string().min(1, "用户名不能为空"),
+        email: z.string().email("邮箱格式不正确").optional(),
+        role: z.enum(["user", "admin"]).default("user"),
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+
+        // 生成唯一 openId
+        const openId = `manual_${crypto.randomUUID()}`;
+
+        await db.insert(users).values({
+          openId,
+          name: input.name,
+          email: input.email || null,
+          loginMethod: "manual",
+          role: input.role,
+          lastSignedIn: new Date(),
+        });
+
+        // 查询创建的用户
+        const created = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+        if (created.length === 0) throw new Error("创建失败");
+
+        return {
+          success: true,
+          user: {
+            id: created[0].id,
+            name: created[0].name,
+            openId: created[0].openId,
+            email: created[0].email,
+            role: created[0].role,
+          },
+        };
+      }),
+
+    // 删除用户
+    deleteUser: adminProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+
+        // 不能删除自己
+        if (input.userId === ctx.user.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "不能删除自己" });
+        }
+
+        const result = await db.delete(users).where(eq(users.id, input.userId));
+        return { success: true };
+      }),
   }),
 
   // 配置管理
@@ -156,13 +323,13 @@ export const appRouter = router({
         roadmap, roadmapClass, firstLessonTemplate, classFirstLessonTemplate,
         driveBasePath, classStoragePath, batchFilePrefix, batchStoragePath,
         batchConcurrency, maxTokens, gdriveLocalBasePath, gdriveDownloadsPath,
-        modelPresets, apiProviderPresets, allowedEmails,
+        modelPresets, apiProviderPresets, allowedEmails, gradingStoragePath,
       ] = await Promise.all([
         getConfig("apiModel", uid), getConfig("apiKey", uid), getConfig("apiUrl", uid), getConfig("currentYear", uid),
         getConfig("roadmap", uid), getConfig("roadmapClass", uid), getConfig("firstLessonTemplate", uid), getConfig("classFirstLessonTemplate", uid),
         getConfig("driveBasePath", uid), getConfig("classStoragePath", uid), getConfig("batchFilePrefix", uid), getConfig("batchStoragePath", uid),
         getConfig("batchConcurrency", uid), getConfig("maxTokens", uid), getConfig("gdriveLocalBasePath", uid), getConfig("gdriveDownloadsPath", uid),
-        getConfig("modelPresets", uid), getConfig("apiProviderPresets", uid), getConfig("allowedEmails"),
+        getConfig("modelPresets", uid), getConfig("apiProviderPresets", uid), getConfig("allowedEmails"), getConfig("gradingStoragePath", uid),
       ]);
 
       // 解析供应商预设，遮蔽密钥
@@ -198,6 +365,7 @@ export const appRouter = router({
         maxTokens: maxTokens || "64000",
         gdriveLocalBasePath: gdriveLocalBasePath || "",
         gdriveDownloadsPath: gdriveDownloadsPath || "",
+        gradingStoragePath: gradingStoragePath || "",
         modelPresets: modelPresets || "",
         apiProviderPresets: providerPresetsForClient,
         // 白名单（JSON 字符串，前端解析为数组）
@@ -235,6 +403,7 @@ export const appRouter = router({
         maxTokens: z.string().optional(),
         gdriveLocalBasePath: z.string().optional(),
         gdriveDownloadsPath: z.string().optional(),
+        gradingStoragePath: z.string().optional(),
         modelPresets: z.string().optional(),
         apiProviderPresets: z.string().optional(), // JSON 格式的供应商预设列表
         applyProviderKey: z.string().optional(), // 选中的供应商名称，应用其密钥
@@ -364,6 +533,14 @@ export const appRouter = router({
           updates.push("gdriveDownloadsPath");
         }
 
+        if (input.gradingStoragePath !== undefined) {
+          let gPath = input.gradingStoragePath.trim();
+          if (gPath.startsWith('/')) gPath = gPath.slice(1);
+          if (gPath.endsWith('/')) gPath = gPath.slice(0, -1);
+          await setConfig("gradingStoragePath", gPath, "周打分记录存储路径");
+          updates.push("gradingStoragePath");
+        }
+
         if (input.modelPresets !== undefined) {
           await setConfig("modelPresets", input.modelPresets, "常用模型预设列表");
           updates.push("modelPresets");
@@ -475,6 +652,7 @@ export const appRouter = router({
         maxTokens: z.string().optional(),
         gdriveLocalBasePath: z.string().optional(),
         gdriveDownloadsPath: z.string().optional(),
+        gradingStoragePath: z.string().optional(),
         modelPresets: z.string().optional(),
         apiProviderPresets: z.string().optional(),
       }))
@@ -526,9 +704,126 @@ export const appRouter = router({
         };
       }),
 
+    // ===== 一键备份/恢复 =====
+
+    // 导出当前用户的所有配置（一键备份）
+    exportBackup: protectedProcedure.query(async ({ ctx }) => {
+      const uid = ctx.user.id;
+      const db = await getDb();
+      if (!db) throw new Error("数据库不可用");
+      await ensureUserConfigTable();
+
+      // 1. 读取用户级配置
+      const userConfigs = await db.select({
+        key: userConfig.key,
+        value: userConfig.value,
+      }).from(userConfig).where(eq(userConfig.userId, uid));
+
+      const userConfigMap: Record<string, string> = {};
+      for (const c of userConfigs) {
+        userConfigMap[c.key] = c.value;
+      }
+
+      // 2. 读取全局系统配置（作为 fallback，用户可能依赖全局值）
+      const sysConfigs = await db.select({
+        key: systemConfig.key,
+        value: systemConfig.value,
+      }).from(systemConfig);
+
+      const sysConfigMap: Record<string, string> = {};
+      for (const c of sysConfigs) {
+        // 跳过 allowedEmails（全局管理，非用户数据）
+        if (c.key === "allowedEmails") continue;
+        sysConfigMap[c.key] = c.value;
+      }
+
+      // 3. 合并：用户配置优先，不存在的 key 用全局配置填充
+      const mergedConfig: Record<string, string> = { ...sysConfigMap, ...userConfigMap };
+
+      // 4. 安全处理：遮蔽 API Key（只保留后4位）
+      if (mergedConfig.apiKey) {
+        const key = mergedConfig.apiKey;
+        mergedConfig.apiKey = key.length > 4 ? `****${key.slice(-4)}` : "****";
+      }
+      // apiProviderPresets 中的 key 也需要遮蔽
+      if (mergedConfig.apiProviderPresets) {
+        try {
+          const presets = JSON.parse(mergedConfig.apiProviderPresets) as { name: string; apiKey: string; apiUrl: string }[];
+          mergedConfig.apiProviderPresets = JSON.stringify(presets.map(p => ({
+            ...p,
+            apiKey: p.apiKey && p.apiKey.length > 4 ? `****${p.apiKey.slice(-4)}` : "****",
+          })));
+        } catch {}
+      }
+
+      return {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        userId: uid,
+        userName: ctx.user.name,
+        userEmail: ctx.user.email,
+        config: mergedConfig,
+        // 单独标记哪些是用户级覆盖（恢复时只写 userConfig）
+        userOverrideKeys: Object.keys(userConfigMap),
+      };
+    }),
+
+    // 导入配置（一键恢复）
+    importBackup: protectedProcedure
+      .input(z.object({
+        config: z.record(z.string(), z.string()),
+        // 如果为 true，只恢复用户级配置；false 则全部写入用户级
+        onlyUserOverrides: z.boolean().default(false),
+        // 要恢复的 key 列表（如果不指定则恢复所有）
+        keys: z.array(z.string()).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+        await ensureUserConfigTable();
+
+        // 安全过滤：不允许恢复的 key
+        const blockedKeys = new Set(["allowedEmails"]);
+        // API Key 如果是被遮蔽的就跳过
+        const isMasked = (value: string) => value.startsWith("****");
+
+        const keysToRestore = input.keys || Object.keys(input.config);
+        let restored = 0;
+        let skipped = 0;
+        const restoredKeys: string[] = [];
+
+        for (const key of keysToRestore) {
+          if (blockedKeys.has(key)) { skipped++; continue; }
+          const value = input.config[key];
+          if (value === undefined || value === null) { skipped++; continue; }
+          // 跳过被遮蔽的敏感字段
+          if (key === "apiKey" && isMasked(value)) { skipped++; continue; }
+          if (key === "apiProviderPresets") {
+            try {
+              const presets = JSON.parse(value) as { apiKey?: string }[];
+              const allMasked = presets.every(p => !p.apiKey || isMasked(p.apiKey));
+              if (allMasked) { skipped++; continue; }
+            } catch {}
+          }
+
+          await setUserConfigValue(uid, key, value);
+          restored++;
+          restoredKeys.push(key);
+        }
+
+        return {
+          success: true,
+          restored,
+          skipped,
+          restoredKeys,
+          message: `已恢复 ${restored} 项配置，跳过 ${skipped} 项`,
+        };
+      }),
+
     // 获取学生/班级历史记录
-    getStudentHistory: protectedProcedure.query(async () => {
-      const historyJson = await getConfig("studentLessonHistory");
+    getStudentHistory: protectedProcedure.query(async ({ ctx }) => {
+      const historyJson = await getConfig("studentLessonHistory", ctx.user.id);
       if (!historyJson) {
         return {};
       }
@@ -548,14 +843,24 @@ export const appRouter = router({
           students: z.array(z.string()).optional(),
         })),
       }))
-      .mutation(async ({ input }) => {
-        await setConfig("studentLessonHistory", JSON.stringify(input.history));
+      .mutation(async ({ input, ctx }) => {
+        await setUserConfigValue(ctx.user.id, "studentLessonHistory", JSON.stringify(input.history));
         return { success: true };
       }),
   }),
 
   // 学情反馈生成 - 拆分为5个独立端点
   feedback: router({
+    // 预览各步骤的系统提示词
+    previewPrompts: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["oneToOne", "class"]),
+        roadmap: z.string().optional(),
+      }))
+      .query(({ input }) => {
+        return previewFeedbackPrompts(input.courseType as 'oneToOne' | 'class', input.roadmap);
+      }),
+
     // 步骤1: 生成学情反馈
     generateFeedback: protectedProcedure
       .input(feedbackInputSchema)
@@ -2663,14 +2968,23 @@ export const appRouter = router({
 
     // 学生管理专用配置（AI模型、提示词）
     getConfig: protectedProcedure
-      .query(async () => {
-        const hwAiModel = await getConfig("hwAiModel");
-        const hwPromptTemplate = await getConfig("hwPromptTemplate");
-        const modelPresets = await getConfig("modelPresets");
+      .query(async ({ ctx }) => {
+        const uid = ctx.user.id;
+        const hwAiModel = await getConfig("hwAiModel", uid);
+        const hwPromptTemplate = await getConfig("hwPromptTemplate", uid);
+        const modelPresets = await getConfig("modelPresets", uid);
+        const gradingPrompt = await getConfig("gradingPrompt", uid);
+        const gradingYear = await getConfig("gradingYear", uid);
+        const gradingSyncPrompt = await getConfig("gradingSyncPrompt", uid);
+        const gradingSyncConcurrency = await getConfig("gradingSyncConcurrency", uid);
         return {
           hwAiModel: hwAiModel || "",
           hwPromptTemplate: hwPromptTemplate || "",
           modelPresets: modelPresets || "",
+          gradingPrompt: gradingPrompt || "",
+          gradingYear: gradingYear || "",
+          gradingSyncPrompt: gradingSyncPrompt || "",
+          gradingSyncConcurrency: gradingSyncConcurrency || "20",
         };
       }),
 
@@ -2678,15 +2992,120 @@ export const appRouter = router({
       .input(z.object({
         hwAiModel: z.string().optional(),
         hwPromptTemplate: z.string().optional(),
+        gradingPrompt: z.string().optional(),
+        gradingYear: z.string().optional(),
+        gradingSyncPrompt: z.string().optional(),
+        gradingSyncConcurrency: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
         if (input.hwAiModel !== undefined) {
-          await setConfig("hwAiModel", input.hwAiModel, "学生管理AI模型");
+          await setUserConfigValue(uid, "hwAiModel", input.hwAiModel);
         }
         if (input.hwPromptTemplate !== undefined) {
-          await setConfig("hwPromptTemplate", input.hwPromptTemplate, "学生管理提示词");
+          await setUserConfigValue(uid, "hwPromptTemplate", input.hwPromptTemplate);
+        }
+        if (input.gradingPrompt !== undefined) {
+          await setUserConfigValue(uid, "gradingPrompt", input.gradingPrompt);
+        }
+        if (input.gradingYear !== undefined) {
+          await setUserConfigValue(uid, "gradingYear", input.gradingYear);
+        }
+        if (input.gradingSyncPrompt !== undefined) {
+          await setUserConfigValue(uid, "gradingSyncPrompt", input.gradingSyncPrompt);
+        }
+        if (input.gradingSyncConcurrency !== undefined) {
+          await setUserConfigValue(uid, "gradingSyncConcurrency", input.gradingSyncConcurrency);
         }
         return { success: true };
+      }),
+
+    // 一键打分（后台任务模式）
+    submitGrading: protectedProcedure
+      .input(z.object({
+        startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        gradingPrompt: z.string().min(1, "打分提示词不能为空"),
+        userNotes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        return submitGrading(ctx.user.id, {
+          startDate: input.startDate,
+          endDate: input.endDate,
+          gradingPrompt: input.gradingPrompt,
+          userNotes: input.userNotes,
+        });
+      }),
+
+    getGradingTask: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        return getGradingTask(ctx.user.id, input.id);
+      }),
+
+    listGradingTasks: protectedProcedure
+      .query(async ({ ctx }) => {
+        return listGradingTasks(ctx.user.id);
+      }),
+
+    // 保存编辑后的打分结果
+    updateGradingResult: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        editedResult: z.string().min(1),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        await updateGradingEditedResult(ctx.user.id, input.id, input.editedResult);
+        return { success: true };
+      }),
+
+    // 一键同步打分结果到所有学生状态
+    syncGradingToStudents: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        syncPrompt: z.string().optional(),
+        concurrency: z.number().min(1).max(100).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        return syncGradingToStudents(ctx.user.id, input.id, {
+          syncPrompt: input.syncPrompt,
+          concurrency: input.concurrency,
+        });
+      }),
+
+    // 查询同步子任务列表（逐学生进度）
+    getSyncItems: protectedProcedure
+      .input(z.object({ gradingTaskId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        return getGradingSyncItems(ctx.user.id, input.gradingTaskId);
+      }),
+
+    // 重试单个同步子任务
+    retrySyncItem: protectedProcedure
+      .input(z.object({ gradingTaskId: z.number(), itemId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await retrySyncItem(ctx.user.id, input.gradingTaskId, input.itemId);
+        return { success: true };
+      }),
+
+    // 导入同步结果到学生状态（预入库）
+    importSyncToStudents: protectedProcedure
+      .input(z.object({ gradingTaskId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        return importSyncToStudents(ctx.user.id, input.gradingTaskId);
+      }),
+
+    // 获取默认同步系统提示词
+    getDefaultSyncPrompt: protectedProcedure
+      .query(() => {
+        return { prompt: DEFAULT_SYNC_SYSTEM_PROMPT };
+      }),
+
+    // 预览发送处理的系统提示词
+    previewEntryPrompt: protectedProcedure
+      .input(z.object({ studentName: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        return previewEntryPrompt(ctx.user.id, input.studentName);
       }),
 
     // 获取学生当前状态文档
@@ -2830,11 +3249,23 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    // 预览批改系统提示词
+    previewPrompt: protectedProcedure
+      .input(z.object({
+        studentName: z.string().min(1),
+        correctionType: z.string().min(1),
+      }))
+      .query(async ({ input, ctx }) => {
+        const { previewCorrectionPrompt } = await import("./correctionRunner");
+        return previewCorrectionPrompt(ctx.user.id, input.studentName, input.correctionType);
+      }),
+
     // 获取批改配置（AI模型）
     getConfig: protectedProcedure
-      .query(async () => {
-        const corrAiModel = await getConfig("corrAiModel");
-        const modelPresets = await getConfig("modelPresets");
+      .query(async ({ ctx }) => {
+        const uid = ctx.user.id;
+        const corrAiModel = await getConfig("corrAiModel", uid);
+        const modelPresets = await getConfig("modelPresets", uid);
         return {
           corrAiModel: corrAiModel || "",
           modelPresets: modelPresets || "",
@@ -2846,9 +3277,10 @@ export const appRouter = router({
       .input(z.object({
         corrAiModel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
         if (input.corrAiModel !== undefined) {
-          await setConfig("corrAiModel", input.corrAiModel, "作业批改AI模型");
+          await setUserConfigValue(uid, "corrAiModel", input.corrAiModel);
         }
         return { success: true };
       }),

@@ -139,6 +139,25 @@ export async function getCorrectionTypes(userId?: number): Promise<CorrectionTyp
   return DEFAULT_CORRECTION_TYPES;
 }
 
+/**
+ * 预览批改的系统提示词（不调用AI）
+ */
+export async function previewCorrectionPrompt(userId: number, studentName: string, correctionTypeId: string): Promise<{
+  systemPrompt: string;
+  studentStatus: string | null;
+}> {
+  const correctionTypes = await getCorrectionTypes(userId);
+  const typeConfig = correctionTypes.find(t => t.id === correctionTypeId);
+  const typeName = typeConfig?.name || correctionTypeId;
+  const typePrompt = typeConfig?.prompt || '(未知类型)';
+  const generalPrompt = await getCorrectionPrompt(userId);
+  const timeContext = getBeijingTimeContext();
+  const systemPrompt = `${timeContext}\n\n学生姓名：${studentName}\n批改类型：${typeName}\n\n${generalPrompt}\n\n【本次批改类型说明】\n${typePrompt}`;
+  const { getStudentLatestStatus } = await import("./homeworkManager");
+  const existingStatus = await getStudentLatestStatus(userId, studentName);
+  return { systemPrompt, studentStatus: existingStatus };
+}
+
 export async function getCorrectionPrompt(userId?: number): Promise<string> {
   const stored = await getConfigValue("correctionPrompt", userId);
   return stored || DEFAULT_CORRECTION_PROMPT;

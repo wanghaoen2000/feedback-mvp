@@ -21,8 +21,9 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, ArrowLeftRight } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
+import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
@@ -139,6 +140,8 @@ function DashboardLayoutContent({
   setSidebarWidth,
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
+  const stopImpersonatingMut = trpc.admin.stopImpersonating.useMutation();
+  const isImpersonating = !!(user as any)?.isImpersonating;
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -287,6 +290,28 @@ function DashboardLayoutContent({
                 </div>
               </div>
             </div>
+          </div>
+        )}
+        {isImpersonating && (
+          <div className="bg-amber-500 text-white text-sm px-4 py-1.5 flex items-center justify-between sticky top-0 z-50">
+            <span className="flex items-center gap-2">
+              <ArrowLeftRight className="h-4 w-4" />
+              正在以 <strong>{user?.name || '未知用户'}</strong> 的身份查看
+            </span>
+            <button
+              onClick={async () => {
+                try {
+                  await stopImpersonatingMut.mutateAsync();
+                  window.location.reload();
+                } catch (err: any) {
+                  alert("退出失败: " + (err?.message || "未知错误"));
+                }
+              }}
+              disabled={stopImpersonatingMut.isPending}
+              className="px-3 py-0.5 bg-white/20 hover:bg-white/30 rounded text-xs font-medium transition-colors"
+            >
+              {stopImpersonatingMut.isPending ? "切换中..." : "退出伪装"}
+            </button>
           </div>
         )}
         <main className="flex-1 p-4">{children}</main>

@@ -969,6 +969,24 @@ export async function invokeWithContinuation(
   return fullContent;
 }
 
+// ========== 提示词预览（不调用AI） ==========
+
+/**
+ * 预览各步骤的系统提示词（学情反馈/复习文档/测试本/课后提取）
+ */
+export function previewFeedbackPrompts(courseType: 'oneToOne' | 'class', roadmap?: string): Record<string, string> {
+  const timeContext = getBeijingTimeContext();
+  const steps: Array<'feedback' | 'review' | 'test' | 'extraction'> = ['feedback', 'review', 'test', 'extraction'];
+  const stepNames: Record<string, string> = { feedback: '学情反馈', review: '复习文档', test: '测试本', extraction: '课后信息提取' };
+  const result: Record<string, string> = {};
+  for (const step of steps) {
+    const basePrompt = roadmap?.trim() ? roadmap : getDefaultPrompt(step, courseType);
+    const label = stepNames[step];
+    result[label] = `${timeContext}\n(学生姓名/出勤学生列表注入)\n\n${basePrompt}`;
+  }
+  return result;
+}
+
 // ========== 统一生成函数（一对一 + 小班课共用） ==========
 
 export type CourseType = 'oneToOne' | 'class';

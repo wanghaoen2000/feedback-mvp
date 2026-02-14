@@ -457,6 +457,14 @@ export async function ensureBatchTables(): Promise<void> {
       \`completed_at\` timestamp NULL,
       INDEX \`idx_batch_id\` (\`batch_id\`)
     )`);
+    // 清理孤儿数据：数据隔离改造前的旧记录（userId=0）
+    try {
+      const r1 = await db.execute(sql`DELETE FROM \`batch_tasks\` WHERE \`user_id\` = 0`);
+      const d1 = (r1 as any)?.[0]?.affectedRows ?? 0;
+      if (d1 > 0) {
+        console.log(`[批量任务] 已清理孤儿数据: batch_tasks=${d1}条`);
+      }
+    } catch (_e: any) { /* 忽略 */ }
     console.log("[批量任务] 表已就绪");
   } catch (err: any) {
     console.error("[批量任务] 建表失败:", err?.message || err);

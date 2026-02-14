@@ -12,16 +12,19 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List, Plus, Trash2, Shield } from "lucide-react";
+import { Settings, Loader2, Save, FolderOpen, Key, Cloud, Search, RefreshCw, CheckCircle2, XCircle, MinusCircle, Circle, List, Plus, Trash2, Shield, Crown, UserPlus, Eye, ArrowLeftRight, Download, Upload } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 interface GlobalSettingsProps {
   disabled?: boolean;
 }
 
 export function GlobalSettings({ disabled }: GlobalSettingsProps) {
+  const { user: authUser } = useAuth();
+  const isAdmin = authUser?.role === 'admin';
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -47,6 +50,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
   const [driveBasePath, setDriveBasePath] = useState("");
   const [classStoragePath, setClassStoragePath] = useState("");
   const [batchStoragePath, setBatchStoragePath] = useState("");
+  const [gradingStoragePath, setGradingStoragePath] = useState("");
   const [gdriveLocalBasePath, setGdriveLocalBasePath] = useState("");
   const [gdriveDownloadsPath, setGdriveDownloadsPath] = useState("");
 
@@ -73,6 +77,25 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
     allPassed: boolean;
   } | null>(null);
 
+  // 备份/恢复状态
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const exportBackupQuery = trpc.config.exportBackup.useQuery(undefined, { enabled: false });
+  const importBackupMut = trpc.config.importBackup.useMutation();
+
+  // 管理员功能状态
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserRole, setNewUserRole] = useState<"user" | "admin">("user");
+
+  // 管理员查询
+  const usersQuery = trpc.admin.listUsers.useQuery(undefined, {
+    enabled: open && isAdmin,
+  });
+  const impersonateMut = trpc.admin.impersonateUser.useMutation();
+  const createUserMut = trpc.admin.createUser.useMutation();
+  const deleteUserMut = trpc.admin.deleteUser.useMutation();
+
   // 获取配置
   const configQuery = trpc.config.getAll.useQuery(undefined, {
     enabled: open, // 只在对话框打开时获取
@@ -97,6 +120,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
       setDriveBasePath(configQuery.data.driveBasePath || "");
       setClassStoragePath(configQuery.data.classStoragePath || "");
       setBatchStoragePath(configQuery.data.batchStoragePath || "");
+      setGradingStoragePath(configQuery.data.gradingStoragePath || "");
       setGdriveLocalBasePath(configQuery.data.gdriveLocalBasePath || "");
       setGdriveDownloadsPath(configQuery.data.gdriveDownloadsPath || "");
       setModelPresets(configQuery.data.modelPresets || "");
@@ -147,6 +171,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         driveBasePath: driveBasePath.trim() || undefined,
         classStoragePath: classStoragePath.trim() || undefined,
         batchStoragePath: batchStoragePath.trim() || undefined,
+        gradingStoragePath: gradingStoragePath.trim() || undefined,
         gdriveLocalBasePath: gdriveLocalBasePath.trim() || undefined,
         gdriveDownloadsPath: gdriveDownloadsPath.trim() || undefined,
         modelPresets,
@@ -242,7 +267,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         </DialogHeader>
 
         <Tabs defaultValue="api" className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
             <TabsTrigger value="api" className="flex items-center gap-1 px-1 text-xs">
               <Key className="h-4 w-4 shrink-0" />
               <span className="hidden sm:inline">API</span>配置
@@ -263,6 +288,12 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
               <Search className="h-4 w-4 shrink-0" />
               自检
             </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="admin" className="flex items-center gap-1 px-1 text-xs">
+                <Crown className="h-4 w-4 shrink-0" />
+                管理
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="api" className="space-y-4 mt-4">
@@ -583,6 +614,19 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
               </p>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="global-gradingStoragePath">周打分记录存储路径</Label>
+              <Input
+                id="global-gradingStoragePath"
+                value={gradingStoragePath}
+                onChange={(e) => setGradingStoragePath(e.target.value)}
+                placeholder="留空则自动用「一对一路径/周打分记录」"
+              />
+              <p className="text-xs text-muted-foreground">
+                每次打分完成后自动上传到此文件夹，留空则默认放在一对一路径下的「周打分记录」子文件夹
+              </p>
+            </div>
+
             <div className="space-y-2 pt-2 border-t">
               <p className="text-xs font-medium text-muted-foreground">自动提取文件（从 Google Drive 网盘读取）</p>
               <Label htmlFor="global-gdriveDownloadsPath">Downloads 文件夹路径</Label>
@@ -853,9 +897,267 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
               )}
             </div>
           </TabsContent>
+
+          {/* 管理员面板 */}
+          {isAdmin && (
+            <TabsContent value="admin" className="space-y-4 mt-4">
+              {/* 用户列表 */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">用户管理</Label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => usersQuery.refetch()}
+                    disabled={usersQuery.isRefetching}
+                  >
+                    <RefreshCw className={`h-3 w-3 mr-1 ${usersQuery.isRefetching ? 'animate-spin' : ''}`} />
+                    刷新
+                  </Button>
+                </div>
+
+                {/* 创建用户 */}
+                <div className="border rounded-lg p-3 space-y-2">
+                  <Label className="text-xs text-muted-foreground">创建新用户</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="用户名"
+                      value={newUserName}
+                      onChange={(e) => setNewUserName(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Input
+                      placeholder="邮箱（可选）"
+                      value={newUserEmail}
+                      onChange={(e) => setNewUserEmail(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Select value={newUserRole} onValueChange={(v) => setNewUserRole(v as "user" | "admin")}>
+                      <SelectTrigger className="w-24">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="user">用户</SelectItem>
+                        <SelectItem value="admin">管理员</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      if (!newUserName.trim()) return;
+                      try {
+                        await createUserMut.mutateAsync({
+                          name: newUserName.trim(),
+                          email: newUserEmail.trim() || undefined,
+                          role: newUserRole,
+                        });
+                        setNewUserName("");
+                        setNewUserEmail("");
+                        setNewUserRole("user");
+                        usersQuery.refetch();
+                      } catch (err: any) {
+                        alert("创建失败: " + (err?.message || "未知错误"));
+                      }
+                    }}
+                    disabled={!newUserName.trim() || createUserMut.isPending}
+                  >
+                    {createUserMut.isPending ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <UserPlus className="h-3 w-3 mr-1" />
+                    )}
+                    创建用户
+                  </Button>
+                </div>
+
+                {/* 用户列表表格 */}
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="max-h-[300px] overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/50 sticky top-0">
+                        <tr>
+                          <th className="text-left p-2">ID</th>
+                          <th className="text-left p-2">用户名</th>
+                          <th className="text-left p-2">邮箱</th>
+                          <th className="text-left p-2">角色</th>
+                          <th className="text-left p-2">最后登录</th>
+                          <th className="text-right p-2">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {usersQuery.data?.map((u) => (
+                          <tr key={u.id} className="border-t hover:bg-muted/30">
+                            <td className="p-2 text-muted-foreground">{u.id}</td>
+                            <td className="p-2 font-medium">
+                              {u.name || "-"}
+                              {u.id === authUser?.id && (
+                                <span className="ml-1 text-xs text-blue-500">(你)</span>
+                              )}
+                            </td>
+                            <td className="p-2 text-muted-foreground">{u.email || "-"}</td>
+                            <td className="p-2">
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${
+                                u.role === 'admin' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {u.role === 'admin' ? '管理员' : '用户'}
+                              </span>
+                            </td>
+                            <td className="p-2 text-muted-foreground">
+                              {u.lastSignedIn ? new Date(u.lastSignedIn).toLocaleDateString('zh-CN') : '-'}
+                            </td>
+                            <td className="p-2 text-right">
+                              <div className="flex gap-1 justify-end">
+                                {u.id !== authUser?.id && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-2 text-xs"
+                                      title="以该用户身份查看"
+                                      onClick={async () => {
+                                        if (!confirm(`确定切换到用户 "${u.name}" 的视角？`)) return;
+                                        try {
+                                          await impersonateMut.mutateAsync({ userId: u.id });
+                                          window.location.reload();
+                                        } catch (err: any) {
+                                          alert("切换失败: " + (err?.message || "未知错误"));
+                                        }
+                                      }}
+                                      disabled={impersonateMut.isPending}
+                                    >
+                                      <Eye className="h-3 w-3 mr-0.5" />
+                                      切换
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                                      title="删除用户"
+                                      onClick={async () => {
+                                        if (!confirm(`确定删除用户 "${u.name}"？此操作不可逆。`)) return;
+                                        try {
+                                          await deleteUserMut.mutateAsync({ userId: u.id });
+                                          usersQuery.refetch();
+                                        } catch (err: any) {
+                                          alert("删除失败: " + (err?.message || "未知错误"));
+                                        }
+                                      }}
+                                      disabled={deleteUserMut.isPending}
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {(!usersQuery.data || usersQuery.data.length === 0) && (
+                          <tr>
+                            <td colSpan={6} className="p-4 text-center text-muted-foreground">
+                              {usersQuery.isLoading ? "加载中..." : "暂无用户"}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  手动创建的用户使用 manual 登录方式。切换用户后页面会刷新，以该用户身份查看所有数据。
+                </p>
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          <div className="flex gap-2 mr-auto">
+            {/* 一键备份 */}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isExporting}
+              onClick={async () => {
+                setIsExporting(true);
+                try {
+                  const result = await exportBackupQuery.refetch();
+                  if (result.data) {
+                    const json = JSON.stringify(result.data, null, 2);
+                    const blob = new Blob([json], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    const date = new Date().toISOString().slice(0, 10);
+                    a.download = `config-backup-${date}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }
+                } catch (err: any) {
+                  alert("导出失败: " + (err?.message || "未知错误"));
+                } finally {
+                  setIsExporting(false);
+                }
+              }}
+            >
+              {isExporting ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="mr-1 h-3.5 w-3.5" />
+              )}
+              一键备份
+            </Button>
+
+            {/* 一键恢复 */}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isImporting}
+              onClick={() => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = ".json";
+                input.onchange = async (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (!file) return;
+                  setIsImporting(true);
+                  try {
+                    const text = await file.text();
+                    const backup = JSON.parse(text);
+                    if (!backup.config || backup.version !== 1) {
+                      alert("无效的备份文件格式");
+                      return;
+                    }
+                    const keyCount = Object.keys(backup.config).length;
+                    if (!confirm(`确认从备份恢复 ${keyCount} 项配置？\n\n来源: ${backup.userName || '未知'} (${backup.exportedAt || '未知时间'})\n\n注意: API密钥等敏感信息会被跳过，需要手动重新配置。`)) {
+                      return;
+                    }
+                    const result = await importBackupMut.mutateAsync({
+                      config: backup.config,
+                    });
+                    alert(`恢复完成！\n已恢复: ${result.restored} 项\n跳过: ${result.skipped} 项`);
+                    // 刷新配置
+                    configQuery.refetch();
+                  } catch (err: any) {
+                    alert("恢复失败: " + (err?.message || "JSON格式错误"));
+                  } finally {
+                    setIsImporting(false);
+                  }
+                };
+                input.click();
+              }}
+            >
+              {isImporting ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="mr-1 h-3.5 w-3.5" />
+              )}
+              一键恢复
+            </Button>
+          </div>
+
           <Button onClick={handleSave} disabled={saving}>
             {saving ? (
               <>

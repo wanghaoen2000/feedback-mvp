@@ -197,3 +197,59 @@ export const correctionTasks = mysqlTable("correction_tasks", {
 
 export type CorrectionTask = typeof correctionTasks.$inferSelect;
 export type InsertCorrectionTask = typeof correctionTasks.$inferInsert;
+
+// 一键打分任务表（后台执行，180天留存）
+export const gradingTasks = mysqlTable("grading_tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(),
+  startDate: varchar("start_date", { length: 10 }).notNull(), // YYYY-MM-DD
+  endDate: varchar("end_date", { length: 10 }).notNull(),
+  gradingPrompt: mediumtext("grading_prompt").notNull(),
+  userNotes: text("user_notes"),
+  studentCount: int("student_count").default(0),
+  systemPrompt: mediumtext("system_prompt"),          // 完整系统提示词快照
+  result: mediumtext("result"),                       // AI打分结果
+  editedResult: mediumtext("edited_result"),           // 教师编辑后的打分结果
+  aiModel: varchar("ai_model", { length: 128 }),
+  taskStatus: varchar("task_status", { length: 20 }).notNull().default("pending"), // pending | processing | completed | failed
+  errorMessage: text("error_message"),
+  streamingChars: int("streaming_chars").default(0),
+  // 同步到学生状态相关字段
+  syncStatus: varchar("sync_status", { length: 20 }),  // null | syncing | completed | failed
+  syncTotal: int("sync_total").default(0),
+  syncCompleted: int("sync_completed").default(0),
+  syncFailed: int("sync_failed").default(0),
+  syncError: text("sync_error"),
+  syncSystemPrompt: mediumtext("sync_system_prompt"),   // 同步使用的系统提示词
+  syncConcurrency: int("sync_concurrency").default(20), // 同步并发数
+  syncImported: varchar("sync_imported", { length: 20 }), // null | 'imported'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_grading_userId").on(table.userId),
+]);
+
+export type GradingTask = typeof gradingTasks.$inferSelect;
+export type InsertGradingTask = typeof gradingTasks.$inferInsert;
+
+// 打分同步子任务表（每个学生一条记录）
+export const gradingSyncItems = mysqlTable("grading_sync_items", {
+  id: int("id").autoincrement().primaryKey(),
+  gradingTaskId: int("grading_task_id").notNull(),
+  studentId: int("student_id").notNull(),
+  studentName: varchar("student_name", { length: 64 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | running | completed | failed
+  chars: int("chars").default(0),           // 流式接收字符数
+  result: mediumtext("result"),             // AI生成的更新后状态文档
+  error: text("error"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("idx_sync_grading_id").on(table.gradingTaskId),
+]);
+
+export type GradingSyncItem = typeof gradingSyncItems.$inferSelect;
+export type InsertGradingSyncItem = typeof gradingSyncItems.$inferInsert;
