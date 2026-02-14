@@ -267,7 +267,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         </DialogHeader>
 
         <Tabs defaultValue="api" className="w-full">
-          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
+          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-5' : 'grid-cols-4'}`}>
             <TabsTrigger value="api" className="flex items-center gap-1 px-1 text-xs">
               <Key className="h-4 w-4 shrink-0" />
               <span className="hidden sm:inline">API</span>配置
@@ -279,10 +279,6 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
             <TabsTrigger value="gdrive" className="flex items-center gap-1 px-1 text-xs">
               <Cloud className="h-4 w-4 shrink-0" />
               云盘
-            </TabsTrigger>
-            <TabsTrigger value="access" className="flex items-center gap-1 px-1 text-xs">
-              <Shield className="h-4 w-4 shrink-0" />
-              权限
             </TabsTrigger>
             <TabsTrigger value="check" className="flex items-center gap-1 px-1 text-xs">
               <Search className="h-4 w-4 shrink-0" />
@@ -728,92 +724,6 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
             )}
           </TabsContent>
 
-          <TabsContent value="access" className="space-y-4 mt-4">
-            <div className="border rounded-lg p-3 bg-blue-50">
-              <p className="text-xs text-blue-700">
-                白名单控制谁可以使用本系统。只有邮箱在列表中的用户登录后才能访问。
-                清空列表则所有登录用户均可使用（开放模式）。
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <Label>授权用户邮箱</Label>
-              {allowedEmails.map((email, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <Input
-                    value={email}
-                    onChange={(e) => {
-                      const updated = [...allowedEmails];
-                      updated[index] = e.target.value;
-                      setAllowedEmails(updated);
-                      setAllowedEmailsDirty(true);
-                    }}
-                    placeholder="user@example.com"
-                    className="text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="shrink-0 text-gray-400 hover:text-red-500"
-                    onClick={() => {
-                      setAllowedEmails(allowedEmails.filter((_, i) => i !== index));
-                      setAllowedEmailsDirty(true);
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-
-              <div className="flex items-center gap-2">
-                <Input
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="输入邮箱地址并点击添加"
-                  className="text-sm"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newEmail.trim()) {
-                      e.preventDefault();
-                      if (!allowedEmails.some(em => em.toLowerCase() === newEmail.trim().toLowerCase())) {
-                        setAllowedEmails([...allowedEmails, newEmail.trim()]);
-                        setAllowedEmailsDirty(true);
-                      }
-                      setNewEmail("");
-                    }
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  disabled={!newEmail.trim()}
-                  onClick={() => {
-                    if (newEmail.trim() && !allowedEmails.some(em => em.toLowerCase() === newEmail.trim().toLowerCase())) {
-                      setAllowedEmails([...allowedEmails, newEmail.trim()]);
-                      setAllowedEmailsDirty(true);
-                    }
-                    setNewEmail("");
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  添加
-                </Button>
-              </div>
-
-              {allowedEmailsDirty && (
-                <p className="text-xs text-orange-600">白名单已修改，请点击「保存设置」生效</p>
-              )}
-
-              {allowedEmails.length === 0 && (
-                <p className="text-xs text-amber-600">
-                  白名单为空 = 开放模式，所有登录用户均可使用系统。添加邮箱后仅白名单中的用户可以访问。
-                </p>
-              )}
-            </div>
-          </TabsContent>
-
           <TabsContent value="check" className="space-y-4 mt-4">
             {/* 系统自检 */}
             <div className="border rounded-lg overflow-hidden">
@@ -947,11 +857,16 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                     onClick={async () => {
                       if (!newUserName.trim()) return;
                       try {
+                        const emailVal = newUserEmail.trim();
                         await createUserMut.mutateAsync({
                           name: newUserName.trim(),
-                          email: newUserEmail.trim() || undefined,
+                          email: emailVal || undefined,
                           role: newUserRole,
                         });
+                        // 前端也同步白名单显示（后端已自动同步数据库）
+                        if (emailVal && !allowedEmails.some(em => em.toLowerCase() === emailVal.toLowerCase())) {
+                          setAllowedEmails(prev => [...prev, emailVal]);
+                        }
                         setNewUserName("");
                         setNewUserEmail("");
                         setNewUserRole("user");
@@ -1067,7 +982,96 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
 
                 <p className="text-xs text-muted-foreground">
                   手动创建的用户使用 manual 登录方式。切换用户后页面会刷新，以该用户身份查看所有数据。
+                  创建带邮箱的用户时会自动添加到下方白名单。
                 </p>
+              </div>
+
+              {/* 邮箱白名单（从原「权限」Tab 合并到此处） */}
+              <div className="space-y-3 border-t pt-4">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-blue-600" />
+                  <Label className="text-sm font-medium">邮箱白名单</Label>
+                </div>
+                <div className="border rounded-lg p-3 bg-blue-50">
+                  <p className="text-xs text-blue-700">
+                    白名单控制谁可以使用本系统。只有邮箱在列表中的用户登录后才能访问。
+                    清空列表则所有登录用户均可使用（开放模式）。上方创建用户时填写邮箱会自动同步到此列表。
+                  </p>
+                </div>
+
+                {allowedEmails.map((email, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      value={email}
+                      onChange={(e) => {
+                        const updated = [...allowedEmails];
+                        updated[index] = e.target.value;
+                        setAllowedEmails(updated);
+                        setAllowedEmailsDirty(true);
+                      }}
+                      placeholder="user@example.com"
+                      className="text-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 text-gray-400 hover:text-red-500"
+                      onClick={() => {
+                        setAllowedEmails(allowedEmails.filter((_, i) => i !== index));
+                        setAllowedEmailsDirty(true);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="输入邮箱地址并点击添加"
+                    className="text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newEmail.trim()) {
+                        e.preventDefault();
+                        if (!allowedEmails.some(em => em.toLowerCase() === newEmail.trim().toLowerCase())) {
+                          setAllowedEmails([...allowedEmails, newEmail.trim()]);
+                          setAllowedEmailsDirty(true);
+                        }
+                        setNewEmail("");
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    disabled={!newEmail.trim()}
+                    onClick={() => {
+                      if (newEmail.trim() && !allowedEmails.some(em => em.toLowerCase() === newEmail.trim().toLowerCase())) {
+                        setAllowedEmails([...allowedEmails, newEmail.trim()]);
+                        setAllowedEmailsDirty(true);
+                      }
+                      setNewEmail("");
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    添加
+                  </Button>
+                </div>
+
+                {allowedEmailsDirty && (
+                  <p className="text-xs text-orange-600">白名单已修改，请点击「保存设置」生效</p>
+                )}
+
+                {allowedEmails.length === 0 && (
+                  <p className="text-xs text-amber-600">
+                    白名单为空 = 开放模式，所有登录用户均可使用系统。添加邮箱后仅白名单中的用户可以访问。
+                  </p>
+                )}
               </div>
             </TabsContent>
           )}

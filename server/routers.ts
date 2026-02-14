@@ -146,13 +146,14 @@ export const appRouter = router({
     me: publicProcedure.query(async (opts) => {
       const user = opts.ctx.user;
       if (!user) return null;
-      // 检查白名单，admin 始终允许
-      const allowed = user.role === 'admin' || await isEmailAllowed(user.email);
-      // 检查是否在伪装模式
+      // 检查是否在伪装模式（God Mode）
       const adminCookie = opts.ctx.req.cookies?.[ADMIN_COOKIE_NAME] || opts.ctx.req.headers.cookie?.split(';')
         .find((c: string) => c.trim().startsWith(ADMIN_COOKIE_NAME + '='))
         ?.split('=').slice(1).join('=');
-      return { ...user, allowed, isImpersonating: !!adminCookie };
+      const isImpersonating = !!adminCookie;
+      // 检查白名单：admin 始终允许，伪装模式也始终允许（管理员已授权）
+      const allowed = user.role === 'admin' || isImpersonating || await isEmailAllowed(user.email);
+      return { ...user, allowed, isImpersonating };
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -282,6 +283,21 @@ export const appRouter = router({
         // 查询创建的用户
         const created = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
         if (created.length === 0) throw new Error("创建失败");
+
+        // 自动同步邮箱到白名单（如果有邮箱且白名单已启用）
+        if (input.email) {
+          try {
+            const raw = await getConfig("allowedEmails");
+            if (raw) {
+              const list = JSON.parse(raw) as string[];
+              const emailLower = input.email.toLowerCase().trim();
+              if (list.length > 0 && !list.some(e => e.toLowerCase().trim() === emailLower)) {
+                list.push(input.email.trim());
+                await setConfig("allowedEmails", JSON.stringify(list), "授权用户邮箱白名单（JSON数组）");
+              }
+            }
+          } catch { /* 白名单同步失败不阻塞用户创建 */ }
+        }
 
         return {
           success: true,
