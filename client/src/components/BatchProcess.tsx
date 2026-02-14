@@ -773,22 +773,35 @@ export function BatchProcess() {
               </button>
             </div>
             {showPromptPreview && (
-              <div className="w-full border rounded bg-gray-50 p-3 space-y-2 text-left">
-                <div className="text-xs font-medium text-gray-500">AI收到的指令（路书 + 格式要求，所有任务共用）</div>
-                <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-60 overflow-y-auto">{
-                  `<路书提示词>\n${roadmap.trim() || '(未填写路书)'}\n</路书提示词>\n${
-                    templateType === 'word_card' ? '【输出格式要求 - 词汇卡片】\n(JSON结构: listNumber, sceneName, words[...])\n' :
-                    templateType === 'writing_material' ? '【输出格式要求 - 写作素材】\n(JSON结构: partNum, categories[...])\n' : ''
-                  }【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`
-                }</pre>
-                <div className="text-xs font-medium text-gray-500">发给AI的任务内容（以第1个任务为例）</div>
-                <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-20 overflow-y-auto">{
-                  `这是任务编号 ${startNumber || 1}，请按照路书要求生成内容。${
-                    sharedFiles.length > 0 ? `\n\n<公用文档>\n(${sharedFiles.length}个公用文档的提取文本)\n</公用文档>` : ''
-                  }${
-                    uploadedFiles.size > 0 ? `\n\n<本任务文档>\n(该任务对应的单独文档文本)\n</本任务文档>` : ''
-                  }`
-                }</pre>
+              <div className="w-full border rounded bg-gray-50 p-3 space-y-3 text-left">
+                <div className="text-xs text-gray-600 space-y-1 bg-amber-50 border border-amber-200 rounded p-2">
+                  <div className="font-medium text-amber-800">发送给AI的数据结构（每个任务都会收到）：</div>
+                  <div>1. <b>系统提示词</b>：路书内容 + 输出格式要求（所有任务共用同一份）</div>
+                  <div>2. <b>用户消息</b>：任务编号{sharedFiles.length > 0 ? ' + 公用文档的文字' : ''}{uploadedFiles.size > 0 ? ' + 该任务对应的单独文档文字' : ''}</div>
+                  <div className="text-gray-500 mt-1">
+                    <b>系统提示词</b>就是给AI的"工作说明书"，每个任务都先看到同样的路书。
+                    <b>用户消息</b>就是每个具体任务的内容，不同任务的编号和文档可能不同。
+                  </div>
+                </div>
+                <details>
+                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看完整的系统提示词（所有任务共用）</summary>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-60 overflow-y-auto mt-1">{
+                    `<路书提示词>\n${roadmap.trim() || '(未填写路书)'}\n</路书提示词>\n${
+                      templateType === 'word_card' ? '【输出格式要求 - 词汇卡片】\n(JSON结构: listNumber, sceneName, words[...])\n' :
+                      templateType === 'writing_material' ? '【输出格式要求 - 写作素材】\n(JSON结构: partNum, categories[...])\n' : ''
+                    }【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`
+                  }</pre>
+                </details>
+                <details>
+                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看用户消息（以第1个任务为例）</summary>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-40 overflow-y-auto mt-1">{
+                    `这是任务编号 ${startNumber || 1}，请按照路书要求生成内容。${
+                      sharedFiles.length > 0 ? `\n\n<公用文档>\n(${sharedFiles.length}个公用文档的提取文本，提交后才会提取)\n</公用文档>` : ''
+                    }${
+                      uploadedFiles.size > 0 ? `\n\n<本任务文档>\n(该任务对应的单独文档文本，提交后才会提取)\n</本任务文档>` : ''
+                    }`
+                  }</pre>
+                </details>
               </div>
             )}
           </div>

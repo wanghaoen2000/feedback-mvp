@@ -868,6 +868,7 @@ export function HomeworkManagement() {
               >
                 {submitGradingMut.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-1" />提交中...</> : <><Star className="w-4 h-4 mr-1" />开始打分</>}
               </Button>
+              <span className="text-xs text-gray-400">结果自动存到Google Drive</span>
               <button
                 type="button"
                 onClick={() => setShowGradingPreview(!showGradingPreview)}
@@ -880,31 +881,30 @@ export function HomeworkManagement() {
 
             {/* 提示词预览 */}
             {showGradingPreview && (
-              <div className="border rounded bg-white p-3 space-y-2">
-                <div className="text-xs font-medium text-gray-500">AI收到的指令（打分规则+日期+说明）</div>
-                <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-gray-50 p-2 rounded max-h-40 overflow-y-auto">{gradingSystemPromptPreview}</pre>
-                <div className="text-xs font-medium text-gray-500">AI收到的学生数据</div>
-                <p className="text-xs text-gray-500">= 所有学生的完整状态信息（与「一键导出」相同格式）</p>
+              <div className="border rounded bg-white p-3 space-y-3">
+                <div className="text-xs text-gray-600 space-y-1 bg-amber-50 border border-amber-200 rounded p-2">
+                  <div className="font-medium text-amber-800">发送给AI的数据结构：</div>
+                  <div>1. <b>系统提示词</b>：评分日期范围 + 你写的打分要求 + 额外说明</div>
+                  <div>2. <b>用户消息</b>：所有学生的完整状态数据（和「一键导出」一模一样的内容）</div>
+                  <div className="text-gray-500 mt-1">
+                    <b>系统提示词</b>就是给AI的"打分说明书"，告诉它该怎么评分、评什么时间段。
+                    <b>用户消息</b>就是所有学生的档案数据，AI看完说明书后对这些数据打分。
+                  </div>
+                </div>
+                <details>
+                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看完整的系统提示词</summary>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-gray-50 p-2 rounded max-h-60 overflow-y-auto mt-1">{gradingSystemPromptPreview}</pre>
+                </details>
+                <details>
+                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看用户消息（学生数据太长，点击导出可看完整内容）</summary>
+                  <p className="text-xs text-gray-500 mt-1">= 所有 {students.length} 个学生的完整状态文档，格式与「一键导出」相同</p>
+                </details>
               </div>
             )}
 
             {/* 提交错误 */}
             {submitGradingMut.isError && (
               <p className="text-xs text-red-500">提交失败: {submitGradingMut.error?.message}</p>
-            )}
-
-            {/* 当前进行中的任务 */}
-            {activeGradingId && activeGradingQuery.data && (activeGradingQuery.data.taskStatus === "pending" || activeGradingQuery.data.taskStatus === "processing") && (
-              <div className="border border-blue-200 rounded bg-blue-50 p-3">
-                <div className="flex items-center gap-2 text-sm">
-                  <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
-                  <span className="text-blue-700">正在打分...</span>
-                  {(activeGradingQuery.data.streamingChars ?? 0) > 0 && (
-                    <span className="text-xs text-blue-500">已生成 {activeGradingQuery.data.streamingChars} 字</span>
-                  )}
-                </div>
-                <p className="text-xs text-blue-500 mt-1">可以关闭页面，服务器会继续处理。打分完成后会显示在下方历史记录中。</p>
-              </div>
             )}
 
             {/* 打分历史记录 */}
@@ -1066,17 +1066,35 @@ export function HomeworkManagement() {
           </Button>
         </div>
         {showEntryPreview && selectedStudent && (
-          <div className="border rounded bg-gray-50 p-3 space-y-2">
-            <div className="text-xs font-medium text-gray-500">AI收到的指令（处理规则和格式要求）</div>
+          <div className="border rounded bg-gray-50 p-3 space-y-3">
             {entryPreviewQuery.isLoading ? (
               <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />加载中...</div>
             ) : entryPreviewQuery.data ? (
-              <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-48 overflow-y-auto">{entryPreviewQuery.data.systemPrompt}</pre>
+              <>
+                <div className="text-xs text-gray-600 space-y-1 bg-amber-50 border border-amber-200 rounded p-2">
+                  <div className="font-medium text-amber-800">发送给AI的数据结构：</div>
+                  <div>1. <b>系统提示词</b>（system prompt）：{entryPreviewQuery.data.studentStatus ? '当前时间 + 学生姓名 + 你配置的提示词' : '当前时间 + 学生姓名 + 你配置的提示词'}</div>
+                  <div>2. <b>用户消息</b>（user message）：{entryPreviewQuery.data.studentStatus ? '学生当前状态文档 + 你输入的文字' : '你输入的文字'}</div>
+                  <div className="text-gray-500 mt-1">
+                    <b>系统提示词</b>就是给AI的"工作说明书"，告诉它该怎么处理你发的内容。
+                    <b>用户消息</b>就是实际发过去的数据，包括学生已有的状态和你这次输入的新信息。
+                  </div>
+                </div>
+                <details>
+                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看完整的系统提示词</summary>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-60 overflow-y-auto mt-1">{entryPreviewQuery.data.systemPrompt}</pre>
+                </details>
+                <details open={!!inputText.trim() || !!entryPreviewQuery.data.studentStatus}>
+                  <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">查看完整的用户消息</summary>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-60 overflow-y-auto mt-1">{
+                    [
+                      entryPreviewQuery.data.studentStatus ? `【该学生当前的状态文档】\n${entryPreviewQuery.data.studentStatus}` : null,
+                      inputText.trim() ? `【本次新增信息（语音转文字原文）】\n${inputText.trim()}` : '【本次新增信息】\n(还没有输入文字)',
+                    ].filter(Boolean).join('\n\n')
+                  }</pre>
+                </details>
+              </>
             ) : null}
-            <div className="text-xs font-medium text-gray-500">AI收到的学生数据（大致格式）</div>
-            {entryPreviewQuery.data && (
-              <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-20 overflow-y-auto">{entryPreviewQuery.data.userMessageFormat}</pre>
-            )}
           </div>
         )}
         {submitEntryMut.isError && (

@@ -47,6 +47,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
   const [driveBasePath, setDriveBasePath] = useState("");
   const [classStoragePath, setClassStoragePath] = useState("");
   const [batchStoragePath, setBatchStoragePath] = useState("");
+  const [gradingStoragePath, setGradingStoragePath] = useState("");
   const [gdriveLocalBasePath, setGdriveLocalBasePath] = useState("");
   const [gdriveDownloadsPath, setGdriveDownloadsPath] = useState("");
 
@@ -97,6 +98,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
       setDriveBasePath(configQuery.data.driveBasePath || "");
       setClassStoragePath(configQuery.data.classStoragePath || "");
       setBatchStoragePath(configQuery.data.batchStoragePath || "");
+      setGradingStoragePath(configQuery.data.gradingStoragePath || "");
       setGdriveLocalBasePath(configQuery.data.gdriveLocalBasePath || "");
       setGdriveDownloadsPath(configQuery.data.gdriveDownloadsPath || "");
       setModelPresets(configQuery.data.modelPresets || "");
@@ -147,6 +149,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
         driveBasePath: driveBasePath.trim() || undefined,
         classStoragePath: classStoragePath.trim() || undefined,
         batchStoragePath: batchStoragePath.trim() || undefined,
+        gradingStoragePath: gradingStoragePath.trim() || undefined,
         gdriveLocalBasePath: gdriveLocalBasePath.trim() || undefined,
         gdriveDownloadsPath: gdriveDownloadsPath.trim() || undefined,
         modelPresets,
@@ -580,6 +583,19 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
               />
               <p className="text-xs text-muted-foreground">
                 批量生成存储路径
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="global-gradingStoragePath">周打分记录存储路径</Label>
+              <Input
+                id="global-gradingStoragePath"
+                value={gradingStoragePath}
+                onChange={(e) => setGradingStoragePath(e.target.value)}
+                placeholder="留空则自动用「一对一路径/周打分记录」"
+              />
+              <p className="text-xs text-muted-foreground">
+                每次打分完成后自动上传到此文件夹，留空则默认放在一对一路径下的「周打分记录」子文件夹
               </p>
             </div>
 

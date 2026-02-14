@@ -3747,19 +3747,26 @@ export default function Home() {
 
             {/* 提示词预览面板 */}
             {showFeedbackPreview && (
-              <div className="mt-3 border rounded bg-gray-50 p-3 space-y-2">
-                <div className="text-xs font-medium text-gray-500">AI收到的指令 - 每个步骤的规则和要求（{courseType === 'oneToOne' ? '一对一' : '小班课'}）</div>
+              <div className="mt-3 border rounded bg-gray-50 p-3 space-y-3">
+                <div className="text-xs text-gray-600 space-y-1 bg-amber-50 border border-amber-200 rounded p-2">
+                  <div className="font-medium text-amber-800">发送给AI的数据结构（{courseType === 'oneToOne' ? '一对一' : '小班课'}，共4个步骤并行）：</div>
+                  <div>1. <b>系统提示词</b>：当前时间 + {courseType === 'oneToOne' ? '学生姓名' : '班号和出勤学生'} + 路书内容（每步不同）</div>
+                  <div>2. <b>用户消息</b>：{courseType === 'oneToOne' ? '学生姓名 + 课次 + 日期' : '班号 + 出勤 + 日期'} + 上次反馈 + 本次课笔记 + 录音转文字</div>
+                  <div className="text-gray-500 mt-1">
+                    <b>系统提示词</b>就是给AI的"工作说明书"，4个步骤（学情反馈、复习文档、测试本、课后信息提取）各有一份说明书。
+                    <b>用户消息</b>就是你填的所有内容，4个步骤都看到同样的内容，但按各自的说明书分别处理。
+                  </div>
+                </div>
                 {feedbackPreviewQuery.isLoading ? (
                   <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />加载中...</div>
                 ) : feedbackPreviewQuery.data ? (
                   Object.entries(feedbackPreviewQuery.data).map(([step, prompt]) => (
                     <details key={step} className="group">
-                      <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">{step}</summary>
+                      <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">系统提示词 - {step}</summary>
                       <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-48 overflow-y-auto mt-1">{prompt as string}</pre>
                     </details>
                   ))
                 ) : null}
-                <div className="text-xs text-gray-500">AI还会收到：学生信息 + 上次反馈 + 本次课笔记 + 录音转文字</div>
               </div>
             )}
 

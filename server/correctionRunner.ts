@@ -144,7 +144,7 @@ export async function getCorrectionTypes(userId?: number): Promise<CorrectionTyp
  */
 export async function previewCorrectionPrompt(userId: number, studentName: string, correctionTypeId: string): Promise<{
   systemPrompt: string;
-  userMessageFormat: string;
+  studentStatus: string | null;
 }> {
   const correctionTypes = await getCorrectionTypes(userId);
   const typeConfig = correctionTypes.find(t => t.id === correctionTypeId);
@@ -155,10 +155,7 @@ export async function previewCorrectionPrompt(userId: number, studentName: strin
   const systemPrompt = `${timeContext}\n\n学生姓名：${studentName}\n批改类型：${typeName}\n\n${generalPrompt}\n\n【本次批改类型说明】\n${typePrompt}`;
   const { getStudentLatestStatus } = await import("./homeworkManager");
   const existingStatus = await getStudentLatestStatus(userId, studentName);
-  const parts: string[] = [];
-  if (existingStatus) parts.push(`【学生当前状态信息】\n(${existingStatus.length}字)`);
-  parts.push(`【作业内容】\n(用户输入的文本 / 上传的文件提取文字 / 图片)`);
-  return { systemPrompt, userMessageFormat: parts.join('\n\n') };
+  return { systemPrompt, studentStatus: existingStatus };
 }
 
 export async function getCorrectionPrompt(userId?: number): Promise<string> {

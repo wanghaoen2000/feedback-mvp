@@ -212,17 +212,14 @@ function buildSystemContext(studentName: string): string {
  */
 export async function previewEntryPrompt(userId: number, studentName: string): Promise<{
   systemPrompt: string;
-  userMessageFormat: string;
+  studentStatus: string | null;
 }> {
   const hwPromptTemplate = await getConfigValue("hwPromptTemplate", userId);
   const context = buildSystemContext(studentName);
   const promptBody = (hwPromptTemplate && hwPromptTemplate.trim()) ? hwPromptTemplate.trim() : HW_DEFAULT_SYSTEM_PROMPT;
   const systemPrompt = `${context}\n\n${promptBody}`;
   const existingStatus = await getStudentLatestStatus(userId, studentName);
-  const userMessageFormat = existingStatus
-    ? `【该学生当前的状态文档】\n(${existingStatus.length}字, 已有状态)\n\n【本次新增信息（语音转文字原文）】\n(用户输入的文本内容)`
-    : `【语音转文字原文】\n(用户输入的文本内容)\n\n请按照系统提示中的格式要求，整理输出。`;
-  return { systemPrompt, userMessageFormat };
+  return { systemPrompt, studentStatus: existingStatus };
 }
 
 /**
@@ -949,21 +946,6 @@ export async function autoBackupToGDrive(userId: number): Promise<void> {
       console.log(`[学生管理] 自动备份成功: ${fileName} (${studentCount}个学生)`);
     } else {
       console.warn(`[学生管理] 自动备份上传失败: ${result.error || result.message}`);
-    }
-
-    // 同时备份打分记录
-    try {
-      const { exportGradingBackup } = await import("./gradingRunner");
-      const gradingBackup = await exportGradingBackup(userId);
-      if (gradingBackup.recordCount > 0) {
-        const gradingFileName = `打分记录备份_${timestamp}.md`;
-        const gradingResult = await uploadToGoogleDrive(gradingBackup.content, gradingFileName, folderPath);
-        if (gradingResult.status === "success") {
-          console.log(`[学生管理] 打分记录备份成功: ${gradingFileName} (${gradingBackup.recordCount}条)`);
-        }
-      }
-    } catch (gradingErr: any) {
-      console.warn(`[学生管理] 打分记录备份失败:`, gradingErr?.message);
     }
   } catch (err: any) {
     console.error(`[学生管理] 自动备份异常:`, err?.message);

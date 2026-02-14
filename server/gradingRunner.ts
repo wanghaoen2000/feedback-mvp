@@ -219,6 +219,13 @@ async function processGradingInBackground(userId: number, taskId: number): Promi
       .where(eq(gradingTasks.id, taskId));
 
     console.log(`[一键打分] 任务${taskId}完成, ${content.length}字, ${backup.studentCount}个学生`);
+
+    // 自动上传到 Google Drive
+    try {
+      await uploadGradingToGDrive(userId, task.startDate, task.endDate, content);
+    } catch (uploadErr: any) {
+      console.warn(`[一键打分] 上传Google Drive失败:`, uploadErr?.message);
+    }
   } catch (err: any) {
     console.error(`[一键打分] 任务${taskId}失败:`, err?.message);
     try {
@@ -280,51 +287,30 @@ export async function listGradingTasks(userId: number, limit: number = 20) {
     .limit(limit);
 }
 
-// ============= 打分记录备份导出 =============
+// ============= 自动上传到 Google Drive =============
 
 /**
- * 导出所有打分记录为 Markdown 格式（用于备份到 Google Drive）
+ * 每次打分完成后，自动将结果上传到 Google Drive
+ * 文件名：YYYYMMDD-YYYYMMDD_作业打分.md
+ * 文件夹：可配置（gradingStoragePath），默认 {driveBasePath}/周打分记录
  */
-export async function exportGradingBackup(userId: number): Promise<{ content: string; recordCount: number; timestamp: string }> {
-  await ensureGradingTable();
-  const db = await getDb();
-  if (!db) throw new Error("数据库不可用");
+async function uploadGradingToGDrive(userId: number, startDate: string, endDate: string, result: string): Promise<void> {
+  const { getConfigValue: getConfig, DEFAULT_CONFIG } = await import("./core/aiClient");
+  const { uploadToGoogleDrive } = await import("./gdrive");
 
-  const records = await db.select().from(gradingTasks)
-    .where(and(eq(gradingTasks.userId, userId), eq(gradingTasks.taskStatus, "completed")))
-    .orderBy(desc(gradingTasks.createdAt));
+  const gradingPath = await getConfig("gradingStoragePath", userId);
+  const driveBasePath = await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
+  const folderPath = gradingPath || `${driveBasePath}/周打分记录`;
 
-  const now = new Date();
-  const timestamp = now.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })
-    .replace(/\//g, "-");
-  const bjDate = new Date(now.getTime() + 8 * 3600_000);
-  const fileTimestamp = bjDate.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  // 文件名：20260202-20260209_作业打分.md
+  const startCompact = startDate.replace(/-/g, '');
+  const endCompact = endDate.replace(/-/g, '');
+  const fileName = `${startCompact}-${endCompact}_作业打分.md`;
 
-  const lines: string[] = [];
-  lines.push("# 学生打分记录备份");
-  lines.push(`> 导出时间: ${timestamp}`);
-  lines.push(`> 记录总数: ${records.length}`);
-  lines.push("");
-
-  for (const record of records) {
-    const createdStr = record.createdAt
-      ? new Date(record.createdAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })
-      : "未知";
-    lines.push(`## 打分记录: ${record.startDate} ~ ${record.endDate}`);
-    lines.push(`> 打分时间: ${createdStr}`);
-    lines.push(`> 学生人数: ${record.studentCount || 0}`);
-    lines.push(`> AI模型: ${record.aiModel || "未知"}`);
-    lines.push("");
-    lines.push("### 打分结果");
-    lines.push(record.result || "(无结果)");
-    lines.push("");
-    lines.push("---");
-    lines.push("");
+  const uploadResult = await uploadToGoogleDrive(result, fileName, folderPath);
+  if (uploadResult.status === "success") {
+    console.log(`[一键打分] 已上传到Google Drive: ${folderPath}/${fileName}`);
+  } else {
+    console.warn(`[一键打分] 上传失败: ${uploadResult.error || uploadResult.message}`);
   }
-
-  return {
-    content: lines.join("\n"),
-    recordCount: records.length,
-    timestamp: fileTimestamp,
-  };
 }

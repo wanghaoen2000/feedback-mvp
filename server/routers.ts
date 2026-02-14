@@ -74,7 +74,6 @@ import {
   submitGrading,
   getGradingTask,
   listGradingTasks,
-  exportGradingBackup,
 } from "./gradingRunner";
 
 // 设置配置值
@@ -164,13 +163,13 @@ export const appRouter = router({
         roadmap, roadmapClass, firstLessonTemplate, classFirstLessonTemplate,
         driveBasePath, classStoragePath, batchFilePrefix, batchStoragePath,
         batchConcurrency, maxTokens, gdriveLocalBasePath, gdriveDownloadsPath,
-        modelPresets, apiProviderPresets, allowedEmails,
+        modelPresets, apiProviderPresets, allowedEmails, gradingStoragePath,
       ] = await Promise.all([
         getConfig("apiModel", uid), getConfig("apiKey", uid), getConfig("apiUrl", uid), getConfig("currentYear", uid),
         getConfig("roadmap", uid), getConfig("roadmapClass", uid), getConfig("firstLessonTemplate", uid), getConfig("classFirstLessonTemplate", uid),
         getConfig("driveBasePath", uid), getConfig("classStoragePath", uid), getConfig("batchFilePrefix", uid), getConfig("batchStoragePath", uid),
         getConfig("batchConcurrency", uid), getConfig("maxTokens", uid), getConfig("gdriveLocalBasePath", uid), getConfig("gdriveDownloadsPath", uid),
-        getConfig("modelPresets", uid), getConfig("apiProviderPresets", uid), getConfig("allowedEmails"),
+        getConfig("modelPresets", uid), getConfig("apiProviderPresets", uid), getConfig("allowedEmails"), getConfig("gradingStoragePath", uid),
       ]);
 
       // 解析供应商预设，遮蔽密钥
@@ -206,6 +205,7 @@ export const appRouter = router({
         maxTokens: maxTokens || "64000",
         gdriveLocalBasePath: gdriveLocalBasePath || "",
         gdriveDownloadsPath: gdriveDownloadsPath || "",
+        gradingStoragePath: gradingStoragePath || "",
         modelPresets: modelPresets || "",
         apiProviderPresets: providerPresetsForClient,
         // 白名单（JSON 字符串，前端解析为数组）
@@ -243,6 +243,7 @@ export const appRouter = router({
         maxTokens: z.string().optional(),
         gdriveLocalBasePath: z.string().optional(),
         gdriveDownloadsPath: z.string().optional(),
+        gradingStoragePath: z.string().optional(),
         modelPresets: z.string().optional(),
         apiProviderPresets: z.string().optional(), // JSON 格式的供应商预设列表
         applyProviderKey: z.string().optional(), // 选中的供应商名称，应用其密钥
@@ -372,6 +373,14 @@ export const appRouter = router({
           updates.push("gdriveDownloadsPath");
         }
 
+        if (input.gradingStoragePath !== undefined) {
+          let gPath = input.gradingStoragePath.trim();
+          if (gPath.startsWith('/')) gPath = gPath.slice(1);
+          if (gPath.endsWith('/')) gPath = gPath.slice(0, -1);
+          await setConfig("gradingStoragePath", gPath, "周打分记录存储路径");
+          updates.push("gradingStoragePath");
+        }
+
         if (input.modelPresets !== undefined) {
           await setConfig("modelPresets", input.modelPresets, "常用模型预设列表");
           updates.push("modelPresets");
@@ -483,6 +492,7 @@ export const appRouter = router({
         maxTokens: z.string().optional(),
         gdriveLocalBasePath: z.string().optional(),
         gdriveDownloadsPath: z.string().optional(),
+        gradingStoragePath: z.string().optional(),
         modelPresets: z.string().optional(),
         apiProviderPresets: z.string().optional(),
       }))
@@ -2745,11 +2755,6 @@ export const appRouter = router({
     listGradingTasks: protectedProcedure
       .query(async ({ ctx }) => {
         return listGradingTasks(ctx.user.id);
-      }),
-
-    exportGradingBackup: protectedProcedure
-      .mutation(async ({ ctx }) => {
-        return exportGradingBackup(ctx.user.id);
       }),
 
     // 预览发送处理的系统提示词
