@@ -937,11 +937,11 @@ export async function autoBackupToGDrive(userId: number): Promise<void> {
     const { DEFAULT_CONFIG } = await import("./core/aiClient");
     const { uploadToGoogleDrive } = await import("./gdrive");
 
-    const driveBasePath = await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+    const driveBasePath = await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
     const folderPath = `${driveBasePath}/学生管理信息备份`;
     const fileName = `学生管理备份_${timestamp}.md`;
 
-    const result = await uploadToGoogleDrive(content, fileName, folderPath);
+    const result = await uploadToGoogleDrive(userId, content, fileName, folderPath);
     if (result.status === "success") {
       console.log(`[学生管理] 自动备份成功: ${fileName} (${studentCount}个学生)`);
     } else {

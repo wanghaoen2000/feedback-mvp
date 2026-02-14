@@ -256,11 +256,11 @@ async function processCorrectionInBackground(userId: number, taskId: number): Pr
     // 更新状态为 processing，重置进度字段
     await db.update(correctionTasks)
       .set({ taskStatus: "processing", streamingChars: 0 })
-      .where(eq(correctionTasks.id, taskId));
+      .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
 
     // 读取任务数据
     const tasks = await db.select().from(correctionTasks)
-      .where(eq(correctionTasks.id, taskId))
+      .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)))
       .limit(1);
     if (tasks.length === 0) throw new Error("任务不存在");
     const task = tasks[0];
@@ -276,7 +276,7 @@ async function processCorrectionInBackground(userId: number, taskId: number): Pr
     // 保存使用的系统提示词
     await db.update(correctionTasks)
       .set({ systemPrompt })
-      .where(eq(correctionTasks.id, taskId));
+      .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
 
     // 构建用户消息
     const userMessageParts: string[] = [];
@@ -331,7 +331,7 @@ async function processCorrectionInBackground(userId: number, taskId: number): Pr
       if (now - lastProgressTime >= 1000) {
         db.update(correctionTasks)
           .set({ streamingChars: chars })
-          .where(eq(correctionTasks.id, taskId))
+          .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)))
           .catch(() => {}); // 进度更新失败不影响主流程
         lastProgressTime = now;
       }
@@ -361,7 +361,7 @@ async function processCorrectionInBackground(userId: number, taskId: number): Pr
         streamingChars: result.content.length,
         completedAt: new Date(),
       })
-      .where(eq(correctionTasks.id, taskId));
+      .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
 
     console.log(`[作业批改] 任务${taskId}完成, 批改${correction.length}字, 状态更新${statusUpdate.length}字`);
 
@@ -380,7 +380,7 @@ async function processCorrectionInBackground(userId: number, taskId: number): Pr
           autoImported: 1,
           importEntryId: importResult.id,
         })
-        .where(eq(correctionTasks.id, taskId));
+        .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
       console.log(`[作业批改] 已自动推送到学生管理: 条目ID=${importResult.id}`);
     } catch (importErr: any) {
       console.error(`[作业批改] 自动推送失败:`, importErr?.message);
@@ -394,7 +394,7 @@ async function processCorrectionInBackground(userId: number, taskId: number): Pr
           taskStatus: "failed",
           errorMessage: err?.message || "未知错误",
         })
-        .where(eq(correctionTasks.id, taskId));
+        .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
     } catch {}
   }
 }

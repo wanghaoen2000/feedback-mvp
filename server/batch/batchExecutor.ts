@@ -120,6 +120,7 @@ ${formatRequirement}
  * 单任务执行参数
  */
 export interface BatchItemParams {
+  userId: number;
   taskNumber: number;
   roadmap: string;
   templateType: string;
@@ -153,7 +154,7 @@ export async function executeBatchItem(
   onProgress: (chars: number, message?: string) => void
 ): Promise<BatchItemResult> {
   const {
-    taskNumber, roadmap, templateType, filePrefix, namingMethod,
+    userId, taskNumber, roadmap, templateType, filePrefix, namingMethod,
     customFileNames, files, sharedFiles, batchFolderPath, config,
   } = params;
 
@@ -274,7 +275,7 @@ export async function executeBatchItem(
   if (batchFolderPath) {
     onProgress(content.length, "正在上传到 Google Drive...");
     console.log(`[BatchExecutor] 任务 ${taskNumber} 上传到: ${batchFolderPath}/${filename}`);
-    const uploadResult = await uploadBinaryToGoogleDrive(buffer, filename, batchFolderPath);
+    const uploadResult = await uploadBinaryToGoogleDrive(userId, buffer, filename, batchFolderPath);
     if (uploadResult.status === 'success') {
       uploadUrl = uploadResult.url;
       uploadPath = uploadResult.path;

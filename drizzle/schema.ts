@@ -60,15 +60,18 @@ export const userConfig = mysqlTable("user_config", {
 export type UserConfig = typeof userConfig.$inferSelect;
 export type InsertUserConfig = typeof userConfig.$inferInsert;
 
-// Google Drive OAuth Token表
+// Google Drive OAuth Token表（每用户独立 OAuth 凭证）
 export const googleTokens = mysqlTable("google_tokens", {
   id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(), // 所属用户
   accessToken: text("access_token").notNull(),
   refreshToken: text("refresh_token").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
-});
+}, (table) => [
+  uniqueIndex("idx_google_tokens_user").on(table.userId),
+]);
 
 export type GoogleToken = typeof googleTokens.$inferSelect;
 export type InsertGoogleToken = typeof googleTokens.$inferInsert;

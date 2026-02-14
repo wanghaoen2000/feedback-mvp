@@ -10,24 +10,38 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+function getThemeKey(userId?: number | null) {
+  return userId ? `theme_${userId}` : "theme";
+}
+
 interface ThemeProviderProps {
   children: React.ReactNode;
   defaultTheme?: Theme;
   switchable?: boolean;
+  userId?: number | null; // 用户 ID，加载后传入以实现用户隔离
 }
 
 export function ThemeProvider({
   children,
   defaultTheme = "light",
   switchable = false,
+  userId,
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
     if (switchable) {
-      const stored = localStorage.getItem("theme");
+      const stored = localStorage.getItem(getThemeKey(userId));
       return (stored as Theme) || defaultTheme;
     }
     return defaultTheme;
   });
+
+  // 用户加载后，重新读取该用户的主题偏好
+  useEffect(() => {
+    if (switchable && userId) {
+      const stored = localStorage.getItem(getThemeKey(userId));
+      if (stored) setTheme(stored as Theme);
+    }
+  }, [userId, switchable]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -38,9 +52,9 @@ export function ThemeProvider({
     }
 
     if (switchable) {
-      localStorage.setItem("theme", theme);
+      localStorage.setItem(getThemeKey(userId), theme);
     }
-  }, [theme, switchable]);
+  }, [theme, switchable, userId]);
 
   const toggleTheme = switchable
     ? () => {

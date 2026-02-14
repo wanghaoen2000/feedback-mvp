@@ -522,9 +522,9 @@ export const appRouter = router({
         apiProviderPresets: z.string().optional(), // JSON 格式的供应商预设列表
         applyProviderKey: z.string().optional(), // 选中的供应商名称，应用其密钥
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const updates: string[] = [];
-        
+
         if (input.apiModel !== undefined) {
           await setConfig("apiModel", input.apiModel.trim(), "AI模型名称");
           updates.push("apiModel");
@@ -663,7 +663,7 @@ export const appRouter = router({
           // 合并密钥：如果新条目的 apiKey 为空，保留已有同名供应商的密钥
           try {
             const newPresets = JSON.parse(input.apiProviderPresets) as { name: string; apiKey: string; apiUrl: string }[];
-            const existingRaw = await getConfig("apiProviderPresets");
+            const existingRaw = await getConfig("apiProviderPresets", ctx.user.id);
             let existingPresets: { name: string; apiKey: string; apiUrl: string }[] = [];
             if (existingRaw) {
               try { existingPresets = JSON.parse(existingRaw); } catch {}
@@ -688,7 +688,7 @@ export const appRouter = router({
         // 应用选中供应商的密钥和地址
         // 注意：必须从数据库读取已合并的预设（不能用 input.apiProviderPresets，那是客户端发来的原始数据，密钥为空）
         if (input.applyProviderKey) {
-          const presetsRaw = await getConfig("apiProviderPresets");
+          const presetsRaw = await getConfig("apiProviderPresets", ctx.user.id);
           if (presetsRaw) {
             try {
               const presets = JSON.parse(presetsRaw) as { name: string; apiKey: string; apiUrl: string }[];
@@ -972,14 +972,14 @@ export const appRouter = router({
     // 步骤1: 生成学情反馈
     generateFeedback: protectedProcedure
       .input(feedbackInputSchema)
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         // 获取配置（优先使用传入的快照，确保并发安全）
-        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
-        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
-        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const apiModel = input.apiModel || await getConfig("apiModel", ctx.user.id) || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey", ctx.user.id) || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
+        const currentYear = input.currentYear || await getConfig("currentYear", ctx.user.id) || DEFAULT_CONFIG.currentYear;
+        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", ctx.user.id) || DEFAULT_CONFIG.roadmap);
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
@@ -1035,7 +1035,7 @@ export const appRouter = router({
           const folderPath = `${basePath}/学情反馈`;
           
           logInfo(log, "学情反馈", `上传到Google Drive: ${folderPath}/${fileName}`);
-          const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
+          const uploadResult = await uploadToGoogleDrive(ctx.user.id, feedbackContent, fileName, folderPath);
           
           // 检查上传结果状态
           if (uploadResult.status === 'error') {
@@ -1094,12 +1094,12 @@ export const appRouter = router({
         driveBasePath: z.string().optional(),
         taskId: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
-        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      .mutation(async ({ input, ctx }) => {
+        const apiModel = input.apiModel || await getConfig("apiModel", ctx.user.id) || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey", ctx.user.id) || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
+        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", ctx.user.id) || DEFAULT_CONFIG.roadmap);
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
@@ -1142,7 +1142,7 @@ export const appRouter = router({
           const folderPath = `${basePath}/复习文档`;
 
           logInfo(log, "复习文档", `上传到Google Drive: ${folderPath}/${fileName}`);
-          const uploadResult = await uploadBinaryToGoogleDrive(reviewDocx, fileName, folderPath);
+          const uploadResult = await uploadBinaryToGoogleDrive(ctx.user.id, reviewDocx, fileName, folderPath);
 
           // 检查上传结果状态
           if (uploadResult.status === 'error') {
@@ -1199,12 +1199,12 @@ export const appRouter = router({
         driveBasePath: z.string().optional(),
         taskId: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
-        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      .mutation(async ({ input, ctx }) => {
+        const apiModel = input.apiModel || await getConfig("apiModel", ctx.user.id) || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey", ctx.user.id) || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
+        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", ctx.user.id) || DEFAULT_CONFIG.roadmap);
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
@@ -1247,7 +1247,7 @@ export const appRouter = router({
           const folderPath = `${basePath}/复习文档`;
 
           logInfo(log, "测试本", `上传到Google Drive: ${folderPath}/${fileName}`);
-          const uploadResult = await uploadBinaryToGoogleDrive(testDocx, fileName, folderPath);
+          const uploadResult = await uploadBinaryToGoogleDrive(ctx.user.id, testDocx, fileName, folderPath);
 
           // 检查上传结果状态
           if (uploadResult.status === 'error') {
@@ -1303,12 +1303,12 @@ export const appRouter = router({
         driveBasePath: z.string().optional(),
         taskId: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
-        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      .mutation(async ({ input, ctx }) => {
+        const apiModel = input.apiModel || await getConfig("apiModel", ctx.user.id) || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey", ctx.user.id) || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
+        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", ctx.user.id) || DEFAULT_CONFIG.roadmap);
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
@@ -1350,7 +1350,7 @@ export const appRouter = router({
           const folderPath = `${basePath}/课后信息`;
           
           logInfo(log, "课后信息提取", `上传到Google Drive: ${folderPath}/${fileName}`);
-          const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+          const uploadResult = await uploadToGoogleDrive(ctx.user.id, extractionContent, fileName, folderPath);
           
           // 检查上传结果状态
           if (uploadResult.status === 'error') {
@@ -1406,11 +1406,11 @@ export const appRouter = router({
         driveBasePath: z.string().optional(),
         taskId: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || DEFAULT_CONFIG.roadmap);
+      .mutation(async ({ input, ctx }) => {
+        const apiModel = input.apiModel || await getConfig("apiModel", ctx.user.id) || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey", ctx.user.id) || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
+        const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", ctx.user.id) || DEFAULT_CONFIG.roadmap);
         
         // 创建独立的日志会话（并发安全）
         const log = createLogSession(
@@ -1477,8 +1477,8 @@ export const appRouter = router({
         pngBase64: z.string(), // base64编码的PNG数据
         driveBasePath: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      .mutation(async ({ input, ctx }) => {
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         
         try {
           // 将base64转换为Buffer
@@ -1489,7 +1489,7 @@ export const appRouter = router({
           const folderPath = `${basePath}/气泡图`;
           
           console.log(`[气泡图上传] 上传到Google Drive: ${folderPath}/${fileName}`);
-          const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
+          const uploadResult = await uploadBinaryToGoogleDrive(ctx.user.id, pngBuffer, fileName, folderPath);
           
           // 检查上传结果状态
           if (uploadResult.status === 'error') {
@@ -1528,10 +1528,10 @@ export const appRouter = router({
         dateStr: z.string(),
         driveBasePath: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         console.log(`[${new Date().toLocaleTimeString()}] 最终验证: 检查所有文件...`);
-        
-        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         const basePath = `${driveBasePath}/${input.studentName}`;
         const ln = input.lessonNumber || '';
         const filePaths = [
@@ -1542,7 +1542,7 @@ export const appRouter = router({
           `${basePath}/气泡图/${input.studentName}${ln}气泡图.png`,
         ];
         
-        const verification = await verifyAllFiles(filePaths);
+        const verification = await verifyAllFiles(ctx.user.id, filePaths);
         
         console.log(`[${new Date().toLocaleTimeString()}] 最终验证: ${verification.results.filter(r => r.exists).length}/5 文件验证通过`);
         
@@ -1575,7 +1575,7 @@ export const appRouter = router({
       .input(z.object({
         studentName: z.string().optional(),
       }).optional())
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         // 如果提供了学生名，根据学生名查找日志；否则获取最新的日志
         const logPath = input?.studentName 
           ? getLatestLogPathByStudent(input.studentName) 
@@ -1594,7 +1594,7 @@ export const appRouter = router({
         const fullPath = `${folderPath}/${fileName}`;
         
         try {
-          const uploadResult = await uploadToGoogleDrive(content, fileName, folderPath);
+          const uploadResult = await uploadToGoogleDrive(ctx.user.id, content, fileName, folderPath);
           
           // 检查上传结果状态
           if (uploadResult.status === 'error') {
@@ -1635,9 +1635,9 @@ export const appRouter = router({
 
     // 系统自检
     systemCheck: protectedProcedure
-      .mutation(async () => {
+      .mutation(async ({ ctx }) => {
         try {
-          const results = await runSystemCheck();
+          const results = await runSystemCheck(ctx.user.id);
           return {
             success: true,
             ...results,
@@ -1655,24 +1655,24 @@ export const appRouter = router({
       }),
     // Google Drive OAuth授权
     googleAuthStatus: protectedProcedure
-      .query(async () => {
-        return await googleAuth.getStatus();
+      .query(async ({ ctx }) => {
+        return await googleAuth.getStatus(ctx.user.id);
       }),
     googleAuthUrl: protectedProcedure
-      .query(async () => {
-        return { 
-          url: googleAuth.getAuthUrl(),
+      .query(async ({ ctx }) => {
+        return {
+          url: googleAuth.getAuthUrl(ctx.user.id),
           redirectUri: googleAuth.getRedirectUri()
         };
       }),
     googleAuthCallback: protectedProcedure
       .input(z.object({ code: z.string() }))
-      .mutation(async ({ input }) => {
-        return await googleAuth.handleCallback(input.code);
+      .mutation(async ({ input, ctx }) => {
+        return await googleAuth.handleCallback(input.code, ctx.user.id);
       }),
     googleAuthDisconnect: protectedProcedure
-      .mutation(async () => {
-        return await googleAuth.disconnect();
+      .mutation(async ({ ctx }) => {
+        return await googleAuth.disconnect(ctx.user.id);
       }),
       
     // ========== 小班课生成接口 ==========
@@ -1680,12 +1680,12 @@ export const appRouter = router({
     // 小班课步骤1: 生成1份完整学情反馈
     generateClassFeedback: protectedProcedure
       .input(classFeedbackInputSchema)
-      .mutation(async ({ input }) => {
-        const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-        const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-        const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-        const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
-        const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
+      .mutation(async ({ input, ctx }) => {
+        const apiModel = input.apiModel || await getConfig("apiModel", ctx.user.id) || DEFAULT_CONFIG.apiModel;
+        const apiKey = input.apiKey || await getConfig("apiKey", ctx.user.id) || DEFAULT_CONFIG.apiKey;
+        const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
+        const currentYear = input.currentYear || await getConfig("currentYear", ctx.user.id) || DEFAULT_CONFIG.currentYear;
+        const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass", ctx.user.id) || "");
         
         // 创建小班课日志会话（用班号作为标识符）
         const log = createLogSession(
@@ -1757,12 +1757,12 @@ export const appRouter = router({
         apiUrl: z.string().optional(),
         roadmapClass: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         try {
-          const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-          const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-          const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
+          const apiModel = input.apiModel || await getConfig("apiModel", ctx.user.id) || DEFAULT_CONFIG.apiModel;
+          const apiKey = input.apiKey || await getConfig("apiKey", ctx.user.id) || DEFAULT_CONFIG.apiKey;
+          const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
+          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass", ctx.user.id) || "";
 
           const classInput: ClassFeedbackInput = {
             classNumber: input.classNumber,
@@ -1810,12 +1810,12 @@ export const appRouter = router({
         apiUrl: z.string().optional(),
         roadmapClass: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         try {
-          const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-          const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-          const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
+          const apiModel = input.apiModel || await getConfig("apiModel", ctx.user.id) || DEFAULT_CONFIG.apiModel;
+          const apiKey = input.apiKey || await getConfig("apiKey", ctx.user.id) || DEFAULT_CONFIG.apiKey;
+          const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
+          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass", ctx.user.id) || "";
 
           const classInput: ClassFeedbackInput = {
             classNumber: input.classNumber,
@@ -1862,12 +1862,12 @@ export const appRouter = router({
         apiUrl: z.string().optional(),
         roadmapClass: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         try {
-          const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-          const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-          const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
+          const apiModel = input.apiModel || await getConfig("apiModel", ctx.user.id) || DEFAULT_CONFIG.apiModel;
+          const apiKey = input.apiKey || await getConfig("apiKey", ctx.user.id) || DEFAULT_CONFIG.apiKey;
+          const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
+          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass", ctx.user.id) || "";
 
           const classInput: ClassFeedbackInput = {
             classNumber: input.classNumber,
@@ -1914,12 +1914,12 @@ export const appRouter = router({
         apiUrl: z.string().optional(),
         roadmapClass: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         try {
-          const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-          const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-          const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass") || "";
+          const apiModel = input.apiModel || await getConfig("apiModel", ctx.user.id) || DEFAULT_CONFIG.apiModel;
+          const apiKey = input.apiKey || await getConfig("apiKey", ctx.user.id) || DEFAULT_CONFIG.apiKey;
+          const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
+          const roadmapClass = input.roadmapClass || await getConfig("roadmapClass", ctx.user.id) || "";
 
           const svgContent = await generateClassBubbleChartSVG(
             input.studentFeedback,
@@ -1954,10 +1954,10 @@ export const appRouter = router({
         content: z.string(), // base64 或文本
         driveBasePath: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
-        const classStoragePath = await getConfig("classStoragePath");
-        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+        const classStoragePath = await getConfig("classStoragePath", ctx.user.id);
+        const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         const effectivePath = classStoragePath || driveBasePath;
         // 路径格式：{basePath}/{classNumber}班/
         const basePath = `${effectivePath}/${input.classNumber}班`;
@@ -2003,9 +2003,9 @@ export const appRouter = router({
         
         let result;
         if (typeof contentBuffer === 'string') {
-          result = await uploadToGoogleDrive(contentBuffer, fileName, folderPath);
+          result = await uploadToGoogleDrive(ctx.user.id, contentBuffer, fileName, folderPath);
         } else {
-          result = await uploadBinaryToGoogleDrive(contentBuffer, fileName, folderPath);
+          result = await uploadBinaryToGoogleDrive(ctx.user.id, contentBuffer, fileName, folderPath);
         }
         
         if (result.status === 'error') {
@@ -2028,12 +2028,12 @@ export const appRouter = router({
       .input(z.object({
         testFileName: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const diagnostics: string[] = [];
         const { getValidToken } = await import('./googleAuth');
 
         // 1. 检查 OAuth token
-        const token = await getValidToken();
+        const token = await getValidToken(ctx.user.id);
         if (!token) {
           diagnostics.push('❌ OAuth token 不可用 - 请在设置中授权 Google Drive');
           return { diagnostics, success: false };
@@ -2059,7 +2059,7 @@ export const appRouter = router({
         }
 
         // 3. 测试 driveBasePath 导航
-        const driveBasePath = await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
+        const driveBasePath = await getConfig("driveBasePath", ctx.user.id) || "Mac/Documents/XDF/学生档案";
         diagnostics.push(`配置路径: ${driveBasePath}`);
 
         const parts = driveBasePath.split('/').filter((p: string) => p);
@@ -2110,7 +2110,7 @@ export const appRouter = router({
         allowSplit: z.boolean().optional(), // 允许分段文件检索（-1, -2）
         segmentCount: z.number().int().min(1).max(10).optional(), // 明确指定段数（1=单文件, 2=-1+-2, 3=-1+-2+-3...）
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { fileName, allowSplit, segmentCount } = input;
 
         const ext = path.extname(fileName).toLowerCase();
@@ -2122,7 +2122,7 @@ export const appRouter = router({
         }
 
         // 策略：先在 Downloads 目录精确读取，找不到再搜索
-        const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath");
+        const gdriveDownloadsPath = await getConfig("gdriveDownloadsPath", ctx.user.id);
 
         // 辅助函数：尝试读取单个文件（精确路径 → 搜索）
         async function tryReadFile(name: string): Promise<{ buffer: Buffer; resolvedName: string } | null> {
@@ -2131,7 +2131,7 @@ export const appRouter = router({
 
           if (gdriveDownloadsPath) {
             try {
-              buffer = await readFileFromGoogleDrive(`${gdriveDownloadsPath}/${name}`);
+              buffer = await readFileFromGoogleDrive(ctx.user.id, `${gdriveDownloadsPath}/${name}`);
               console.log(`[readFromDownloads] 精确路径找到: ${gdriveDownloadsPath}/${name}`);
             } catch {
               // 继续搜索
@@ -2139,7 +2139,7 @@ export const appRouter = router({
           }
 
           if (!buffer) {
-            const result = await searchFileInGoogleDrive([name], gdriveDownloadsPath || undefined);
+            const result = await searchFileInGoogleDrive(ctx.user.id, [name], gdriveDownloadsPath || undefined);
             if (result) {
               buffer = result.buffer;
               resolvedName = result.fullPath.split('/').pop() || name;
@@ -2275,7 +2275,7 @@ export const appRouter = router({
         courseType: z.enum(['oneToOne', 'class']).default('oneToOne'),
         classNumber: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { studentName, lessonNumber, courseType, classNumber } = input;
 
         // 一对一模式必须有学生姓名
@@ -2299,10 +2299,10 @@ export const appRouter = router({
         // 小班课优先使用 classStoragePath，一对一使用 driveBasePath
         let driveBasePath: string;
         if (courseType === 'class') {
-          const classStoragePath = await getConfig("classStoragePath");
-          driveBasePath = classStoragePath || await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
+          const classStoragePath = await getConfig("classStoragePath", ctx.user.id);
+          driveBasePath = classStoragePath || await getConfig("driveBasePath", ctx.user.id) || "Mac/Documents/XDF/学生档案";
         } else {
-          driveBasePath = await getConfig("driveBasePath") || "Mac/Documents/XDF/学生档案";
+          driveBasePath = await getConfig("driveBasePath", ctx.user.id) || "Mac/Documents/XDF/学生档案";
         }
 
         // 构建文件名候选列表和搜索目录
@@ -2340,7 +2340,7 @@ export const appRouter = router({
         for (const candidateName of candidateFileNames) {
           const candidatePath = `${feedbackFolder}/${candidateName}`;
           try {
-            const buf = await readFileFromGoogleDrive(candidatePath);
+            const buf = await readFileFromGoogleDrive(ctx.user.id, candidatePath);
             if (buf.length > 0) {
               foundBuffer = buf;
               foundFileName = candidateName;
@@ -2927,7 +2927,7 @@ export const appRouter = router({
         expression: z.string().min(1, "请输入算术表达式"),
         studentName: z.string().default("李四"),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { expression, studentName } = input;
         
         const response = await invokeLLM({
@@ -2951,7 +2951,7 @@ export const appRouter = router({
         const folderPath = `Mac/Documents/XDF/学生档案/${studentName}/课后信息`;
         
         try {
-          const driveResult = await uploadToGoogleDrive(fileContent, fileName, folderPath);
+          const driveResult = await uploadToGoogleDrive(ctx.user.id, fileContent, fileName, folderPath);
           return {
             success: true,
             expression,

@@ -226,6 +226,7 @@ async function runTask(taskId: string) {
   if (tasks.length === 0) throw new Error(`任务不存在: ${taskId}`);
 
   const task = tasks[0];
+  const userId = task.userId;
   let params: TaskParams;
   try {
     params = JSON.parse(task.inputParams);
@@ -242,16 +243,16 @@ async function runTask(taskId: string) {
   await updateTask(taskId, { status: "running", currentStep: 0 });
 
   if (params.courseType === "one-to-one") {
-    await runOneToOneTask(taskId, params);
+    await runOneToOneTask(taskId, params, userId);
   } else {
-    await runClassTask(taskId, params);
+    await runClassTask(taskId, params, userId);
   }
 }
 
 /**
  * 一对一任务
  */
-async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
+async function runOneToOneTask(taskId: string, params: OneToOneTaskParams, userId: number) {
   const stepResults: StepResults = {};
   let feedbackContent = "";
   let dateStr = "";
@@ -259,12 +260,12 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
   let feedbackInput: FeedbackInput | null = null;
 
   // 获取配置
-  const apiModel = params.apiModel || (await getConfig("apiModel")) || DEFAULT_CONFIG.apiModel;
-  const apiKey = params.apiKey || (await getConfig("apiKey")) || DEFAULT_CONFIG.apiKey;
-  const apiUrl = params.apiUrl || (await getConfig("apiUrl")) || DEFAULT_CONFIG.apiUrl;
-  const roadmap = params.roadmap !== undefined ? params.roadmap : ((await getConfig("roadmap")) || DEFAULT_CONFIG.roadmap);
-  const driveBasePath = params.driveBasePath || (await getConfig("driveBasePath")) || DEFAULT_CONFIG.driveBasePath;
-  const currentYear = params.currentYear || (await getConfig("currentYear")) || DEFAULT_CONFIG.currentYear;
+  const apiModel = params.apiModel || (await getConfig("apiModel", userId)) || DEFAULT_CONFIG.apiModel;
+  const apiKey = params.apiKey || (await getConfig("apiKey", userId)) || DEFAULT_CONFIG.apiKey;
+  const apiUrl = params.apiUrl || (await getConfig("apiUrl", userId)) || DEFAULT_CONFIG.apiUrl;
+  const roadmap = params.roadmap !== undefined ? params.roadmap : ((await getConfig("roadmap", userId)) || DEFAULT_CONFIG.roadmap);
+  const driveBasePath = params.driveBasePath || (await getConfig("driveBasePath", userId)) || DEFAULT_CONFIG.driveBasePath;
+  const currentYear = params.currentYear || (await getConfig("currentYear", userId)) || DEFAULT_CONFIG.currentYear;
   const config = { apiModel, apiKey, apiUrl, roadmap };
   const taskStartTime = Date.now();
 
@@ -329,7 +330,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     const basePath = `${driveBasePath}/${params.studentName}`;
     const fileName = `${params.studentName}${params.lessonNumber || ""}.md`;
     const folderPath = `${basePath}/学情反馈`;
-    const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
+    const uploadResult = await uploadToGoogleDrive(userId, feedbackContent, fileName, folderPath);
     assertUploadSuccess(uploadResult, "学情反馈");
 
     const step1Duration = Math.round((Date.now() - step1Start) / 1000);
@@ -426,7 +427,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
-      const uploadResult = await uploadBinaryToGoogleDrive(reviewResult.buffer, fileName, folderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(userId, reviewResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "复习文档");
       return { step: "review" as const, fileName, uploadResult, chars: reviewResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
     })().then(r => { markDone("review", r); }, e => { markFailed("review", e); }),
@@ -449,7 +450,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
-      const uploadResult = await uploadBinaryToGoogleDrive(testResult.buffer, fileName, folderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(userId, testResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "测试文档");
       return { step: "test" as const, fileName, uploadResult, chars: testResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
     })().then(r => { markDone("test", r); }, e => { markFailed("test", e); }),
@@ -472,7 +473,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
-      const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+      const uploadResult = await uploadToGoogleDrive(userId, extractionContent, fileName, folderPath);
       assertUploadSuccess(uploadResult, "课后信息提取");
       return { step: "extraction" as const, fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000), content: extractionContent };
     })().then(r => { markDone("extraction", r); }, e => { markFailed("extraction", e); }),
@@ -485,7 +486,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
       const basePath = `${driveBasePath}/${params.studentName}`;
       const fileName = `${params.studentName}${params.lessonNumber || ""}气泡图.png`;
       const folderPath = `${basePath}/气泡图`;
-      const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(userId, pngBuffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "气泡图");
       return { step: "bubbleChart" as const, fileName, uploadResult, chars: pngBuffer.length, duration: Math.round((Date.now() - t) / 1000) };
     })().then(r => { markDone("bubbleChart", r); }, e => { markFailed("bubbleChart", e); }),
@@ -534,7 +535,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
     const logContent = logLines.join("\n");
     const logFileName = `${params.studentName}${params.lessonNumber || ""}生成日志.txt`;
     const logFolderPath = `${driveBasePath}/${params.studentName}/课后信息`;
-    await uploadToGoogleDrive(logContent, logFileName, logFolderPath);
+    await uploadToGoogleDrive(userId, logContent, logFileName, logFolderPath);
     console.log(`[后台任务] ${taskId} 生成日志已上传: ${logFileName}`);
   } catch (logErr: any) {
     console.error(`[后台任务] ${taskId} 生成日志上传失败:`, logErr?.message);
@@ -554,21 +555,21 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams) {
 /**
  * 小班课任务
  */
-async function runClassTask(taskId: string, params: ClassTaskParams) {
+async function runClassTask(taskId: string, params: ClassTaskParams, userId: number) {
   const stepResults: StepResults = {};
   let feedbackContent = "";
   let dateStr = "";
   let failedSteps = 0;
 
   // 获取配置
-  const apiModel = params.apiModel || (await getConfig("apiModel")) || DEFAULT_CONFIG.apiModel;
-  const apiKey = params.apiKey || (await getConfig("apiKey")) || DEFAULT_CONFIG.apiKey;
-  const apiUrl = params.apiUrl || (await getConfig("apiUrl")) || DEFAULT_CONFIG.apiUrl;
-  const roadmapClass = params.roadmapClass !== undefined ? params.roadmapClass : ((await getConfig("roadmapClass")) || "");
+  const apiModel = params.apiModel || (await getConfig("apiModel", userId)) || DEFAULT_CONFIG.apiModel;
+  const apiKey = params.apiKey || (await getConfig("apiKey", userId)) || DEFAULT_CONFIG.apiKey;
+  const apiUrl = params.apiUrl || (await getConfig("apiUrl", userId)) || DEFAULT_CONFIG.apiUrl;
+  const roadmapClass = params.roadmapClass !== undefined ? params.roadmapClass : ((await getConfig("roadmapClass", userId)) || "");
   // 小班课优先使用 classStoragePath（与 uploadClassFile 保持一致）
-  const classStoragePath = params.classStoragePath || (await getConfig("classStoragePath"));
-  const driveBasePath = classStoragePath || params.driveBasePath || (await getConfig("driveBasePath")) || DEFAULT_CONFIG.driveBasePath;
-  const currentYear = params.currentYear || (await getConfig("currentYear")) || DEFAULT_CONFIG.currentYear;
+  const classStoragePath = params.classStoragePath || (await getConfig("classStoragePath", userId));
+  const driveBasePath = classStoragePath || params.driveBasePath || (await getConfig("driveBasePath", userId)) || DEFAULT_CONFIG.driveBasePath;
+  const currentYear = params.currentYear || (await getConfig("currentYear", userId)) || DEFAULT_CONFIG.currentYear;
   const apiConfig = { apiModel, apiKey, apiUrl };
 
   const folderName = `${params.classNumber}班`;
@@ -629,7 +630,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
 
     const fileName = `${folderName}${params.lessonNumber || ""}.md`;
     const folderPath = `${basePath}/学情反馈`;
-    const uploadResult = await uploadToGoogleDrive(feedbackContent, fileName, folderPath);
+    const uploadResult = await uploadToGoogleDrive(userId, feedbackContent, fileName, folderPath);
     assertUploadSuccess(uploadResult, "班课学情反馈");
 
     const step1Duration = Math.round((Date.now() - step1Start) / 1000);
@@ -722,7 +723,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       if (!reviewResult.buffer || reviewResult.buffer.length === 0) throw new Error("复习文档生成为空");
       const fileName = `${folderName}${params.lessonNumber || ""}复习文档.docx`;
       const folderPath = `${basePath}/复习文档`;
-      const uploadResult = await uploadBinaryToGoogleDrive(reviewResult.buffer, fileName, folderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(userId, reviewResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "班课复习文档");
       return { fileName, uploadResult, chars: reviewResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
     })().then(r => { markDone("review", r); }, e => { markFailed("review", e); }),
@@ -744,7 +745,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       if (!testResult.buffer || testResult.buffer.length === 0) throw new Error("测试本生成为空");
       const fileName = `${folderName}${params.lessonNumber || ""}测试文档.docx`;
       const folderPath = `${basePath}/复习文档`;
-      const uploadResult = await uploadBinaryToGoogleDrive(testResult.buffer, fileName, folderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(userId, testResult.buffer, fileName, folderPath);
       assertUploadSuccess(uploadResult, "班课测试文档");
       return { fileName, uploadResult, chars: testResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
     })().then(r => { markDone("test", r); }, e => { markFailed("test", e); }),
@@ -766,7 +767,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
       if (!extractionContent || !extractionContent.trim()) throw new Error("课后信息提取为空");
       const fileName = `${folderName}${params.lessonNumber || ""}课后信息提取.md`;
       const folderPath = `${basePath}/课后信息`;
-      const uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+      const uploadResult = await uploadToGoogleDrive(userId, extractionContent, fileName, folderPath);
       assertUploadSuccess(uploadResult, "班课课后信息提取");
       return { fileName, uploadResult, chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000), content: extractionContent };
     })().then(r => { markDone("extraction", r); }, e => { markFailed("extraction", e); }),
@@ -838,7 +839,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
 
           const fileName = `${studentName}${params.lessonNumber || ""}气泡图.png`;
           const folderPath = `${basePath}/气泡图`;
-          const uploadResult = await uploadBinaryToGoogleDrive(pngBuffer, fileName, folderPath);
+          const uploadResult = await uploadBinaryToGoogleDrive(userId, pngBuffer, fileName, folderPath);
           assertUploadSuccess(uploadResult, `气泡图(${studentName})`);
           perStudentFiles.push({ fileName, url: uploadResult.url || "", path: uploadResult.path || "" });
           successCount++;
@@ -856,7 +857,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
           const debugContent = debugLines.join("\n");
           const debugFileName = `${folderName}${params.lessonNumber || ""}气泡图调试日志.txt`;
           const debugFolderPath = `${basePath}/课后信息`;
-          await uploadToGoogleDrive(debugContent, debugFileName, debugFolderPath);
+          await uploadToGoogleDrive(userId, debugContent, debugFileName, debugFolderPath);
           console.log(`[后台任务] ${taskId} 调试日志已上传（全部失败情况）`);
         } catch (e: any) { console.error(`[后台任务] 调试日志上传失败:`, e?.message); }
         throw new Error(`全部${students.length}个学生气泡图生成失败（最后错误见服务器日志）`);
@@ -867,7 +868,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams) {
         const debugContent = debugLines.join("\n");
         const debugFileName = `${folderName}${params.lessonNumber || ""}气泡图调试日志.txt`;
         const debugFolderPath = `${basePath}/课后信息`;
-        await uploadToGoogleDrive(debugContent, debugFileName, debugFolderPath);
+        await uploadToGoogleDrive(userId, debugContent, debugFileName, debugFolderPath);
         console.log(`[后台任务] ${taskId} 调试日志已上传: ${debugFileName}`);
       } catch (debugErr: any) {
         console.error(`[后台任务] ${taskId} 调试日志上传失败:`, debugErr?.message);

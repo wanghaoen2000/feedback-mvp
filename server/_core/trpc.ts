@@ -35,6 +35,7 @@ const requireUser = t.middleware(async opts => {
     ctx: {
       ...ctx,
       user: ctx.user,
+      userId: ctx.user.id, // 便捷访问，租户隔离使用
     },
   });
 });

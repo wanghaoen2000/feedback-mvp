@@ -495,7 +495,7 @@ export default function Home() {
   }, [activeTaskId, activeTaskMonitor.data]);
 
   // ========== 学生课次记忆功能 ==========
-  const STUDENT_LESSON_STORAGE_KEY = 'studentLessonHistoryV2';
+  const STUDENT_LESSON_STORAGE_KEY = `studentLessonHistoryV2_${authUser?.id || 'default'}`;
   const MAX_RECENT_STUDENTS = 30; // 最多保存30个最近学生
 
   // 学生记录类型
