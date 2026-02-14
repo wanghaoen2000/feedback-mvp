@@ -208,6 +208,24 @@ function buildSystemContext(studentName: string): string {
 }
 
 /**
+ * 预览发送处理的系统提示词（不调用AI，仅构建提示词）
+ */
+export async function previewEntryPrompt(userId: number, studentName: string): Promise<{
+  systemPrompt: string;
+  userMessageFormat: string;
+}> {
+  const hwPromptTemplate = await getConfigValue("hwPromptTemplate", userId);
+  const context = buildSystemContext(studentName);
+  const promptBody = (hwPromptTemplate && hwPromptTemplate.trim()) ? hwPromptTemplate.trim() : HW_DEFAULT_SYSTEM_PROMPT;
+  const systemPrompt = `${context}\n\n${promptBody}`;
+  const existingStatus = await getStudentLatestStatus(userId, studentName);
+  const userMessageFormat = existingStatus
+    ? `【该学生当前的状态文档】\n(${existingStatus.length}字, 已有状态)\n\n【本次新增信息（语音转文字原文）】\n(用户输入的文本内容)`
+    : `【语音转文字原文】\n(用户输入的文本内容)\n\n请按照系统提示中的格式要求，整理输出。`;
+  return { systemPrompt, userMessageFormat };
+}
+
+/**
  * 获取学生的最新状态文档（优先取预入库中最新的，否则取正式状态）
  */
 export async function getStudentLatestStatus(userId: number, studentName: string): Promise<string | null> {

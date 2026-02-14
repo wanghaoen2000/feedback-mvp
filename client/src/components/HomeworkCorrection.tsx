@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ChevronUp,
   UserPlus,
+  Eye,
 } from "lucide-react";
 
 // ============= 类型定义 =============
@@ -132,6 +133,13 @@ export function HomeworkCorrection() {
   const expandedTaskQuery = trpc.correction.getTask.useQuery(
     { id: expandedTaskId! },
     { enabled: expandedTaskId !== null },
+  );
+
+  // 提示词预览
+  const [showCorrPreview, setShowCorrPreview] = useState(false);
+  const corrPreviewQuery = trpc.correction.previewPrompt.useQuery(
+    { studentName: selectedStudent, correctionType: selectedType },
+    { enabled: !!selectedStudent && !!selectedType && showCorrPreview },
   );
 
   const submitMut = trpc.correction.submit.useMutation({
@@ -535,26 +543,52 @@ export function HomeworkCorrection() {
               支持拖拽/粘贴图片、Word、PDF、TXT
             </span>
           </div>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting || !selectedStudent || !selectedType}
-            size="sm"
-            className="bg-purple-600 hover:bg-purple-700"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                提交中...
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4 mr-1" />
-                提交批改
-              </>
+          <div className="flex items-center gap-2">
+            {selectedStudent && selectedType && (
+              <button
+                type="button"
+                onClick={() => setShowCorrPreview(!showCorrPreview)}
+                className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
+              >
+                <Eye className="w-3 h-3" />
+                预览
+              </button>
             )}
-          </Button>
+            <Button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isSubmitting || !selectedStudent || !selectedType}
+              size="sm"
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  提交中...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-1" />
+                  提交批改
+                </>
+              )}
+            </Button>
+          </div>
         </div>
+        {showCorrPreview && selectedStudent && selectedType && (
+          <div className="border rounded bg-gray-50 p-3 space-y-2 mt-2">
+            <div className="text-xs font-medium text-gray-500">系统提示词</div>
+            {corrPreviewQuery.isLoading ? (
+              <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />加载中...</div>
+            ) : corrPreviewQuery.data ? (
+              <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-48 overflow-y-auto">{corrPreviewQuery.data.systemPrompt}</pre>
+            ) : null}
+            <div className="text-xs font-medium text-gray-500">用户消息格式</div>
+            {corrPreviewQuery.data && (
+              <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-20 overflow-y-auto">{corrPreviewQuery.data.userMessageFormat}</pre>
+            )}
+          </div>
+        )}
 
         <input
           ref={imageInputRef}

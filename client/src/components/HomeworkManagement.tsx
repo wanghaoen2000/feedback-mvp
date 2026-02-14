@@ -200,6 +200,13 @@ export function HomeworkManagement() {
     },
   });
 
+  // --- 发送处理提示词预览 ---
+  const [showEntryPreview, setShowEntryPreview] = useState(false);
+  const entryPreviewQuery = trpc.homework.previewEntryPrompt.useQuery(
+    { studentName: selectedStudent },
+    { enabled: !!selectedStudent && showEntryPreview }
+  );
+
   // --- 一键打分相关 ---
   const [showGrading, setShowGrading] = useState(false);
   const [gradingYear, setGradingYear] = useState("");
@@ -936,7 +943,17 @@ export function HomeworkManagement() {
           className="text-sm"
           disabled={!selectedStudent}
         />
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-2">
+          {selectedStudent && (
+            <button
+              type="button"
+              onClick={() => setShowEntryPreview(!showEntryPreview)}
+              className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
+            >
+              <Eye className="w-3 h-3" />
+              预览发送内容
+            </button>
+          )}
           <Button
             onClick={handleSubmit}
             disabled={!selectedStudent || !inputText.trim() || submitEntryMut.isPending}
@@ -950,6 +967,20 @@ export function HomeworkManagement() {
             发送处理
           </Button>
         </div>
+        {showEntryPreview && selectedStudent && (
+          <div className="border rounded bg-gray-50 p-3 space-y-2">
+            <div className="text-xs font-medium text-gray-500">系统提示词</div>
+            {entryPreviewQuery.isLoading ? (
+              <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />加载中...</div>
+            ) : entryPreviewQuery.data ? (
+              <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-48 overflow-y-auto">{entryPreviewQuery.data.systemPrompt}</pre>
+            ) : null}
+            <div className="text-xs font-medium text-gray-500">用户消息格式</div>
+            {entryPreviewQuery.data && (
+              <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-20 overflow-y-auto">{entryPreviewQuery.data.userMessageFormat}</pre>
+            )}
+          </div>
+        )}
         {submitEntryMut.isError && (
           <p className="text-xs text-red-500 mt-1">
             <AlertCircle className="w-3 h-3 inline mr-1" />

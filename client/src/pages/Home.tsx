@@ -37,6 +37,7 @@ import {
   ArrowDown,
   BookOpen,
   PenLine,
+  Eye,
 } from "lucide-react";
 import { VERSION_DISPLAY } from "../version.generated";
 import { TaskHistory } from "@/components/TaskHistory";
@@ -460,6 +461,7 @@ export default function Home() {
   const [feedbackCopied, setFeedbackCopied] = useState(false); // 学情反馈是否已复制
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null); // 当前提交的后台任务ID
   const [hwImportStatus, setHwImportStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [showFeedbackPreview, setShowFeedbackPreview] = useState(false);
   const feedbackScrollRef = useRef<HTMLDivElement | null>(null); // 学情反馈内容滚动容器
   const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
   const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -757,6 +759,11 @@ export default function Home() {
   const bgTaskSubmitMutation = trpc.bgTask.submit.useMutation();
   const hwImportFromTaskMutation = trpc.homework.importFromTask.useMutation();
   const hwImportClassFromTaskMutation = trpc.homework.importClassFromTask.useMutation();
+  // 学情反馈提示词预览
+  const feedbackPreviewQuery = trpc.feedback.previewPrompts.useQuery(
+    { courseType, roadmap: courseType === 'oneToOne' ? roadmap : roadmapClass },
+    { enabled: showFeedbackPreview },
+  );
   // 加载配置
   useEffect(() => {
     if (configQuery.data && !configLoaded) {
@@ -3692,7 +3699,15 @@ export default function Home() {
                   </div>
                 );
               })()}
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFeedbackPreview(!showFeedbackPreview)}
+                  className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5 shrink-0"
+                >
+                  <Eye className="w-3 h-3" />
+                  预览
+                </button>
                 <Button
                   type="submit"
                   className="flex-1 h-11 text-base"
@@ -3729,6 +3744,24 @@ export default function Home() {
                 )}
               </div>
             </form>
+
+            {/* 提示词预览面板 */}
+            {showFeedbackPreview && (
+              <div className="mt-3 border rounded bg-gray-50 p-3 space-y-2">
+                <div className="text-xs font-medium text-gray-500">各步骤系统提示词（{courseType === 'oneToOne' ? '一对一' : '小班课'}）</div>
+                {feedbackPreviewQuery.isLoading ? (
+                  <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />加载中...</div>
+                ) : feedbackPreviewQuery.data ? (
+                  Object.entries(feedbackPreviewQuery.data).map(([step, prompt]) => (
+                    <details key={step} className="group">
+                      <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">{step}</summary>
+                      <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-48 overflow-y-auto mt-1">{prompt as string}</pre>
+                    </details>
+                  ))
+                ) : null}
+                <div className="text-xs text-gray-500">用户消息 = 学生信息 + 上次反馈 + 本次课笔记 + 录音转文字</div>
+              </div>
+            )}
 
             {/* 实时进度显示 */}
             {(isGenerating || isComplete || hasError) && (

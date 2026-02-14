@@ -42,6 +42,7 @@ import {
   generateClassTestContent,
   generateClassExtractionContent,
   generateClassBubbleChartSVG,
+  previewFeedbackPrompts,
 } from "./feedbackGenerator";
 import { storeContent } from "./contentStore";
 import { DEFAULT_CONFIG, getConfigValue as getConfig, isEmailAllowed, setUserConfigValue, deleteUserConfigValue } from "./core/aiClient";
@@ -68,6 +69,7 @@ import {
   importStudentBackup,
   autoBackupToGDrive,
   performWeeklyGrading,
+  previewEntryPrompt,
 } from "./homeworkManager";
 
 // 设置配置值
@@ -557,6 +559,16 @@ export const appRouter = router({
 
   // 学情反馈生成 - 拆分为5个独立端点
   feedback: router({
+    // 预览各步骤的系统提示词
+    previewPrompts: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["oneToOne", "class"]),
+        roadmap: z.string().optional(),
+      }))
+      .query(({ input }) => {
+        return previewFeedbackPrompts(input.courseType as 'oneToOne' | 'class', input.roadmap);
+      }),
+
     // 步骤1: 生成学情反馈
     generateFeedback: protectedProcedure
       .input(feedbackInputSchema)
@@ -2720,6 +2732,13 @@ export const appRouter = router({
         );
       }),
 
+    // 预览发送处理的系统提示词
+    previewEntryPrompt: protectedProcedure
+      .input(z.object({ studentName: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        return previewEntryPrompt(ctx.user.id, input.studentName);
+      }),
+
     // 获取学生当前状态文档
     getStudentStatus: protectedProcedure
       .input(z.object({ studentName: z.string().min(1) }))
@@ -2859,6 +2878,17 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         await setUserConfigValue(ctx.user.id, "correctionPrompt", input.prompt);
         return { success: true };
+      }),
+
+    // 预览批改系统提示词
+    previewPrompt: protectedProcedure
+      .input(z.object({
+        studentName: z.string().min(1),
+        correctionType: z.string().min(1),
+      }))
+      .query(async ({ input, ctx }) => {
+        const { previewCorrectionPrompt } = await import("./correctionRunner");
+        return previewCorrectionPrompt(ctx.user.id, input.studentName, input.correctionType);
       }),
 
     // 获取批改配置（AI模型）
