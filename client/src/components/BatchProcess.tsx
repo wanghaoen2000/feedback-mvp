@@ -17,6 +17,7 @@ import {
   File,
   Image,
   Trash2,
+  Eye,
 } from "lucide-react";
 import { BatchTaskHistory } from "./BatchTaskHistory";
 
@@ -67,6 +68,7 @@ export function BatchProcess() {
 
   // 路书内容
   const [roadmap, setRoadmap] = useState("");
+  const [showPromptPreview, setShowPromptPreview] = useState(false);
 
   // 独立文件上传（每个任务对应不同文件）
   const [uploadedFiles, setUploadedFiles] = useState<Map<number, UploadedFile>>(new Map());
@@ -741,25 +743,54 @@ export function BatchProcess() {
           )}
 
           {/* 按钮区域 */}
-          <div className="flex justify-center pt-4">
-            <Button
-              onClick={handleSubmit}
-              size="lg"
-              className="px-8"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  正在提交...
-                </>
-              ) : (
-                <>
-                  <Play className="w-5 h-5 mr-2" />
-                  开始批量生成
-                </>
-              )}
-            </Button>
+          <div className="flex flex-col items-center gap-2 pt-4">
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={handleSubmit}
+                size="lg"
+                className="px-8"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    正在提交...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-5 h-5 mr-2" />
+                    开始批量生成
+                  </>
+                )}
+              </Button>
+              <button
+                type="button"
+                onClick={() => setShowPromptPreview(!showPromptPreview)}
+                className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
+              >
+                <Eye className="w-3 h-3" />
+                预览发送内容
+              </button>
+            </div>
+            {showPromptPreview && (
+              <div className="w-full border rounded bg-gray-50 p-3 space-y-2 text-left">
+                <div className="text-xs font-medium text-gray-500">系统提示词（每个任务共用）</div>
+                <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-60 overflow-y-auto">{
+                  `<路书提示词>\n${roadmap.trim() || '(未填写路书)'}\n</路书提示词>\n${
+                    templateType === 'word_card' ? '【输出格式要求 - 词汇卡片】\n(JSON结构: listNumber, sceneName, words[...])\n' :
+                    templateType === 'writing_material' ? '【输出格式要求 - 写作素材】\n(JSON结构: partNum, categories[...])\n' : ''
+                  }【重要】请直接输出结果，不要与用户互动，不要询问任何问题。`
+                }</pre>
+                <div className="text-xs font-medium text-gray-500">用户消息（示例：任务1）</div>
+                <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded border max-h-20 overflow-y-auto">{
+                  `这是任务编号 ${startNumber || 1}，请按照路书要求生成内容。${
+                    sharedFiles.length > 0 ? `\n\n<共享文档>\n(${sharedFiles.length}个共享文件的提取文本)\n</共享文档>` : ''
+                  }${
+                    uploadedFiles.size > 0 ? `\n\n<单独文档>\n(该任务对应的独立文件文本)\n</单独文档>` : ''
+                  }`
+                }</pre>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -30,6 +30,8 @@ import {
   Database,
   Download,
   Upload,
+  Star,
+  Eye,
 } from "lucide-react";
 
 // ============= 学生名片按钮组件 =============
@@ -198,6 +200,49 @@ export function HomeworkManagement() {
     },
   });
 
+  // --- 一键打分相关 ---
+  const [showGrading, setShowGrading] = useState(false);
+  const [gradingYear, setGradingYear] = useState("");
+  const [gradingStartMonth, setGradingStartMonth] = useState("");
+  const [gradingStartDay, setGradingStartDay] = useState("");
+  const [gradingEndMonth, setGradingEndMonth] = useState("");
+  const [gradingEndDay, setGradingEndDay] = useState("");
+  const [gradingPrompt, setGradingPrompt] = useState("");
+  const [gradingNotes, setGradingNotes] = useState("");
+  const [gradingResult, setGradingResult] = useState("");
+  const [gradingResultCopied, setGradingResultCopied] = useState(false);
+  const [showGradingPreview, setShowGradingPreview] = useState(false);
+  const weeklyGradingMut = trpc.homework.weeklyGrading.useMutation();
+
+  // 计算星期（硬编码）
+  const getDayOfWeek = useCallback((y: number, m: number, d: number): string => {
+    const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const date = new Date(y, m - 1, d);
+    if (isNaN(date.getTime())) return '';
+    return days[date.getDay()];
+  }, []);
+
+  const gradingStartDow = useMemo(() => {
+    const y = parseInt(gradingYear), m = parseInt(gradingStartMonth), d = parseInt(gradingStartDay);
+    return (y && m && d) ? getDayOfWeek(y, m, d) : '';
+  }, [gradingYear, gradingStartMonth, gradingStartDay, getDayOfWeek]);
+
+  const gradingEndDow = useMemo(() => {
+    const y = parseInt(gradingYear), m = parseInt(gradingEndMonth), d = parseInt(gradingEndDay);
+    return (y && m && d) ? getDayOfWeek(y, m, d) : '';
+  }, [gradingYear, gradingEndMonth, gradingEndDay, getDayOfWeek]);
+
+  // 构建系统提示词预览
+  const gradingSystemPromptPreview = useMemo(() => {
+    const y = gradingYear, sm = gradingStartMonth?.padStart(2, '0'), sd = gradingStartDay?.padStart(2, '0');
+    const em = gradingEndMonth?.padStart(2, '0'), ed = gradingEndDay?.padStart(2, '0');
+    const startStr = `${y}-${sm}-${sd}（${gradingStartDow}）`;
+    const endStr = `${y}-${em}-${ed}（${gradingEndDow}）`;
+    const parts = [`评分时间段：${startStr} 至 ${endStr}`, '', '<打分要求>', gradingPrompt.trim() || '(未配置)', '</打分要求>'];
+    if (gradingNotes.trim()) parts.push('', '<额外说明>', gradingNotes.trim(), '</额外说明>');
+    return parts.join('\n');
+  }, [gradingYear, gradingStartMonth, gradingStartDay, gradingEndMonth, gradingEndDay, gradingStartDow, gradingEndDow, gradingPrompt, gradingNotes]);
+
   // --- 学生当前状态 ---
   const studentStatusQuery = trpc.homework.getStudentStatus.useQuery(
     { studentName: selectedStudent },
@@ -209,8 +254,27 @@ export function HomeworkManagement() {
     if (hwConfigQuery.data) {
       setLocalModel(hwConfigQuery.data.hwAiModel || "");
       setLocalPrompt(hwConfigQuery.data.hwPromptTemplate || "");
+      if (hwConfigQuery.data.gradingPrompt) setGradingPrompt(hwConfigQuery.data.gradingPrompt);
     }
   }, [hwConfigQuery.data]);
+
+  // 初始化打分日期默认值
+  useEffect(() => {
+    const now = new Date();
+    const bjNow = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+    const bjYear = bjNow.getUTCFullYear();
+    // 年份：优先用服务器记忆值
+    const savedYear = hwConfigQuery.data?.gradingYear;
+    setGradingYear(savedYear || String(bjYear));
+    // 截止日期 = 昨天
+    const endDate = new Date(bjNow.getTime() - 24 * 60 * 60 * 1000);
+    setGradingEndMonth(String(endDate.getUTCMonth() + 1));
+    setGradingEndDay(String(endDate.getUTCDate()));
+    // 起始日期 = 7天前
+    const startDate = new Date(bjNow.getTime() - 7 * 24 * 60 * 60 * 1000);
+    setGradingStartMonth(String(startDate.getUTCMonth() + 1));
+    setGradingStartDay(String(startDate.getUTCDate()));
+  }, [hwConfigQuery.data?.gradingYear]);
 
   // 复制状态自动重置
   useEffect(() => {
@@ -327,6 +391,15 @@ export function HomeworkManagement() {
           >
             <Database className="w-4 h-4" />
             <span className="hidden sm:inline ml-1">数据</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowGrading(!showGrading)}
+            className="h-8"
+          >
+            <Star className="w-4 h-4" />
+            <span className="hidden sm:inline ml-1">打分</span>
           </Button>
         </div>
       </div>
@@ -630,6 +703,191 @@ export function HomeworkManagement() {
 
             {previewBackupMut.isError && (
               <p className="text-xs text-red-500">文件解析失败: {previewBackupMut.error?.message}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ===== 一键打分面板 ===== */}
+      {showGrading && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardContent className="pt-4 space-y-3">
+            {/* 打分提示词 */}
+            <div>
+              <Label className="text-xs text-gray-600 mb-1 block">打分提示词（保存后每次复用）</Label>
+              <Textarea
+                value={gradingPrompt}
+                onChange={(e) => setGradingPrompt(e.target.value)}
+                placeholder="请输入打分的规则和要求..."
+                className="text-sm resize-none bg-white"
+                rows={5}
+                style={{ maxHeight: '8rem' }}
+              />
+              <div className="flex justify-end mt-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => updateHwConfigMut.mutate({ gradingPrompt })}
+                  disabled={updateHwConfigMut.isPending}
+                >
+                  <Save className="w-3 h-3 mr-1" />
+                  {updateHwConfigMut.isPending ? "保存中..." : "保存提示词"}
+                </Button>
+              </div>
+            </div>
+
+            {/* 日期范围选择 */}
+            <div className="space-y-2">
+              <Label className="text-xs text-gray-600 block">评分日期范围</Label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-gray-500">年</span>
+                  <Input
+                    type="number"
+                    value={gradingYear}
+                    onChange={(e) => setGradingYear(e.target.value)}
+                    onBlur={() => {
+                      if (gradingYear && gradingYear !== (hwConfigQuery.data?.gradingYear || '')) {
+                        updateHwConfigMut.mutate({ gradingYear });
+                      }
+                    }}
+                    className="w-20 h-8 text-sm text-center"
+                    min={2020}
+                    max={2099}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap text-sm">
+                <span className="text-xs text-gray-500 shrink-0">起始</span>
+                <Input
+                  type="number"
+                  value={gradingStartMonth}
+                  onChange={(e) => setGradingStartMonth(e.target.value)}
+                  className="w-14 h-8 text-sm text-center"
+                  placeholder="月"
+                  min={1} max={12}
+                />
+                <span className="text-gray-400">月</span>
+                <Input
+                  type="number"
+                  value={gradingStartDay}
+                  onChange={(e) => setGradingStartDay(e.target.value)}
+                  className="w-14 h-8 text-sm text-center"
+                  placeholder="日"
+                  min={1} max={31}
+                />
+                <span className="text-gray-400">日</span>
+                {gradingStartDow && <span className="text-blue-600 font-medium text-xs">({gradingStartDow})</span>}
+
+                <span className="text-gray-400 mx-1">—</span>
+
+                <span className="text-xs text-gray-500 shrink-0">截止</span>
+                <Input
+                  type="number"
+                  value={gradingEndMonth}
+                  onChange={(e) => setGradingEndMonth(e.target.value)}
+                  className="w-14 h-8 text-sm text-center"
+                  placeholder="月"
+                  min={1} max={12}
+                />
+                <span className="text-gray-400">月</span>
+                <Input
+                  type="number"
+                  value={gradingEndDay}
+                  onChange={(e) => setGradingEndDay(e.target.value)}
+                  className="w-14 h-8 text-sm text-center"
+                  placeholder="日"
+                  min={1} max={31}
+                />
+                <span className="text-gray-400">日</span>
+                {gradingEndDow && <span className="text-blue-600 font-medium text-xs">({gradingEndDow})</span>}
+              </div>
+            </div>
+
+            {/* 额外说明 */}
+            <div>
+              <Label className="text-xs text-gray-600 mb-1 block">额外说明（可选，本次使用）</Label>
+              <Textarea
+                value={gradingNotes}
+                onChange={(e) => setGradingNotes(e.target.value)}
+                placeholder="本次打分的补充说明..."
+                className="text-sm resize-none bg-white"
+                rows={2}
+              />
+            </div>
+
+            {/* 操作按钮 */}
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={async () => {
+                  if (!gradingPrompt.trim()) return;
+                  const y = gradingYear, sm = gradingStartMonth.padStart(2, '0'), sd = gradingStartDay.padStart(2, '0');
+                  const em = gradingEndMonth.padStart(2, '0'), ed = gradingEndDay.padStart(2, '0');
+                  setGradingResult("");
+                  try {
+                    const res = await weeklyGradingMut.mutateAsync({
+                      startDate: `${y}-${sm}-${sd}`,
+                      endDate: `${y}-${em}-${ed}`,
+                      gradingPrompt: gradingPrompt.trim(),
+                      userNotes: gradingNotes.trim(),
+                    });
+                    setGradingResult(res.result);
+                  } catch {}
+                }}
+                disabled={weeklyGradingMut.isPending || !gradingPrompt.trim() || !gradingYear || !gradingStartMonth || !gradingStartDay || !gradingEndMonth || !gradingEndDay}
+                className="bg-amber-500 hover:bg-amber-600 text-white"
+              >
+                {weeklyGradingMut.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-1" />打分中...</> : <><Star className="w-4 h-4 mr-1" />开始打分</>}
+              </Button>
+              <button
+                type="button"
+                onClick={() => setShowGradingPreview(!showGradingPreview)}
+                className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
+              >
+                <Eye className="w-3 h-3" />
+                预览发送内容
+              </button>
+            </div>
+
+            {/* 系统提示词预览 */}
+            {showGradingPreview && (
+              <div className="border rounded bg-white p-3 space-y-2">
+                <div className="text-xs font-medium text-gray-500">系统提示词（发送给AI）</div>
+                <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-gray-50 p-2 rounded max-h-40 overflow-y-auto">{gradingSystemPromptPreview}</pre>
+                <div className="text-xs font-medium text-gray-500">用户消息</div>
+                <p className="text-xs text-gray-500">= 所有学生的完整状态数据（与「一键导出」相同格式）</p>
+              </div>
+            )}
+
+            {/* 错误提示 */}
+            {weeklyGradingMut.isError && (
+              <p className="text-xs text-red-500">打分失败: {weeklyGradingMut.error?.message}</p>
+            )}
+
+            {/* 打分结果 */}
+            {gradingResult && (
+              <div className="border rounded bg-white p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-500">打分结果</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 text-xs"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(gradingResult);
+                        setGradingResultCopied(true);
+                        setTimeout(() => setGradingResultCopied(false), 2000);
+                      } catch {}
+                    }}
+                  >
+                    {gradingResultCopied ? <><Check className="w-3 h-3 mr-1" />已复制</> : <><Copy className="w-3 h-3 mr-1" />复制</>}
+                  </Button>
+                </div>
+                <pre className="text-sm text-gray-800 whitespace-pre-wrap bg-gray-50 p-3 rounded max-h-96 overflow-y-auto">{gradingResult}</pre>
+              </div>
             )}
           </CardContent>
         </Card>

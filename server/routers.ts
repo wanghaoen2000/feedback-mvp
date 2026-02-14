@@ -67,6 +67,7 @@ import {
   previewBackup,
   importStudentBackup,
   autoBackupToGDrive,
+  performWeeklyGrading,
 } from "./homeworkManager";
 
 // 设置配置值
@@ -2667,10 +2668,14 @@ export const appRouter = router({
         const hwAiModel = await getConfig("hwAiModel");
         const hwPromptTemplate = await getConfig("hwPromptTemplate");
         const modelPresets = await getConfig("modelPresets");
+        const gradingPrompt = await getConfig("gradingPrompt");
+        const gradingYear = await getConfig("gradingYear");
         return {
           hwAiModel: hwAiModel || "",
           hwPromptTemplate: hwPromptTemplate || "",
           modelPresets: modelPresets || "",
+          gradingPrompt: gradingPrompt || "",
+          gradingYear: gradingYear || "",
         };
       }),
 
@@ -2678,6 +2683,8 @@ export const appRouter = router({
       .input(z.object({
         hwAiModel: z.string().optional(),
         hwPromptTemplate: z.string().optional(),
+        gradingPrompt: z.string().optional(),
+        gradingYear: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         if (input.hwAiModel !== undefined) {
@@ -2686,7 +2693,31 @@ export const appRouter = router({
         if (input.hwPromptTemplate !== undefined) {
           await setConfig("hwPromptTemplate", input.hwPromptTemplate, "学生管理提示词");
         }
+        if (input.gradingPrompt !== undefined) {
+          await setConfig("gradingPrompt", input.gradingPrompt, "打分提示词");
+        }
+        if (input.gradingYear !== undefined) {
+          await setConfig("gradingYear", input.gradingYear, "打分默认年份");
+        }
         return { success: true };
+      }),
+
+    // 一键打分
+    weeklyGrading: protectedProcedure
+      .input(z.object({
+        startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        gradingPrompt: z.string().min(1, "打分提示词不能为空"),
+        userNotes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        return performWeeklyGrading(
+          ctx.user.id,
+          input.startDate,
+          input.endDate,
+          input.gradingPrompt,
+          input.userNotes || "",
+        );
       }),
 
     // 获取学生当前状态文档
