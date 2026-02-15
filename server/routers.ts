@@ -12,6 +12,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
+import { ENV } from "./_core/env";
 import { systemConfig, users, userConfig, backgroundTasks, hwStudents, hwEntries, batchTasks, batchTaskItems, correctionTasks, gradingTasks, gradingSyncItems } from "../drizzle/schema";
 import { uploadToGoogleDrive, uploadBinaryToGoogleDrive, verifyAllFiles, UploadStatus, readFileFromGoogleDrive, verifyFileExists, searchFileInGoogleDrive } from "./gdrive";
 import { parseError, formatErrorMessage, StructuredError } from "./errorHandler";
@@ -440,8 +441,9 @@ export const appRouter = router({
     // 获取所有配置（仅读取用户自己的 user_config + DEFAULT_CONFIG）
     getAll: protectedProcedure.query(async ({ ctx }) => {
       const uid = ctx.user.id;
-      // 管理员首次访问时自动迁移 systemConfig 旧数据到 user_config
-      if (ctx.user.role === 'admin') {
+      // 仅 owner（ENV.ownerOpenId）首次访问时迁移 systemConfig 旧数据到 user_config
+      // 不对其他 admin 执行，防止将 owner 的数据复制给其他管理员
+      if (ctx.user.role === 'admin' && ctx.user.openId === ENV.ownerOpenId) {
         await migrateSystemConfigToAdmin(uid);
       }
       // 并行查询所有配置值（仅用户级，不穿透到 systemConfig）
@@ -843,21 +845,8 @@ export const appRouter = router({
         userConfigMap[c.key] = c.value;
       }
 
-      // 2. 读取全局系统配置（作为 fallback，用户可能依赖全局值）
-      const sysConfigs = await db.select({
-        key: systemConfig.key,
-        value: systemConfig.value,
-      }).from(systemConfig);
-
-      const sysConfigMap: Record<string, string> = {};
-      for (const c of sysConfigs) {
-        // 跳过 allowedEmails（全局管理，非用户数据）
-        if (c.key === "allowedEmails") continue;
-        sysConfigMap[c.key] = c.value;
-      }
-
-      // 3. 合并：用户配置优先，不存在的 key 用全局配置填充
-      const mergedConfig: Record<string, string> = { ...sysConfigMap, ...userConfigMap };
+      // 2. 仅导出用户自己的配置 + DEFAULT_CONFIG 填充缺失值（不再读取 systemConfig 防止跨租户泄露）
+      const mergedConfig: Record<string, string> = { ...DEFAULT_CONFIG, ...userConfigMap };
 
       // 4. 安全处理：遮蔽 API Key（只保留后4位）
       if (mergedConfig.apiKey) {
@@ -972,6 +961,17 @@ export const appRouter = router({
       .mutation(async ({ ctx }) => {
         await deleteUserConfigValue(ctx.user.id, "studentLessonHistory");
         return { success: true };
+      }),
+
+    // 清除当前用户的所有配置（用于修复 migrateSystemConfigToAdmin 导致的跨账户数据污染）
+    clearAllMyConfig: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        const uid = ctx.user.id;
+        const db = await getDb();
+        if (!db) throw new Error("数据库不可用");
+        await ensureUserConfigTable();
+        const deleted = await db.delete(userConfig).where(eq(userConfig.userId, uid));
+        return { success: true, message: `已清除用户 ${uid} 的所有配置` };
       }),
   }),
 
