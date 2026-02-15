@@ -33,25 +33,36 @@ const menuItems = [
   { icon: Users, label: "Page 2", path: "/some-path" },
 ];
 
-const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
+
+function getSidebarWidthKey(userId?: number | null) {
+  return userId ? `sidebar-width_${userId}` : "sidebar-width";
+}
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const { loading, user } = useAuth();
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    const saved = localStorage.getItem(getSidebarWidthKey((user as any)?.id));
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
-  const { loading, user } = useAuth();
+
+  // 用户加载后，重新读取该用户的 sidebar 宽度偏好
+  useEffect(() => {
+    if (user) {
+      const saved = localStorage.getItem(getSidebarWidthKey((user as any).id));
+      if (saved) setSidebarWidth(parseInt(saved, 10));
+    }
+  }, [user]);
 
   useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
-  }, [sidebarWidth]);
+    localStorage.setItem(getSidebarWidthKey((user as any)?.id), sidebarWidth.toString());
+  }, [sidebarWidth, user]);
 
   if (loading) {
     return <DashboardLayoutSkeleton />

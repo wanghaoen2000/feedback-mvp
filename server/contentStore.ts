@@ -3,12 +3,14 @@
  * 前端生成 taskId 传给后端，后端用 taskId 存入内容
  * 前端通过 HTTP GET 拉取，SSE 连接断开也不影响
  * 内容自动过期清理，避免内存泄漏
+ * 增加 userId 归属校验，防止跨租户内容访问
  */
 
 interface StoredContent {
   content: string;
   meta?: Record<string, any>;
   createdAt: number;
+  userId?: number;
 }
 
 const TTL = 30 * 60 * 1000; // 30 分钟过期（长生成可能耗时10分钟+用户查看时间）
@@ -25,19 +27,21 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-/** 用指定 taskId 存入内容和附加信息 */
-export function storeContent(taskId: string, content: string, meta?: Record<string, any>): void {
+/** 用指定 taskId 存入内容和附加信息（记录 userId 归属） */
+export function storeContent(taskId: string, content: string, meta?: Record<string, any>, userId?: number): void {
   // 超过上限时淘汰最老的条目
   if (store.size >= MAX_ITEMS) {
     const oldest = store.keys().next().value; // Map 按插入顺序，第一个即最老
     if (oldest) store.delete(oldest);
   }
-  store.set(taskId, { content, meta, createdAt: Date.now() });
+  store.set(taskId, { content, meta, createdAt: Date.now(), userId });
 }
 
-/** 查询内容（不删除，允许轮询） */
-export function retrieveContent(taskId: string): { content: string; meta?: Record<string, any> } | null {
+/** 查询内容（不删除，允许轮询）。传入 userId 时校验归属，不匹配返回 null */
+export function retrieveContent(taskId: string, userId?: number): { content: string; meta?: Record<string, any> } | null {
   const item = store.get(taskId);
   if (!item) return null;
+  // userId 校验：如果内容有归属且请求方身份已知，两者必须匹配
+  if (item.userId && userId && item.userId !== userId) return null;
   return { content: item.content, meta: item.meta };
 }

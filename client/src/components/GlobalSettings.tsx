@@ -826,7 +826,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                     className="flex-1"
                   />
                   <Input
-                    placeholder="邮箱（可选）"
+                    placeholder="邮箱（必填）"
                     value={newUserEmail}
                     onChange={(e) => setNewUserEmail(e.target.value)}
                     className="flex-1"
@@ -848,7 +848,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                     try {
                       await createUserMut.mutateAsync({
                         name: newUserName.trim(),
-                        email: newUserEmail.trim() || undefined,
+                        email: newUserEmail.trim(),
                         role: newUserRole,
                       });
                       setNewUserName("");
@@ -859,7 +859,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                       alert("创建失败: " + (err?.message || "未知错误"));
                     }
                   }}
-                  disabled={!newUserName.trim() || createUserMut.isPending}
+                  disabled={!newUserName.trim() || !newUserEmail.trim() || createUserMut.isPending}
                 >
                   {createUserMut.isPending ? (
                     <Loader2 className="h-3 w-3 mr-1 animate-spin" />
@@ -972,7 +972,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                                     {/* 切换视角 */}
                                     <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" title="以该用户身份查看"
                                       onClick={async () => {
-                                        if (!confirm(`切换到用户 "${u.name}" 的视角？`)) return;
+                                        if (!confirm(`切换到用户 "${u.name || '-'}"（${u.email || '无邮箱'}）的视角？`)) return;
                                         try {
                                           await impersonateMut.mutateAsync({ userId: u.id });
                                           window.location.reload();
@@ -998,7 +998,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                                     ) : (
                                       <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-orange-600 hover:text-orange-700" title="暂停用户（保留数据）"
                                         onClick={async () => {
-                                          if (!confirm(`暂停用户 "${u.name}"？\n\n暂停后该用户立即无法使用系统，但所有数据保留。可随时恢复。`)) return;
+                                          if (!confirm(`暂停用户 "${u.name || '-'}"（${u.email || '无邮箱'}）？\n\n暂停后该用户立即无法使用系统，但所有数据保留。可随时恢复。`)) return;
                                           try {
                                             await suspendUserMut.mutateAsync({ userId: u.id });
                                             usersQuery.refetch();
@@ -1012,7 +1012,7 @@ export function GlobalSettings({ disabled }: GlobalSettingsProps) {
                                     {/* 删除 */}
                                     <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-destructive hover:text-destructive" title="彻底删除用户及所有数据"
                                       onClick={async () => {
-                                        if (!confirm(`⚠️ 彻底删除用户 "${u.name}"？\n\n此操作将永久清除该用户的所有数据：\n- 个人配置\n- 作业管理记录\n- 批量任务记录\n- 批改/打分记录\n- 后台任务记录\n\n此操作不可逆！`)) return;
+                                        if (!confirm(`⚠️ 彻底删除用户 "${u.name || '-'}"（${u.email || '无邮箱'}）？\n\n此操作将永久清除该用户的所有数据：\n- 个人配置\n- 作业管理记录\n- 批量任务记录\n- 批改/打分记录\n- 后台任务记录\n\n此操作不可逆！`)) return;
                                         try {
                                           await deleteUserMut.mutateAsync({ userId: u.id });
                                           usersQuery.refetch();

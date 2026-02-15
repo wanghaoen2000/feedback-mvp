@@ -50,9 +50,9 @@ export interface UploadStatus {
 /**
  * 验证文件是否存在于Google Drive（通过 OAuth API）
  */
-export async function verifyFileExists(filePath: string): Promise<{ exists: boolean; size?: number }> {
+export async function verifyFileExists(userId: number, filePath: string): Promise<{ exists: boolean; size?: number }> {
   try {
-    const token = await getValidToken();
+    const token = await getValidToken(userId);
     if (!token) return { exists: false };
 
     const parts = filePath.split('/').filter(p => p);
@@ -232,6 +232,7 @@ async function uploadWithRetry<T>(
  * 优先使用OAuth，如果没有OAuth token则fallback到rclone
  */
 export async function uploadToGoogleDrive(
+  userId: number,
   content: string,
   fileName: string,
   folderPath: string,
@@ -251,7 +252,7 @@ export async function uploadToGoogleDrive(
   // 尝试使用OAuth上传（带重试，防止网络抖动导致一次性失败）
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const token = await getValidToken();
+      const token = await getValidToken(userId);
       if (!token) break; // 无token，跳到rclone
 
       console.log(`[GDrive] 使用OAuth上传: ${fileName}${attempt > 0 ? ` (第${attempt + 1}次)` : ''}`);
@@ -287,23 +288,23 @@ export async function uploadToGoogleDrive(
   console.log(`[GDrive] 使用rclone上传: ${fileName}`);
   const tempDir = os.tmpdir();
   const tempFilePath = path.join(tempDir, fileName);
-  
+
   // 内部上传函数（用于重试）
   const doUpload = async (): Promise<UploadStatus> => {
     updateStatus({ status: 'uploading', message: '正在创建文件夹...' });
     await fs.promises.writeFile(tempFilePath, content, "utf-8");
-    
+
     const mkdirCmd = `rclone mkdir "${REMOTE_NAME}:${folderPath}" --config ${RCLONE_CONFIG}`;
     await execAsync(mkdirCmd);
-    
+
     updateStatus({ message: '正在上传文件...' });
     const copyCmd = `rclone copy "${tempFilePath}" "${REMOTE_NAME}:${folderPath}/" --config ${RCLONE_CONFIG}`;
     await execAsync(copyCmd);
-    
+
     const fullPath = `${folderPath}/${fileName}`;
-    
+
     updateStatus({ status: 'verifying', message: '正在验证文件...' });
-    const verification = await verifyFileExists(fullPath);
+    const verification = await verifyFileExists(userId, fullPath);
     
     if (!verification.exists) {
       throw new Error('文件上传后验证失败，文件可能未成功保存');
@@ -359,6 +360,7 @@ export async function uploadToGoogleDrive(
  * 优先使用OAuth，如果没有OAuth token则fallback到rclone
  */
 export async function uploadBinaryToGoogleDrive(
+  userId: number,
   content: Buffer,
   fileName: string,
   folderPath: string,
@@ -378,7 +380,7 @@ export async function uploadBinaryToGoogleDrive(
   // 尝试使用OAuth上传（带重试，防止网络抖动导致一次性失败）
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const token = await getValidToken();
+      const token = await getValidToken(userId);
       if (!token) break; // 无token，跳到rclone
 
       console.log(`[GDrive] 使用OAuth上传二进制文件: ${fileName}${attempt > 0 ? ` (第${attempt + 1}次)` : ''}`);
@@ -430,17 +432,17 @@ export async function uploadBinaryToGoogleDrive(
     const fullPath = `${folderPath}/${fileName}`;
     
     updateStatus({ status: 'verifying', message: '正在验证文件...' });
-    const verification = await verifyFileExists(fullPath);
-    
+    const verification = await verifyFileExists(userId, fullPath);
+
     if (!verification.exists) {
       throw new Error('文件上传后验证失败，文件可能未成功保存');
     }
-    
+
     updateStatus({ message: '正在获取分享链接...' });
     const linkCmd = `rclone link "${REMOTE_NAME}:${fullPath}" --config ${RCLONE_CONFIG}`;
     const { stdout } = await execAsync(linkCmd);
     const url = stdout.trim();
-    
+
     updateStatus({
       status: 'success',
       message: '上传成功',
@@ -449,10 +451,10 @@ export async function uploadBinaryToGoogleDrive(
       verified: true,
       fileSize: verification.size,
     });
-    
+
     return status;
   };
-  
+
   try {
     // 使用重试机制执行上传
     await uploadWithRetry(
@@ -503,6 +505,7 @@ export interface UploadResult {
  * 批量上传多个文件到Google Drive（带状态回调）
  */
 export async function uploadMultipleFiles(
+  userId: number,
   files: FileUploadItem[],
   onProgress?: (fileName: string, status: UploadStatus) => void
 ): Promise<UploadResult[]> {
@@ -516,10 +519,10 @@ export async function uploadMultipleFiles(
     try {
       let uploadStatus: UploadStatus;
       if (file.isBinary && Buffer.isBuffer(file.content)) {
-        uploadStatus = await uploadBinaryToGoogleDrive(file.content, file.fileName, file.folderPath, statusCallback);
+        uploadStatus = await uploadBinaryToGoogleDrive(userId, file.content, file.fileName, file.folderPath, statusCallback);
       } else {
         const contentStr = typeof file.content === 'string' ? file.content : file.content.toString('utf-8');
-        uploadStatus = await uploadToGoogleDrive(contentStr, file.fileName, file.folderPath, statusCallback);
+        uploadStatus = await uploadToGoogleDrive(userId, contentStr, file.fileName, file.folderPath, statusCallback);
       }
       
       // 获取文件夹链接
@@ -561,13 +564,13 @@ export async function uploadMultipleFiles(
 /**
  * 验证多个文件是否都存在
  */
-export async function verifyAllFiles(filePaths: string[]): Promise<{
+export async function verifyAllFiles(userId: number, filePaths: string[]): Promise<{
   allExist: boolean;
   results: Array<{ path: string; exists: boolean; size?: number }>;
 }> {
   const results = await Promise.all(
     filePaths.map(async (filePath) => {
-      const verification = await verifyFileExists(filePath);
+      const verification = await verifyFileExists(userId, filePath);
       return { path: filePath, ...verification };
     })
   );
@@ -583,10 +586,10 @@ export async function verifyAllFiles(filePaths: string[]): Promise<{
  * 预创建 Google Drive 文件夹（用于批量任务开始前）
  * 确保文件夹存在，避免并发创建时的竞争条件
  */
-export async function ensureFolderExists(folderPath: string): Promise<{ success: boolean; folderId?: string; error?: string }> {
+export async function ensureFolderExists(userId: number, folderPath: string): Promise<{ success: boolean; folderId?: string; error?: string }> {
   try {
     // 尝试使用 OAuth
-    const token = await getValidToken();
+    const token = await getValidToken(userId);
     if (token) {
       console.log(`[GDrive] 使用OAuth预创建文件夹: ${folderPath}`);
       const folderId = await getOrCreateFolderWithOAuth(folderPath, token);
@@ -671,8 +674,8 @@ export async function downloadFileById(fileId: string, token: string): Promise<B
  * @param filePath Google Drive 上的文件路径，如 "Mac(online)/Documents/XDF/学生档案/孙浩然/学情反馈/孙浩然11.md"
  * @returns 文件内容的 Buffer
  */
-export async function readFileFromGoogleDrive(filePath: string): Promise<Buffer> {
-  const token = await getValidToken();
+export async function readFileFromGoogleDrive(userId: number, filePath: string): Promise<Buffer> {
+  const token = await getValidToken(userId);
   if (!token) {
     throw new Error('未授权 Google Drive，请先在设置中完成 OAuth 授权');
   }
@@ -710,10 +713,11 @@ export async function readFileFromGoogleDrive(filePath: string): Promise<Buffer>
  * @returns { fullPath, buffer } 或 null
  */
 export async function searchFileInGoogleDrive(
+  userId: number,
   fileNames: string[],
   searchDir?: string
 ): Promise<{ fullPath: string; buffer: Buffer } | null> {
-  const token = await getValidToken();
+  const token = await getValidToken(userId);
   if (!token) {
     console.error('[GDrive搜索] 未授权 Google Drive');
     return null;

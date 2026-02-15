@@ -300,12 +300,12 @@ async function checkAPIBalance(apiUrl: string, apiKey: string, apiModel: string)
 /**
  * 6. Google Drive授权检测（优先检查OAuth，其次检查rclone）
  */
-async function checkGDriveAuth(): Promise<CheckResult & { method?: 'oauth' | 'rclone' }> {
+async function checkGDriveAuth(userId: number): Promise<CheckResult & { method?: 'oauth' | 'rclone' }> {
   // 先检查OAuth授权
   try {
-    const oauthAuthorized = await isOAuthAuthorized();
+    const oauthAuthorized = await isOAuthAuthorized(userId);
     if (oauthAuthorized) {
-      const token = await getValidToken();
+      const token = await getValidToken(userId);
       if (token) {
         return {
           name: 'Google Drive授权',
@@ -371,7 +371,7 @@ const DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
  * 7. Google Drive写入权限检测
  * 使用 Google Drive REST API 而非 rclone，确保在正式部署环境也能正常工作
  */
-async function checkGDriveWrite(authPassed: boolean): Promise<CheckResult> {
+async function checkGDriveWrite(authPassed: boolean, userId: number): Promise<CheckResult> {
   if (!authPassed) {
     return {
       name: 'Google Drive写入权限',
@@ -383,7 +383,7 @@ async function checkGDriveWrite(authPassed: boolean): Promise<CheckResult> {
   
   try {
     // 获取有效的 OAuth token
-    const token = await getValidToken();
+    const token = await getValidToken(userId);
     if (!token) {
       return {
         name: 'Google Drive写入权限',
@@ -506,7 +506,7 @@ async function checkRoadmap(): Promise<CheckResult> {
 /**
  * 执行完整的系统自检
  */
-export async function runSystemCheck(): Promise<SystemCheckResults> {
+export async function runSystemCheck(userId: number): Promise<SystemCheckResults> {
   const results: CheckResult[] = [];
   
   // 1. 数据库连接
@@ -560,11 +560,11 @@ export async function runSystemCheck(): Promise<SystemCheckResults> {
   results.push(apiBalanceResult);
   
   // 6. Google Drive授权
-  const gdriveAuthResult = await checkGDriveAuth();
+  const gdriveAuthResult = await checkGDriveAuth(userId);
   results.push(gdriveAuthResult);
   
   // 7. Google Drive写入权限
-  const gdriveWriteResult = await checkGDriveWrite(gdriveAuthResult.status === 'success');
+  const gdriveWriteResult = await checkGDriveWrite(gdriveAuthResult.status === 'success', userId);
   results.push(gdriveWriteResult);
   
   // 8. V9路书配置

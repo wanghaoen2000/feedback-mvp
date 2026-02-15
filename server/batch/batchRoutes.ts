@@ -38,6 +38,7 @@ interface TaskStatus {
  */
 interface BatchStatus {
   batchId: string;
+  userId: number;  // 租户隔离：记录批次所属用户
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;
@@ -222,6 +223,7 @@ ${formatRequirement}
  * - batchId: 批次 ID
  */
 router.post("/stop", async (req: Request, res: Response) => {
+  const userId: number = (req as any).user.id;
   const { batchId } = req.body;
 
   if (!batchId) {
@@ -235,8 +237,14 @@ router.post("/stop", async (req: Request, res: Response) => {
     return;
   }
 
+  // 租户隔离：验证批次归属，防止用户A停止用户B的批次
+  if (batch.userId !== userId) {
+    res.status(403).json({ error: "无权操作此批次" });
+    return;
+  }
+
   console.log(`[BatchRoutes] 收到停止请求，批次 ID: ${batchId}`);
-  
+
   // 标记为已停止并调用 pool.stop()
   batch.stopped = true;
   batch.pool.stop();
@@ -258,6 +266,7 @@ router.post("/stop", async (req: Request, res: Response) => {
  * - error: 错误信息（如果批次不存在）
  */
 router.get("/status/:batchId", async (req: Request, res: Response) => {
+  const userId: number = (req as any).user.id;
   const { batchId } = req.params;
 
   if (!batchId) {
@@ -275,6 +284,16 @@ router.get("/status/:batchId", async (req: Request, res: Response) => {
     res.json({
       success: false,
       error: "批次不存在或已结束",
+      batchId
+    });
+    return;
+  }
+
+  // 租户隔离：验证批次归属，防止用户A查看用户B的批次状态
+  if (batchStatus.userId !== userId) {
+    res.status(403).json({
+      success: false,
+      error: "无权查看此批次状态",
       batchId
     });
     return;
@@ -308,11 +327,12 @@ router.get("/status/:batchId", async (req: Request, res: Response) => {
  * - storagePath: 存储路径（Google Drive 文件夹路径）
  */
 router.post("/generate-stream", async (req: Request, res: Response) => {
-  const { 
-    startNumber, 
-    endNumber, 
-    concurrency = 5, 
-    roadmap, 
+  const userId: number = (req as any).user.id;
+  const {
+    startNumber,
+    endNumber,
+    concurrency = 5,
+    roadmap,
     storagePath,
     filePrefix = '任务',
     templateType = 'markdown_styled',
@@ -370,7 +390,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   setupSSEHeaders(res);
 
   // 获取 API 配置
-  const config = await getAPIConfig();
+  const config = await getAPIConfig(userId);
 
   // 创建并发池
   const pool = new ConcurrencyPool<BatchTaskResult>(concurrencyNum);
@@ -385,6 +405,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
   // 注册到活跃批次（用于停止功能和状态查询）
   activeBatches.set(batchId, {
     batchId,
+    userId,  // 租户隔离：绑定用户ID
     totalTasks,
     completedTasks: 0,
     failedTasks: 0,
@@ -411,7 +432,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
     batchFolderPath = `${storagePath}/${batchId}`;
     console.log(`[BatchRoutes] 预创建批次文件夹: ${batchFolderPath}`);
     
-    const folderResult = await ensureFolderExists(batchFolderPath);
+    const folderResult = await ensureFolderExists(userId, batchFolderPath);
     if (!folderResult.success) {
       console.error(`[BatchRoutes] 创建批次文件夹失败: ${folderResult.error}`);
       sendSSEEvent(res, "batch-error", {
@@ -799,7 +820,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
       // 使用预创建的批次文件夹路径（避免并发竞争）
       console.log(`[BatchRoutes] 任务 ${taskNumber} 上传到: ${batchFolderPath}/${filename}`);
 
-      const uploadResult = await uploadBinaryToGoogleDrive(buffer, filename, batchFolderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(userId, buffer, filename, batchFolderPath);
 
       if (uploadResult.status === 'success') {
         uploadUrl = uploadResult.url;
@@ -985,6 +1006,7 @@ router.post("/generate-stream", async (req: Request, res: Response) => {
  * - sharedFiles: 共享文件信息（可选）
  */
 router.post("/retry-task", async (req: Request, res: Response) => {
+  const userId: number = (req as any).user.id;
   const {
     taskNumber,
     originalBatchId,
@@ -1030,7 +1052,7 @@ router.post("/retry-task", async (req: Request, res: Response) => {
   setupSSEHeaders(res);
 
   // 获取 API 配置
-  const config = await getAPIConfig();
+  const config = await getAPIConfig(userId);
 
   // 发送重做开始事件
   sendSSEEvent(res, "retry-start", {
@@ -1274,7 +1296,7 @@ router.post("/retry-task", async (req: Request, res: Response) => {
 
       console.log(`[BatchRoutes] 重做任务 ${taskNum} 上传到: ${batchFolderPath}/${filename}`);
 
-      const uploadResult = await uploadBinaryToGoogleDrive(buffer, filename, batchFolderPath);
+      const uploadResult = await uploadBinaryToGoogleDrive(userId, buffer, filename, batchFolderPath);
 
       if (uploadResult.status === 'success') {
         uploadUrl = uploadResult.url;
@@ -1421,8 +1443,9 @@ router.post("/upload-files", (req: Request, res: Response, next: NextFunction) =
     next();
   });
 }, async (req: Request, res: Response) => {
+  const userId: number = (req as any).user.id;
   console.log("[BatchRoutes] 收到文件上传请求");
-  
+
   try {
     const files = req.files as Express.Multer.File[] | undefined;
     

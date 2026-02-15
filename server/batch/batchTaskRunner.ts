@@ -126,6 +126,7 @@ async function runBatchTask(batchId: string) {
   if (tasks.length === 0) throw new Error(`批量任务不存在: ${batchId}`);
 
   const task = tasks[0];
+  const userId: number = task.userId;
   let params: BatchTaskInputParams;
   try {
     params = JSON.parse(task.inputParams);
@@ -141,10 +142,10 @@ async function runBatchTask(batchId: string) {
   // 更新状态为运行中
   await updateBatchTask(batchId, { status: "running" });
 
-  // 获取配置
-  const apiModel = params.apiModel || (await getConfig("apiModel")) || DEFAULT_CONFIG.apiModel;
-  const apiKey = params.apiKey || (await getConfig("apiKey")) || DEFAULT_CONFIG.apiKey;
-  const apiUrl = params.apiUrl || (await getConfig("apiUrl")) || DEFAULT_CONFIG.apiUrl;
+  // 获取配置（传入 userId 实现租户隔离）
+  const apiModel = params.apiModel || (await getConfig("apiModel", userId)) || DEFAULT_CONFIG.apiModel;
+  const apiKey = params.apiKey || (await getConfig("apiKey", userId)) || DEFAULT_CONFIG.apiKey;
+  const apiUrl = params.apiUrl || (await getConfig("apiUrl", userId)) || DEFAULT_CONFIG.apiUrl;
   const config = { apiModel, apiKey, apiUrl };
 
   // 构建文件夹路径
@@ -180,6 +181,7 @@ async function runBatchTask(batchId: string) {
       await updateBatchItem(batchId, taskNumber, { status: "running" });
 
       const itemParams: BatchItemParams = {
+        userId,
         taskNumber,
         roadmap: params.roadmap,
         templateType: params.templateType,
@@ -287,6 +289,7 @@ async function _doRetryBatchItem(batchId: string, taskNumber: number): Promise<v
   const tasks = await db.select().from(batchTasks).where(eq(batchTasks.id, batchId)).limit(1);
   if (tasks.length === 0) throw new Error("批量任务不存在");
 
+  const userId: number = tasks[0].userId;
   let params: BatchTaskInputParams;
   try {
     params = JSON.parse(tasks[0].inputParams);
@@ -305,10 +308,10 @@ async function _doRetryBatchItem(batchId: string, taskNumber: number): Promise<v
     completedAt: null,
   });
 
-  // 获取配置
-  const apiModel = params.apiModel || (await getConfig("apiModel")) || DEFAULT_CONFIG.apiModel;
-  const apiKey = params.apiKey || (await getConfig("apiKey")) || DEFAULT_CONFIG.apiKey;
-  const apiUrl = params.apiUrl || (await getConfig("apiUrl")) || DEFAULT_CONFIG.apiUrl;
+  // 获取配置（传入 userId 实现租户隔离）
+  const apiModel = params.apiModel || (await getConfig("apiModel", userId)) || DEFAULT_CONFIG.apiModel;
+  const apiKey = params.apiKey || (await getConfig("apiKey", userId)) || DEFAULT_CONFIG.apiKey;
+  const apiUrl = params.apiUrl || (await getConfig("apiUrl", userId)) || DEFAULT_CONFIG.apiUrl;
   const config = { apiModel, apiKey, apiUrl };
 
   const batchFolderPath = params.storagePath
@@ -317,6 +320,7 @@ async function _doRetryBatchItem(batchId: string, taskNumber: number): Promise<v
 
   try {
     const itemParams: BatchItemParams = {
+      userId,
       taskNumber,
       roadmap: params.roadmap,
       templateType: params.templateType,

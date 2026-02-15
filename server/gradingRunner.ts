@@ -912,7 +912,7 @@ async function uploadGradingToGDrive(userId: number, startDate: string, endDate:
   const endCompact = endDate.replace(/-/g, '');
   const fileName = `${startCompact}-${endCompact}_作业打分.md`;
 
-  const uploadResult = await uploadToGoogleDrive(result, fileName, folderPath);
+  const uploadResult = await uploadToGoogleDrive(userId, result, fileName, folderPath);
   if (uploadResult.status === "success") {
     console.log(`[一键打分] 已上传到Google Drive: ${folderPath}/${fileName}`);
   } else {

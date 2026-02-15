@@ -71,9 +71,10 @@ const classFeedbackInputSchema = z.object({
  * 注册小班课 SSE 流式端点
  */
 export function registerClassStreamRoutes(app: Express): void {
-  // 内容拉取端点：前端凭 taskId 获取完整内容（SSE 断了也能拉到）
+  // 内容拉取端点：前端凭 taskId 获取完整内容（SSE 断了也能拉到，校验 userId 归属）
   app.get("/api/feedback-content/:id", requireAuth, (req: Request, res: Response) => {
-    const result = retrieveContent(req.params.id);
+    const userId = (req as any).user?.id;
+    const result = retrieveContent(req.params.id, userId);
     if (result === null) {
       res.status(404).json({ error: "内容不存在或已过期" });
       return;
@@ -83,6 +84,7 @@ export function registerClassStreamRoutes(app: Express): void {
 
   // SSE 端点：小班课学情反馈流式生成（需要登录）
   app.post("/api/class-feedback-stream", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
 
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -121,13 +123,13 @@ export function registerClassStreamRoutes(app: Express): void {
       const input = parseResult.data;
       
       // 获取配置
-      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-      const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
-      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
-      
-      // 创建日志会话（小班课用班号作为学生名）
+      const apiModel = input.apiModel || await getConfig("apiModel", userId) || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey", userId) || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl", userId) || DEFAULT_CONFIG.apiUrl;
+      const currentYear = input.currentYear || await getConfig("currentYear", userId) || DEFAULT_CONFIG.currentYear;
+      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass", userId) || "");
+
+      // 创建日志会话（小班课用班号作为学生名，按用户隔离）
       log = createLogSession(
         `班级${input.classNumber}`,
         { apiUrl, apiModel, maxTokens: 64000 },
@@ -137,7 +139,8 @@ export function registerClassStreamRoutes(app: Express): void {
           lastFeedbackLength: input.lastFeedback?.length || 0,
         },
         input.lessonNumber,
-        input.lessonDate
+        input.lessonDate,
+        userId
       );
       logInfo(log, 'session', `开始小班课学情反馈生成 (SSE)，出勤学生: ${input.attendanceStudents.join('、')}`);
       
@@ -233,9 +236,9 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       stepSuccess(log, 'feedback', cleanedContent.length);
       endLogSession(log);
 
-      // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取）
+      // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取，记录 userId 归属）
       const taskId = input.taskId || crypto.randomUUID();
-      storeContent(taskId, cleanedContent);
+      storeContent(taskId, cleanedContent, undefined, userId);
       sendEvent("complete", {
         success: true,
         contentId: taskId,
@@ -299,6 +302,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
   
   // SSE 端点：一对一学情反馈流式生成
   app.post("/api/feedback-stream", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
 
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -337,13 +341,13 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       const input = parseResult.data;
       
       // 获取配置
-      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-      const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
-      const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || "");
-      
-      // 创建日志会话
+      const apiModel = input.apiModel || await getConfig("apiModel", userId) || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey", userId) || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl", userId) || DEFAULT_CONFIG.apiUrl;
+      const currentYear = input.currentYear || await getConfig("currentYear", userId) || DEFAULT_CONFIG.currentYear;
+      const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", userId) || "");
+
+      // 创建日志会话（按用户隔离）
       log = createLogSession(
         input.studentName,
         { apiUrl, apiModel, maxTokens: 64000 },
@@ -353,7 +357,8 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
           lastFeedbackLength: input.lastFeedback?.length || 0,
         },
         input.lessonNumber,
-        input.lessonDate
+        input.lessonDate,
+        userId
       );
       logInfo(log, 'session', '开始一对一学情反馈生成 (SSE)');
       
@@ -439,7 +444,7 @@ ${input.transcript}
       }
 
       // 上传到 Google Drive
-      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
       const basePath = `${driveBasePath}/${input.studentName}`;
       const fileName = `${input.studentName}${input.lessonNumber || ''}.md`;
       const folderPath = `${basePath}/学情反馈`;
@@ -454,7 +459,7 @@ ${input.transcript}
 
       let uploadResult;
       try {
-        uploadResult = await uploadToGoogleDrive(cleanedContent, fileName, folderPath);
+        uploadResult = await uploadToGoogleDrive(userId, cleanedContent, fileName, folderPath);
       } finally {
         clearInterval(uploadKeepAliveFb);
       }
@@ -470,7 +475,7 @@ ${input.transcript}
       // 结束日志会话（保存日志文件）
       endLogSession(log);
       
-      // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取）
+      // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取，记录 userId 归属）
       const taskId = input.taskId || crypto.randomUUID();
       storeContent(taskId, cleanedContent, {
         dateStr,
@@ -480,7 +485,7 @@ ${input.transcript}
           path: uploadResult.path || '',
           folderUrl: uploadResult.folderUrl || '',
         }
-      });
+      }, userId);
       sendEvent("complete", {
         success: true,
         contentId: taskId,
@@ -568,6 +573,7 @@ ${input.transcript}
   
   // SSE 端点：一对一复习文档流式生成
   app.post("/api/review-stream", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
 
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -603,19 +609,20 @@ ${input.transcript}
       
       const input = parseResult.data;
       
-      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-      const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || "");
-      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
-      
-      // 创建日志会话
+      const apiModel = input.apiModel || await getConfig("apiModel", userId) || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey", userId) || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl", userId) || DEFAULT_CONFIG.apiUrl;
+      const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", userId) || "");
+      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
+
+      // 创建日志会话（按用户隔离）
       log = createLogSession(
         input.studentName,
         { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
         undefined,
-        input.dateStr
+        input.dateStr,
+        userId
       );
       logInfo(log, 'session', '开始一对一复习文档生成 (SSE)');
       startStep(log, 'review');
@@ -688,7 +695,7 @@ ${input.feedbackContent}
 
       let uploadResult;
       try {
-        uploadResult = await uploadBinaryToGoogleDrive(docxBuffer, fileName, folderPath);
+        uploadResult = await uploadBinaryToGoogleDrive(userId, docxBuffer, fileName, folderPath);
       } finally {
         clearInterval(uploadKeepAlive1v1);
       }
@@ -713,7 +720,7 @@ ${input.feedbackContent}
 
       // 存入 contentStore，供前端 SSE 断连后轮询
       const reviewTaskId = input.taskId || crypto.randomUUID();
-      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: reviewContent.length });
+      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: reviewContent.length }, userId);
 
       sendEvent("complete", {
         success: true,
@@ -757,6 +764,7 @@ ${input.feedbackContent}
   });
 
   app.post("/api/test-stream", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -787,18 +795,19 @@ ${input.feedbackContent}
       }
 
       const input = parseResult.data;
-      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-      const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || "");
-      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const apiModel = input.apiModel || await getConfig("apiModel", userId) || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey", userId) || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl", userId) || DEFAULT_CONFIG.apiUrl;
+      const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", userId) || "");
+      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
 
       log = createLogSession(
         input.studentName,
         { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
         undefined,
-        input.dateStr
+        input.dateStr,
+        userId
       );
       startStep(log, '测试本');
 
@@ -851,7 +860,7 @@ ${input.feedbackContent}
 
       let uploadResult;
       try {
-        uploadResult = await uploadBinaryToGoogleDrive(testResult.buffer, fileName, folderPath);
+        uploadResult = await uploadBinaryToGoogleDrive(userId, testResult.buffer, fileName, folderPath);
       } finally {
         clearInterval(uploadKeepAlive);
       }
@@ -868,7 +877,7 @@ ${input.feedbackContent}
       };
 
       const testTaskId = input.taskId || crypto.randomUUID();
-      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testResult.textChars });
+      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testResult.textChars }, userId);
 
       stepSuccess(log, '测试本', testResult.textChars);
       endLogSession(log);
@@ -910,6 +919,7 @@ ${input.feedbackContent}
   });
 
   app.post("/api/extraction-stream", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -940,18 +950,19 @@ ${input.feedbackContent}
       }
 
       const input = parseResult.data;
-      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-      const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap") || "");
-      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const apiModel = input.apiModel || await getConfig("apiModel", userId) || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey", userId) || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl", userId) || DEFAULT_CONFIG.apiUrl;
+      const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", userId) || "");
+      const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
 
       log = createLogSession(
         input.studentName,
         { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
         undefined,
-        input.dateStr
+        input.dateStr,
+        userId
       );
       startStep(log, '课后信息提取');
 
@@ -1003,7 +1014,7 @@ ${input.feedbackContent}
 
       let uploadResult;
       try {
-        uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+        uploadResult = await uploadToGoogleDrive(userId, extractionContent, fileName, folderPath);
       } finally {
         clearInterval(uploadKeepAlive);
       }
@@ -1020,7 +1031,7 @@ ${input.feedbackContent}
       };
 
       const extractionTaskId = input.taskId || crypto.randomUUID();
-      storeContent(extractionTaskId, JSON.stringify(extractionUploadData), { type: 'extraction', chars: extractionContent.length });
+      storeContent(extractionTaskId, JSON.stringify(extractionUploadData), { type: 'extraction', chars: extractionContent.length }, userId);
 
       stepSuccess(log, '课后信息提取', extractionContent.length);
       endLogSession(log);
@@ -1091,6 +1102,7 @@ ${input.feedbackContent}
   
   // SSE 端点：小班课复习文档流式生成
   app.post("/api/class-review-stream", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
 
     // 设置 SSE 响应头
     res.setHeader("Content-Type", "text/event-stream");
@@ -1126,22 +1138,23 @@ ${input.feedbackContent}
       
       const input = parseResult.data;
       
-      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
+      const apiModel = input.apiModel || await getConfig("apiModel", userId) || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey", userId) || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl", userId) || DEFAULT_CONFIG.apiUrl;
+      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass", userId) || "");
       // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
-      const classStoragePath = await getConfig("classStoragePath");
-      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
-      const currentYear = input.currentYear || await getConfig("currentYear") || DEFAULT_CONFIG.currentYear;
+      const classStoragePath = await getConfig("classStoragePath", userId);
+      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
+      const currentYear = input.currentYear || await getConfig("currentYear", userId) || DEFAULT_CONFIG.currentYear;
 
-      // 创建日志会话
+      // 创建日志会话（按用户隔离）
       log = createLogSession(
         `班级${input.classNumber}`,
         { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: input.currentNotes?.length || 0, transcriptLength: 0, lastFeedbackLength: input.combinedFeedback.length },
         input.lessonNumber,
-        input.lessonDate
+        input.lessonDate,
+        userId
       );
       logInfo(log, 'session', '开始小班课复习文档生成 (SSE)');
       startStep(log, 'review');
@@ -1220,17 +1233,17 @@ ${input.currentNotes}
 
       let uploadResult;
       try {
-        uploadResult = await uploadBinaryToGoogleDrive(docxBuffer, fileName, folderPath);
+        uploadResult = await uploadBinaryToGoogleDrive(userId, docxBuffer, fileName, folderPath);
       } finally {
         clearInterval(uploadKeepAlive);
       }
-      
+
       if (uploadResult.status === 'error') {
         throw new Error(`文件上传失败: ${uploadResult.error || '上传到Google Drive失败'}`);
       }
-      
 
-      
+
+
       // 记录步骤成功
       stepSuccess(log, 'review', reviewContent.length);
       logInfo(log, 'review', `上传成功: ${uploadResult.path}`);
@@ -1245,7 +1258,7 @@ ${input.currentNotes}
 
       // 存入 contentStore，供前端 SSE 断连后轮询
       const reviewTaskId = input.taskId || crypto.randomUUID();
-      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: reviewContent.length });
+      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: reviewContent.length }, userId);
 
       sendEvent("complete", {
         success: true,
@@ -1290,6 +1303,7 @@ ${input.currentNotes}
   });
 
   app.post("/api/class-test-stream", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -1318,13 +1332,13 @@ ${input.currentNotes}
       }
 
       const input = parseResult.data;
-      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
+      const apiModel = input.apiModel || await getConfig("apiModel", userId) || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey", userId) || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl", userId) || DEFAULT_CONFIG.apiUrl;
+      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass", userId) || "");
       // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
-      const classStoragePath = await getConfig("classStoragePath");
-      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const classStoragePath = await getConfig("classStoragePath", userId);
+      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成测试本` });
 
@@ -1377,7 +1391,7 @@ ${input.currentNotes}
 
       let uploadResult;
       try {
-        uploadResult = await uploadBinaryToGoogleDrive(testResult.buffer, fileName, folderPath);
+        uploadResult = await uploadBinaryToGoogleDrive(userId, testResult.buffer, fileName, folderPath);
       } finally {
         clearInterval(uploadKeepAliveTest);
       }
@@ -1393,7 +1407,7 @@ ${input.currentNotes}
         folderUrl: uploadResult.folderUrl || '',
       };
       const testTaskId = input.taskId || crypto.randomUUID();
-      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testResult.textChars });
+      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testResult.textChars }, userId);
 
       sendEvent("complete", {
         success: true,
@@ -1426,6 +1440,7 @@ ${input.currentNotes}
   });
 
   app.post("/api/class-extraction-stream", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -1454,13 +1469,13 @@ ${input.currentNotes}
       }
 
       const input = parseResult.data;
-      const apiModel = input.apiModel || await getConfig("apiModel") || DEFAULT_CONFIG.apiModel;
-      const apiKey = input.apiKey || await getConfig("apiKey") || DEFAULT_CONFIG.apiKey;
-      const apiUrl = input.apiUrl || await getConfig("apiUrl") || DEFAULT_CONFIG.apiUrl;
-      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass") || "");
+      const apiModel = input.apiModel || await getConfig("apiModel", userId) || DEFAULT_CONFIG.apiModel;
+      const apiKey = input.apiKey || await getConfig("apiKey", userId) || DEFAULT_CONFIG.apiKey;
+      const apiUrl = input.apiUrl || await getConfig("apiUrl", userId) || DEFAULT_CONFIG.apiUrl;
+      const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass", userId) || "");
       // 小班课优先使用 classStoragePath，如果没有则使用 driveBasePath
-      const classStoragePath = await getConfig("classStoragePath");
-      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath") || DEFAULT_CONFIG.driveBasePath;
+      const classStoragePath = await getConfig("classStoragePath", userId);
+      const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
 
       sendEvent("start", { message: `开始为 ${input.classNumber} 班生成课后信息提取` });
 
@@ -1514,7 +1529,7 @@ ${input.currentNotes}
 
       let uploadResult;
       try {
-        uploadResult = await uploadToGoogleDrive(extractionContent, fileName, folderPath);
+        uploadResult = await uploadToGoogleDrive(userId, extractionContent, fileName, folderPath);
       } finally {
         clearInterval(uploadKeepAliveExt);
       }
@@ -1530,7 +1545,7 @@ ${input.currentNotes}
         folderUrl: uploadResult.folderUrl || '',
       };
       const extractTaskId = input.taskId || crypto.randomUUID();
-      storeContent(extractTaskId, JSON.stringify(extractUploadData), { type: 'extraction', chars: extractionContent.length });
+      storeContent(extractTaskId, JSON.stringify(extractUploadData), { type: 'extraction', chars: extractionContent.length }, userId);
 
       sendEvent("complete", {
         success: true,
@@ -1548,6 +1563,7 @@ ${input.currentNotes}
 
   // 从 Google Drive 下载文件（代理端点）
   app.get("/api/download-drive-file", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
     try {
       const { fileId, fileName } = req.query;
       if (!fileId || typeof fileId !== 'string') {
@@ -1559,7 +1575,7 @@ ${input.currentNotes}
         return;
       }
 
-      const token = await getValidToken();
+      const token = await getValidToken(userId);
       if (!token) {
         res.status(401).json({ error: '未授权 Google Drive，请先在设置中完成 OAuth 授权' });
         return;
