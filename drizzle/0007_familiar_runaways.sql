@@ -1,0 +1,21 @@
+CREATE TABLE `correction_tasks` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`student_name` varchar(64) NOT NULL,
+	`correction_type` varchar(64) NOT NULL,
+	`raw_text` mediumtext,
+	`images` mediumtext,
+	`files` mediumtext,
+	`student_status` mediumtext,
+	`system_prompt` mediumtext,
+	`result_correction` mediumtext,
+	`result_status_update` mediumtext,
+	`ai_model` varchar(128),
+	`task_status` varchar(20) NOT NULL DEFAULT 'pending',
+	`error_message` text,
+	`auto_imported` int DEFAULT 0,
+	`import_entry_id` int,
+	`created_at` timestamp NOT NULL DEFAULT (now()),
+	`updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	`completed_at` timestamp,
+	CONSTRAINT `correction_tasks_id` PRIMARY KEY(`id`)
+);
