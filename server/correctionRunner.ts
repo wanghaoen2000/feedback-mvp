@@ -9,6 +9,118 @@ import { eq, desc, sql, and } from "drizzle-orm";
 import { invokeAIStream, getConfigValue, FileInfo, getAPIConfig } from "./core/aiClient";
 import { getStudentLatestStatus, importFromExtraction } from "./homeworkManager";
 import { getBeijingTimeContext } from "./utils";
+import { storagePut, storageGet } from "./storage";
+
+// ============= 图片存储引用 =============
+
+interface StoredImageRef {
+  key: string;
+  mimeType: string;
+}
+
+/**
+ * 计算 base64 DataURI 数组的总字节大小（粗略估算）
+ * base64 编码后大小约为原始数据的 4/3
+ */
+function estimateBase64TotalBytes(dataUris: string[]): number {
+  let total = 0;
+  for (const uri of dataUris) {
+    // data:image/jpeg;base64, 前缀之后的部分
+    const commaIdx = uri.indexOf(",");
+    if (commaIdx >= 0) {
+      const base64Part = uri.slice(commaIdx + 1);
+      total += Math.ceil(base64Part.length * 3 / 4);
+    } else {
+      total += uri.length;
+    }
+  }
+  return total;
+}
+
+/**
+ * 将 base64 图片上传到外部存储，返回存储引用 JSON 字符串
+ * 若存储不可用或上传失败，回退到内联存储（带大小限制）
+ */
+async function uploadImagesToStorage(userId: number, images: string[]): Promise<string> {
+  const refs: StoredImageRef[] = [];
+
+  for (let i = 0; i < images.length; i++) {
+    const dataUri = images[i];
+    // 解析 data URI: data:image/jpeg;base64,xxxxx
+    const match = dataUri.match(/^data:(image\/[^;]+);base64,([\s\S]+)$/);
+    if (!match) {
+      console.warn(`[作业批改] 图片 ${i} 格式无效，跳过`);
+      continue;
+    }
+    const mimeType = match[1];
+    const base64Data = match[2];
+    const ext = mimeType.includes("png") ? "png" : "jpg";
+    const key = `corrections/${userId}/${Date.now()}-${i}.${ext}`;
+
+    const buffer = Buffer.from(base64Data, "base64");
+    console.log(`[作业批改] 上传图片 ${i}: ${(buffer.length / 1024).toFixed(0)}KB → ${key}`);
+    await storagePut(key, buffer, mimeType);
+    refs.push({ key, mimeType });
+  }
+
+  if (refs.length === 0) {
+    throw new Error("没有有效的图片可以上传");
+  }
+
+  console.log(`[作业批改] ${refs.length} 张图片已上传到存储`);
+  return JSON.stringify(refs);
+}
+
+/**
+ * 从存储加载图片，转为 AI 可用的 FileInfo 数组
+ * 兼容两种格式：
+ *   - 旧格式：string[]（base64 DataURI 数组，直接内联在 DB 中）
+ *   - 新格式：StoredImageRef[]（存储引用，需要下载）
+ */
+async function loadImagesForAI(imagesJson: string): Promise<FileInfo[]> {
+  const parsed = JSON.parse(imagesJson);
+  if (!Array.isArray(parsed) || parsed.length === 0) return [];
+
+  const fileInfos: FileInfo[] = [];
+
+  // 判断格式：旧格式是 string[]，新格式是 {key, mimeType}[]
+  if (typeof parsed[0] === "string") {
+    // 旧格式：直接使用 base64 DataURI（向后兼容）
+    for (const img of parsed as string[]) {
+      fileInfos.push({
+        type: "image",
+        base64DataUri: img,
+        mimeType: img.startsWith("data:image/png") ? "image/png" : "image/jpeg",
+      });
+    }
+    console.log(`[作业批改] 使用旧格式内联图片: ${fileInfos.length} 张`);
+  } else {
+    // 新格式：从存储下载
+    const refs = parsed as StoredImageRef[];
+    for (const ref of refs) {
+      try {
+        const { url } = await storageGet(ref.key);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        const base64 = buffer.toString("base64");
+        const dataUri = `data:${ref.mimeType};base64,${base64}`;
+        fileInfos.push({
+          type: "image",
+          base64DataUri: dataUri,
+          mimeType: ref.mimeType,
+        });
+        console.log(`[作业批改] 从存储加载图片: ${ref.key} (${(buffer.length / 1024).toFixed(0)}KB)`);
+      } catch (err: any) {
+        console.error(`[作业批改] 图片下载失败: ${ref.key}`, err?.message);
+        // 单张失败不影响其他图片
+      }
+    }
+    console.log(`[作业批改] 从存储加载了 ${fileInfos.length}/${refs.length} 张图片`);
+  }
+
+  return fileInfos;
+}
 
 // ============= 批改类型接口 =============
 
@@ -193,12 +305,32 @@ export async function submitCorrection(userId: number, params: SubmitCorrectionP
     }
   }
 
+  // 处理图片：上传到外部存储，避免 base64 数据塞入 SQL 导致超过 max_allowed_packet
+  let imagesJson: string | null = null;
+  if (params.images && params.images.length > 0) {
+    const totalBytes = estimateBase64TotalBytes(params.images);
+    console.log(`[作业批改] 收到 ${params.images.length} 张图片，总大小约 ${(totalBytes / 1024 / 1024).toFixed(2)}MB`);
+
+    try {
+      imagesJson = await uploadImagesToStorage(userId, params.images);
+    } catch (storageErr: any) {
+      console.error(`[作业批改] 存储上传失败，检查图片大小:`, storageErr?.message);
+      // 存储不可用时，如果图片总大小 < 2MB 可回退到内联存储
+      if (totalBytes < 2 * 1024 * 1024) {
+        console.warn(`[作业批改] 回退到内联存储 (${(totalBytes / 1024).toFixed(0)}KB)`);
+        imagesJson = JSON.stringify(params.images);
+      } else {
+        throw new Error(`图片太大 (${(totalBytes / 1024 / 1024).toFixed(1)}MB)，存储服务暂不可用，请稍后重试或压缩图片后再提交`);
+      }
+    }
+  }
+
   const result = await db.insert(correctionTasks).values({
     userId,
     studentName: params.studentName.trim(),
     correctionType: params.correctionType,
     rawText: params.rawText || null,
-    images: params.images && params.images.length > 0 ? JSON.stringify(params.images) : null,
+    images: imagesJson,
     files: processedFiles.length > 0 ? JSON.stringify(processedFiles) : null,
     studentStatus: studentStatus || null,
     aiModel: params.aiModel || null,
@@ -206,7 +338,7 @@ export async function submitCorrection(userId: number, params: SubmitCorrectionP
   });
 
   const taskId = Number((result as any)[0]?.insertId || (result as any).insertId);
-  console.log(`[作业批改] 任务已创建: ID=${taskId}, 学生=${params.studentName}, 类型=${params.correctionType}`);
+  console.log(`[作业批改] 任务已创建: ID=${taskId}, 学生=${params.studentName}, 类型=${params.correctionType}, 图片=${params.images?.length || 0}张`);
 
   processCorrectionInBackground(userId, taskId);
 
@@ -306,19 +438,16 @@ async function processCorrectionInBackground(userId: number, taskId: number): Pr
 
     const userMessage = userMessageParts.join("\n\n") || "（无文本内容，请查看图片）";
 
-    // 构建图片 FileInfo
+    // 构建图片 FileInfo（兼容旧格式内联 base64 和新格式存储引用）
     const fileInfos: FileInfo[] = [];
     if (task.images) {
       try {
-        const images = JSON.parse(task.images) as string[];
-        for (const img of images) {
-          fileInfos.push({
-            type: "image",
-            base64DataUri: img,
-            mimeType: img.startsWith("data:image/png") ? "image/png" : "image/jpeg",
-          });
-        }
-      } catch {}
+        const loaded = await loadImagesForAI(task.images);
+        fileInfos.push(...loaded);
+      } catch (imgErr: any) {
+        console.error(`[作业批改] 加载图片失败:`, imgErr?.message);
+        // 图片加载失败不应阻止整个批改流程（可能只有文字内容）
+      }
     }
 
     const apiConfig = await getAPIConfig(userId);
