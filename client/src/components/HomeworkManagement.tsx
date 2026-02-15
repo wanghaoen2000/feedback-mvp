@@ -35,6 +35,7 @@ import {
   Eye,
   Clock,
   Timer,
+  Bell,
 } from "lucide-react";
 
 // ============= 学生名片按钮组件 =============
@@ -312,6 +313,49 @@ export function HomeworkManagement() {
     }
   }, [expandedGradingId, activeGradingQuery.data?.editedResult, activeGradingQuery.data?.result]);
 
+  // --- 作业提醒相关 ---
+  const [showReminder, setShowReminder] = useState(false);
+  const [reminderPrompt, setReminderPrompt] = useState("");
+  const [showReminderPreview, setShowReminderPreview] = useState(false);
+  const [activeReminderId, setActiveReminderId] = useState<number | null>(null);
+  // 【设计意图】copiedReminderItems 使用 Set 记录已复制的学生索引，
+  // 复制后永久变灰显示"已复制"，不会自动恢复。
+  // 这不是 bug，是刻意设计：防止用户忘记自己已复制了哪些学生的内容。
+  // 虽然按钮变灰后仍然可以再次点击复制，但视觉状态保持"已复制"不恢复。
+  const [copiedReminderItems, setCopiedReminderItems] = useState<Set<number>>(new Set());
+  const submitReminderMut = trpc.homework.submitReminder.useMutation();
+  const reminderTaskQuery = trpc.homework.getReminderTask.useQuery(
+    { id: activeReminderId! },
+    {
+      enabled: activeReminderId !== null,
+      refetchInterval: (query) => {
+        const data = query.state.data;
+        if (!data) return 2000;
+        return (data.taskStatus === "pending" || data.taskStatus === "processing") ? 2000 : false;
+      },
+    }
+  );
+  const reminderPreviewQuery = trpc.homework.previewReminderPrompt.useQuery(
+    { reminderPrompt: reminderPrompt.trim() || "（未配置）" },
+    { enabled: showReminderPreview && !!reminderPrompt.trim() }
+  );
+
+  // 解析提醒结果：按学生拆分
+  const parsedReminderResults = useMemo(() => {
+    const result = reminderTaskQuery.data?.result;
+    if (!result) return [];
+    const items: Array<{ studentName: string; content: string }> = [];
+    const regex = /---STUDENT\[(.+?)\]---\n([\s\S]*?)---END---/g;
+    let match;
+    while ((match = regex.exec(result)) !== null) {
+      items.push({
+        studentName: match[1].trim(),
+        content: match[2].trim(),
+      });
+    }
+    return items;
+  }, [reminderTaskQuery.data?.result]);
+
   // 计算星期（硬编码）
   const getDayOfWeek = useCallback((y: number, m: number, d: number): string => {
     const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -355,6 +399,7 @@ export function HomeworkManagement() {
       if (hwConfigQuery.data.gradingPrompt) setGradingPrompt(hwConfigQuery.data.gradingPrompt);
       if (hwConfigQuery.data.gradingSyncPrompt) setSyncPromptText(hwConfigQuery.data.gradingSyncPrompt);
       setSyncConcurrency(hwConfigQuery.data.gradingSyncConcurrency || "20");
+      if (hwConfigQuery.data.reminderPrompt) setReminderPrompt(hwConfigQuery.data.reminderPrompt);
     }
   }, [hwConfigQuery.data]);
 
@@ -500,6 +545,15 @@ export function HomeworkManagement() {
           >
             <Star className="w-4 h-4" />
             <span className="hidden sm:inline ml-1">打分</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setShowReminder(!showReminder); setCopiedReminderItems(new Set()); }}
+            className="h-8"
+          >
+            <Bell className="w-4 h-4" />
+            <span className="hidden sm:inline ml-1">提醒</span>
           </Button>
         </div>
       </div>
@@ -1492,6 +1546,231 @@ export function HomeworkManagement() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ===== 作业提醒面板（一键催作业） ===== */}
+      {showReminder && (
+        <Card className="border-orange-200 bg-orange-50/50">
+          <CardContent className="pt-4 space-y-3">
+            {/* 提示词编辑区 */}
+            <div>
+              <Label className="text-sm font-medium flex items-center gap-2">
+                <Bell className="w-4 h-4 text-orange-600" />
+                作业提醒提示词
+              </Label>
+              <p className="text-xs text-gray-500 mb-1">
+                在这里编写你的催作业指令。系统会自动汇总所有学生状态数据（排除小班课），连同你的指令一起发给AI。
+              </p>
+              <p className="text-xs text-orange-600 mb-2">
+                AI会按照固定格式返回每个学生的提醒话术。格式标记为 ---STUDENT[学生姓名]--- 和 ---END--- ，请在提示词中告知AI按此格式输出。
+              </p>
+              <Textarea
+                value={reminderPrompt}
+                onChange={(e) => setReminderPrompt(e.target.value)}
+                placeholder={"在这里写你的催作业提示词...\n\n例如：\n请根据每个学生的状态文档，检查截止到今天有哪些作业未完成，\n然后为每个需要提醒的学生生成一段简短、友好的催作业话术。\n\n注意：请严格按照以下格式输出每个学生的提醒内容：\n---STUDENT[学生姓名]---\n催作业话术\n---END---"}
+                className="text-sm resize-none bg-white"
+                rows={6}
+              />
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-xs text-gray-400">
+                  {reminderPrompt ? `${reminderPrompt.length} 字符` : "未配置"}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => updateHwConfigMut.mutate({ reminderPrompt: reminderPrompt })}
+                  disabled={updateHwConfigMut.isPending}
+                >
+                  {updateHwConfigMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Save className="w-3 h-3 mr-1" />}
+                  保存提示词
+                </Button>
+              </div>
+            </div>
+
+            {/* 操作按钮 */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                onClick={async () => {
+                  if (!reminderPrompt.trim()) return;
+                  try {
+                    const res = await submitReminderMut.mutateAsync({
+                      reminderPrompt: reminderPrompt.trim(),
+                    });
+                    setActiveReminderId(res.id);
+                    // 重置已复制状态（新任务重新开始）
+                    setCopiedReminderItems(new Set());
+                  } catch {}
+                }}
+                disabled={submitReminderMut.isPending || !reminderPrompt.trim()}
+                className="bg-orange-500 hover:bg-orange-600 text-white"
+              >
+                {submitReminderMut.isPending ? (
+                  <><Loader2 className="w-4 h-4 animate-spin mr-1" />提交中...</>
+                ) : (
+                  <><Bell className="w-4 h-4 mr-1" />开始生成</>
+                )}
+              </Button>
+              <button
+                type="button"
+                onClick={() => setShowReminderPreview(!showReminderPreview)}
+                className="text-xs text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-0.5"
+              >
+                <Eye className="w-3 h-3" />
+                预览发给AI的内容
+              </button>
+            </div>
+
+            {/* 蓝色预览：查看发送给AI的内容 */}
+            {showReminderPreview && (
+              <div className="border rounded bg-white p-3 space-y-3">
+                <div className="text-xs text-gray-600 space-y-1 bg-amber-50 border border-amber-200 rounded p-2">
+                  <div className="font-medium text-amber-800">发送给AI的数据结构：</div>
+                  <div>1. <b>系统提示词</b>：当前北京时间 + 你写的提示词 + 输出格式要求</div>
+                  <div>2. <b>用户消息</b>：所有学生的完整状态数据（排除小班课学生，即姓名以数字开头的学生）</div>
+                  <div className="text-gray-500 mt-1">
+                    格式要求会指示AI按 ---STUDENT[学生姓名]--- ... ---END--- 格式返回，系统根据此格式拆分每个学生的提醒内容。
+                  </div>
+                </div>
+                {reminderPreviewQuery.data ? (
+                  <>
+                    <details>
+                      <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">
+                        查看完整的系统提示词
+                      </summary>
+                      <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-gray-50 p-2 rounded max-h-60 overflow-y-auto mt-1">
+                        {reminderPreviewQuery.data.systemPrompt}
+                      </pre>
+                    </details>
+                    <details>
+                      <summary className="text-xs font-medium text-blue-600 cursor-pointer hover:underline">
+                        查看用户消息（{reminderPreviewQuery.data.studentCount}个学生的数据）
+                      </summary>
+                      <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-gray-50 p-2 rounded max-h-60 overflow-y-auto mt-1">
+                        {reminderPreviewQuery.data.studentData}
+                      </pre>
+                    </details>
+                  </>
+                ) : reminderPrompt.trim() ? (
+                  <p className="text-xs text-gray-400">加载中...</p>
+                ) : (
+                  <p className="text-xs text-gray-400">请先输入提示词</p>
+                )}
+              </div>
+            )}
+
+            {/* 提交错误 */}
+            {submitReminderMut.isError && (
+              <p className="text-xs text-red-500">提交失败: {submitReminderMut.error?.message}</p>
+            )}
+
+            {/* 处理进度 */}
+            {activeReminderId !== null && reminderTaskQuery.data && (
+              <div className={`border rounded-lg p-3 ${
+                reminderTaskQuery.data.taskStatus === "failed" ? "border-red-200 bg-red-50" :
+                reminderTaskQuery.data.taskStatus === "completed" ? "border-green-200 bg-green-50" :
+                "border-blue-200 bg-blue-50"
+              }`}>
+                <div className="flex items-center gap-2 mb-2">
+                  {reminderTaskQuery.data.taskStatus === "completed" ? (
+                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  ) : reminderTaskQuery.data.taskStatus === "failed" ? (
+                    <XCircle className="w-4 h-4 text-red-500" />
+                  ) : (
+                    <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+                  )}
+                  <span className="text-sm font-medium">
+                    {reminderTaskQuery.data.taskStatus === "completed" ? "生成完成" :
+                     reminderTaskQuery.data.taskStatus === "failed" ? "生成失败" : "AI生成中..."}
+                  </span>
+                  {(reminderTaskQuery.data.studentCount ?? 0) > 0 && (
+                    <span className="text-xs text-gray-500">{reminderTaskQuery.data.studentCount}个学生</span>
+                  )}
+                  {(reminderTaskQuery.data.taskStatus === "pending" || reminderTaskQuery.data.taskStatus === "processing") && (reminderTaskQuery.data.streamingChars ?? 0) > 0 && (
+                    <span className="text-xs text-blue-500">已生成{reminderTaskQuery.data.streamingChars}字</span>
+                  )}
+                </div>
+
+                {/* 错误信息 */}
+                {reminderTaskQuery.data.taskStatus === "failed" && reminderTaskQuery.data.errorMessage && (
+                  <p className="text-xs text-red-500 mb-2">{reminderTaskQuery.data.errorMessage}</p>
+                )}
+
+                {/* ===== 按学生拆分的结果展示（不折叠，全部展开） ===== */}
+                {reminderTaskQuery.data.taskStatus === "completed" && parsedReminderResults.length > 0 && (
+                  <div className="space-y-3 mt-3">
+                    <div className="text-xs text-gray-500">
+                      共 {parsedReminderResults.length} 个学生的提醒内容：
+                    </div>
+                    {parsedReminderResults.map((item, index) => (
+                      <div key={index} className="border rounded-lg bg-white p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-800">
+                            {index + 1}. {item.studentName}
+                          </span>
+                          {/* 【设计意图】复制按钮：点击后永久变为"已复制"灰色状态，不会自动恢复。
+                              这是刻意设计，不是 bug。目的是让用户清楚知道哪些学生的内容已经复制过了。
+                              虽然按钮变灰后仍然可以再次点击进行复制（功能不受影响），但视觉状态不恢复。 */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={`h-7 px-2 text-xs ${
+                              copiedReminderItems.has(index)
+                                ? "text-gray-400 bg-gray-100"
+                                : "text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                            }`}
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(item.content);
+                              } catch {
+                                // fallback
+                                const textarea = document.createElement("textarea");
+                                textarea.value = item.content;
+                                textarea.style.position = "fixed";
+                                textarea.style.opacity = "0";
+                                document.body.appendChild(textarea);
+                                textarea.select();
+                                document.execCommand("copy");
+                                document.body.removeChild(textarea);
+                              }
+                              // 【不恢复】标记为已复制，永久保持此状态
+                              setCopiedReminderItems(prev => new Set(prev).add(index));
+                            }}
+                          >
+                            {copiedReminderItems.has(index) ? (
+                              <><Check className="w-3 h-3 mr-1" />已复制</>
+                            ) : (
+                              <><Copy className="w-3 h-3 mr-1" />复制</>
+                            )}
+                          </Button>
+                        </div>
+                        {/* 可编辑的文本框，显示催作业话术 */}
+                        <Textarea
+                          defaultValue={item.content}
+                          className="text-sm resize-none bg-gray-50 border-gray-200"
+                          rows={Math.min(Math.max(item.content.split("\n").length, 2), 8)}
+                          readOnly={false}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* AI返回了内容但格式无法解析时，显示原始结果 */}
+                {reminderTaskQuery.data.taskStatus === "completed" && parsedReminderResults.length === 0 && reminderTaskQuery.data.result && (
+                  <div className="mt-3">
+                    <p className="text-xs text-orange-600 mb-1">
+                      AI返回的内容未按预期格式输出，无法按学生拆分。请检查提示词中是否要求了 ---STUDENT[学生姓名]--- 和 ---END--- 格式。以下是原始返回内容：
+                    </p>
+                    <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white rounded p-3 border max-h-96 overflow-y-auto">
+                      {reminderTaskQuery.data.result}
+                    </pre>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

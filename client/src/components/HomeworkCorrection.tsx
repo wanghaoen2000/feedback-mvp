@@ -48,6 +48,49 @@ interface CorrectionType {
   prompt: string;
 }
 
+// ============= 图片压缩工具 =============
+
+/**
+ * 压缩图片：将大图片缩放并压缩为 JPEG，目标大小 < 1MB
+ * 手机拍摄的作业照片通常 3-5MB，压缩后 200-800KB 不影响 AI 识别
+ */
+function compressImage(dataUri: string, maxWidth = 2048, maxHeight = 2048, quality = 0.85): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+
+      // 计算缩放比例
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("Canvas 不可用"));
+
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // 优先压缩为 JPEG（作业照片不需要透明通道）
+      const compressed = canvas.toDataURL("image/jpeg", quality);
+
+      // 如果压缩后仍然 > 1.5MB，进一步降低质量
+      if (compressed.length > 1.5 * 1024 * 1024 * 4 / 3) {
+        const moreCompressed = canvas.toDataURL("image/jpeg", 0.6);
+        resolve(moreCompressed);
+      } else {
+        resolve(compressed);
+      }
+    };
+    img.onerror = () => reject(new Error("图片加载失败"));
+    img.src = dataUri;
+  });
+}
+
 // ============= 主组件 =============
 
 export function HomeworkCorrection() {
@@ -202,8 +245,22 @@ export function HomeworkCorrection() {
   const processImageFile = useCallback((file: File) => {
     if (!file.type.startsWith("image/")) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUri = e.target?.result as string;
+    reader.onload = async (e) => {
+      const rawDataUri = e.target?.result as string;
+      const originalSizeKB = Math.round(rawDataUri.length * 3 / 4 / 1024);
+
+      // 压缩图片：减少上传大小，避免 DB 存储问题
+      let dataUri = rawDataUri;
+      try {
+        if (originalSizeKB > 500) {
+          dataUri = await compressImage(rawDataUri);
+          const compressedSizeKB = Math.round(dataUri.length * 3 / 4 / 1024);
+          console.log(`[图片压缩] ${file.name}: ${originalSizeKB}KB → ${compressedSizeKB}KB`);
+        }
+      } catch (err) {
+        console.warn(`[图片压缩] ${file.name} 压缩失败，使用原图:`, err);
+      }
+
       setImages((prev) => [
         ...prev,
         {
