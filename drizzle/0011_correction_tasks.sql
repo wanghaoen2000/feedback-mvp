@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS `correction_tasks` (
   `id` int AUTO_INCREMENT NOT NULL,
+  `user_id` int NOT NULL DEFAULT 0,
   `student_name` varchar(64) NOT NULL,
   `correction_type` varchar(64) NOT NULL,
   `raw_text` mediumtext,
@@ -12,10 +13,13 @@ CREATE TABLE IF NOT EXISTS `correction_tasks` (
   `ai_model` varchar(128),
   `task_status` varchar(20) NOT NULL DEFAULT 'pending',
   `error_message` text,
+  `streaming_chars` int DEFAULT 0,
   `auto_imported` int DEFAULT 0,
   `import_entry_id` int,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `completed_at` timestamp,
+  `completed_at` timestamp NULL,
   PRIMARY KEY (`id`)
 );
+
+ALTER TABLE `correction_tasks` ADD INDEX `idx_corr_userId` (`user_id`);
