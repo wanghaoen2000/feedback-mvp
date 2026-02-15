@@ -511,8 +511,8 @@ export const appRouter = router({
       };
     }),
 
-    // 更新配置（仅管理员）
-    update: adminProcedure
+    // 更新配置（所有登录用户均可修改自己的配置）
+    update: protectedProcedure
       .input(z.object({
         apiModel: z.string().optional(),
         apiKey: z.string().optional(),
@@ -732,8 +732,8 @@ export const appRouter = router({
         };
       }),
 
-    // 重置为默认值（仅管理员）—— 删除当前用户的 user_config 记录，回退到系统默认
-    reset: adminProcedure
+    // 重置为默认值 —— 删除当前用户的 user_config 记录，回退到系统默认
+    reset: protectedProcedure
       .input(z.object({
         keys: z.array(z.enum(["apiModel", "apiKey", "apiUrl", "currentYear", "roadmap", "driveBasePath"])),
       }))
