@@ -82,6 +82,13 @@ import {
   importSyncToStudents,
   DEFAULT_SYNC_SYSTEM_PROMPT,
 } from "./gradingRunner";
+import {
+  submitReminder,
+  getReminderTask,
+  listReminderTasks,
+  previewReminderPrompt,
+  parseReminderResult,
+} from "./reminderRunner";
 
 // 设置配置值
 async function setConfig(key: string, value: string, description?: string): Promise<void> {
@@ -3091,6 +3098,7 @@ export const appRouter = router({
         const gradingYear = await getConfig("gradingYear", uid);
         const gradingSyncPrompt = await getConfig("gradingSyncPrompt", uid);
         const gradingSyncConcurrency = await getConfig("gradingSyncConcurrency", uid);
+        const reminderPrompt = await getConfig("reminderPrompt", uid);
         return {
           hwAiModel: hwAiModel || "",
           hwPromptTemplate: hwPromptTemplate || "",
@@ -3099,6 +3107,7 @@ export const appRouter = router({
           gradingYear: gradingYear || "",
           gradingSyncPrompt: gradingSyncPrompt || "",
           gradingSyncConcurrency: gradingSyncConcurrency || "20",
+          reminderPrompt: reminderPrompt || "",
         };
       }),
 
@@ -3110,6 +3119,7 @@ export const appRouter = router({
         gradingYear: z.string().optional(),
         gradingSyncPrompt: z.string().optional(),
         gradingSyncConcurrency: z.string().optional(),
+        reminderPrompt: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const uid = ctx.user.id;
@@ -3130,6 +3140,9 @@ export const appRouter = router({
         }
         if (input.gradingSyncConcurrency !== undefined) {
           await setUserConfigValue(uid, "gradingSyncConcurrency", input.gradingSyncConcurrency);
+        }
+        if (input.reminderPrompt !== undefined) {
+          await setUserConfigValue(uid, "reminderPrompt", input.reminderPrompt);
         }
         return { success: true };
       }),
@@ -3265,6 +3278,34 @@ export const appRouter = router({
         const result = await importClassFromTaskExtraction(ctx.user.id, input.taskId, input.classNumber, input.attendanceStudents);
         autoBackupToGDrive(ctx.user.id); // fire-and-forget
         return result;
+      }),
+
+    // ========== 作业提醒（一键催作业） ==========
+    submitReminder: protectedProcedure
+      .input(z.object({
+        reminderPrompt: z.string().min(1, "提示词不能为空"),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        return submitReminder(ctx.user.id, {
+          reminderPrompt: input.reminderPrompt,
+        });
+      }),
+
+    getReminderTask: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        return getReminderTask(ctx.user.id, input.id);
+      }),
+
+    listReminderTasks: protectedProcedure
+      .query(async ({ ctx }) => {
+        return listReminderTasks(ctx.user.id);
+      }),
+
+    previewReminderPrompt: protectedProcedure
+      .input(z.object({ reminderPrompt: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        return previewReminderPrompt(ctx.user.id, input.reminderPrompt);
       }),
 
     // ========== 数据备份与恢复 ==========

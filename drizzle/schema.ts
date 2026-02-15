@@ -264,3 +264,26 @@ export const gradingSyncItems = mysqlTable("grading_sync_items", {
 
 export type GradingSyncItem = typeof gradingSyncItems.$inferSelect;
 export type InsertGradingSyncItem = typeof gradingSyncItems.$inferInsert;
+
+// 作业提醒任务表（一键催作业，30天留存）
+export const reminderTasks = mysqlTable("reminder_tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(),
+  reminderPrompt: mediumtext("reminder_prompt").notNull(),
+  studentCount: int("student_count").default(0),
+  studentData: mediumtext("student_data"),            // 发送给AI的学生数据快照
+  systemPrompt: mediumtext("system_prompt"),           // 完整系统提示词快照
+  result: mediumtext("result"),                        // AI生成的催作业结果
+  aiModel: varchar("ai_model", { length: 128 }),
+  taskStatus: varchar("task_status", { length: 20 }).notNull().default("pending"), // pending | processing | completed | failed
+  errorMessage: text("error_message"),
+  streamingChars: int("streaming_chars").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_reminder_userId").on(table.userId),
+]);
+
+export type ReminderTask = typeof reminderTasks.$inferSelect;
+export type InsertReminderTask = typeof reminderTasks.$inferInsert;
