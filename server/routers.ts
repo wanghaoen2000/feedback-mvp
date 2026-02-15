@@ -486,10 +486,10 @@ export const appRouter = router({
         roadmapClass: roadmapClass || "",
         firstLessonTemplate: firstLessonTemplate || "",
         classFirstLessonTemplate: classFirstLessonTemplate || "",
-        driveBasePath: driveBasePath || DEFAULT_CONFIG.driveBasePath,
+        driveBasePath: driveBasePath || "",
         classStoragePath: classStoragePath || "", // 小班课路径，留空则使用 driveBasePath
-        batchFilePrefix: batchFilePrefix || DEFAULT_CONFIG.batchFilePrefix,
-        batchStoragePath: batchStoragePath || DEFAULT_CONFIG.batchStoragePath,
+        batchFilePrefix: batchFilePrefix || "",
+        batchStoragePath: batchStoragePath || "",
         batchConcurrency: batchConcurrency || DEFAULT_CONFIG.batchConcurrency,
         maxTokens: maxTokens || "64000",
         gdriveLocalBasePath: gdriveLocalBasePath || "",
