@@ -77,15 +77,15 @@ export async function ensureUserConfigTable(): Promise<void> {
 
 /**
  * 从数据库读取单个配置值
- * - userId 提供时：先查 user_config，未找到则 fallback 到 systemConfig
- * - userId 不提供时：直接读 systemConfig（向后兼容）
+ * - userId 提供时：仅查 user_config，不 fallback 到 systemConfig（租户隔离）
+ * - userId 不提供时：直接读 systemConfig（向后兼容，仅限系统级调用）
  */
 export async function getConfigValue(key: string, userId?: number): Promise<string> {
   try {
     const db = await getDb();
     if (!db) return DEFAULT_CONFIG[key] || "";
 
-    // 如果有 userId，先查用户级配置
+    // 有 userId 时：仅查用户级配置，不穿透到 systemConfig（防止跨租户数据泄露）
     if (userId != null) {
       await ensureUserConfigTable();
       const userResult = await db.select().from(userConfig)
@@ -94,9 +94,11 @@ export async function getConfigValue(key: string, userId?: number): Promise<stri
       if (userResult.length > 0 && userResult[0].value) {
         return userResult[0].value;
       }
+      // 直接返回 DEFAULT_CONFIG，不再 fallback 到 systemConfig
+      return DEFAULT_CONFIG[key] || "";
     }
 
-    // fallback 到全局 systemConfig
+    // 无 userId 时：读 systemConfig（仅用于系统级调用如邮箱白名单检查）
     const result = await db.select().from(systemConfig).where(eq(systemConfig.key, key)).limit(1);
     if (result.length > 0 && result[0].value) {
       return result[0].value;
@@ -126,6 +128,51 @@ export async function getUserOnlyConfigValue(userId: number, key: string): Promi
     console.error(`获取用户私有配置 ${key} 失败:`, e);
   }
   return "";
+}
+
+/**
+ * 一次性迁移：将 systemConfig 中的旧数据复制到指定管理员的 user_config 中。
+ * 仅迁移 user_config 中尚未存在的 key，不覆盖已有数据。
+ * 迁移完成后在 systemConfig 中标记，避免重复执行。
+ */
+export async function migrateSystemConfigToAdmin(adminUserId: number): Promise<{ migrated: string[]; skipped: string[] }> {
+  const migrated: string[] = [];
+  const skipped: string[] = [];
+  try {
+    const db = await getDb();
+    if (!db) return { migrated, skipped };
+    await ensureUserConfigTable();
+
+    // 检查是否已迁移过
+    const marker = await db.select().from(systemConfig).where(eq(systemConfig.key, `_migrated_to_user_${adminUserId}`)).limit(1);
+    if (marker.length > 0) return { migrated, skipped };
+
+    // 读取 systemConfig 中所有条目
+    const allSystemEntries = await db.select().from(systemConfig);
+    for (const entry of allSystemEntries) {
+      if (entry.key.startsWith('_')) continue; // 跳过内部标记
+      // 检查 user_config 中是否已有该 key
+      const existing = await db.select().from(userConfig)
+        .where(and(eq(userConfig.userId, adminUserId), eq(userConfig.key, entry.key)))
+        .limit(1);
+      if (existing.length > 0) {
+        skipped.push(entry.key);
+      } else {
+        await db.execute(
+          sql`INSERT INTO \`user_config\` (\`userId\`, \`key\`, \`value\`) VALUES (${adminUserId}, ${entry.key}, ${entry.value}) ON DUPLICATE KEY UPDATE \`value\` = VALUES(\`value\`)`
+        );
+        migrated.push(entry.key);
+      }
+    }
+
+    // 标记已迁移
+    await db.execute(
+      sql`INSERT INTO \`system_config\` (\`key\`, \`value\`) VALUES (${`_migrated_to_user_${adminUserId}`}, ${'1'}) ON DUPLICATE KEY UPDATE \`value\` = VALUES(\`value\`)`
+    );
+  } catch (e) {
+    console.error('迁移 systemConfig 到 admin user_config 失败:', e);
+  }
+  return { migrated, skipped };
 }
 
 /**
