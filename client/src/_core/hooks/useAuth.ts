@@ -38,6 +38,15 @@ export function useAuth(options?: UseAuthOptions) {
     } finally {
       // 清除缓存的用户信息
       localStorage.removeItem("manus-runtime-user-info");
+      // 清除学生历史记录 localStorage 缓存，防止切换用户后数据泄露
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('studentLessonHistoryV2_')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
       utils.auth.me.setData(undefined, null);
       // 使所有查询缓存失效，防止切换用户后残留上一个用户的数据
       await utils.invalidate();
