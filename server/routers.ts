@@ -523,48 +523,49 @@ export const appRouter = router({
         applyProviderKey: z.string().optional(), // 选中的供应商名称，应用其密钥
       }))
       .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
         const updates: string[] = [];
 
         if (input.apiModel !== undefined) {
-          await setConfig("apiModel", input.apiModel.trim(), "AI模型名称");
+          await setUserConfigValue(uid, "apiModel", input.apiModel.trim());
           updates.push("apiModel");
         }
-        
+
         if (input.apiKey !== undefined && input.apiKey.trim()) {
-          await setConfig("apiKey", input.apiKey.trim(), "API密钥");
+          await setUserConfigValue(uid, "apiKey", input.apiKey.trim());
           updates.push("apiKey");
         }
-        
+
         if (input.apiUrl !== undefined && input.apiUrl.trim()) {
-          await setConfig("apiUrl", input.apiUrl.trim(), "API地址");
+          await setUserConfigValue(uid, "apiUrl", input.apiUrl.trim());
           updates.push("apiUrl");
         }
-        
+
         if (input.currentYear !== undefined && input.currentYear.trim()) {
-          await setConfig("currentYear", input.currentYear.trim(), "当前年份");
+          await setUserConfigValue(uid, "currentYear", input.currentYear.trim());
           updates.push("currentYear");
         }
-        
+
         if (input.roadmap !== undefined) {
-          await setConfig("roadmap", input.roadmap, "V9路书内容（一对一）");
+          await setUserConfigValue(uid, "roadmap", input.roadmap);
           updates.push("roadmap");
         }
-        
+
         if (input.roadmapClass !== undefined) {
-          await setConfig("roadmapClass", input.roadmapClass, "小班课路书内容");
+          await setUserConfigValue(uid, "roadmapClass", input.roadmapClass);
           updates.push("roadmapClass");
         }
-        
+
         if (input.firstLessonTemplate !== undefined) {
-          await setConfig("firstLessonTemplate", input.firstLessonTemplate, "一对一首次课范例");
+          await setUserConfigValue(uid, "firstLessonTemplate", input.firstLessonTemplate);
           updates.push("firstLessonTemplate");
         }
-        
+
         if (input.classFirstLessonTemplate !== undefined) {
-          await setConfig("classFirstLessonTemplate", input.classFirstLessonTemplate, "小班课首次课范例");
+          await setUserConfigValue(uid, "classFirstLessonTemplate", input.classFirstLessonTemplate);
           updates.push("classFirstLessonTemplate");
         }
-        
+
         if (input.driveBasePath !== undefined && input.driveBasePath.trim()) {
           // 验证路径格式：不能以/开头或结尾
           let path = input.driveBasePath.trim();
@@ -574,7 +575,7 @@ export const appRouter = router({
           if (path.endsWith('/')) {
             path = path.slice(0, -1);
           }
-          await setConfig("driveBasePath", path, "一对一存储路径");
+          await setUserConfigValue(uid, "driveBasePath", path);
           updates.push("driveBasePath");
         }
 
@@ -589,19 +590,19 @@ export const appRouter = router({
               path = path.slice(0, -1);
             }
           }
-          await setConfig("classStoragePath", path, "小班课存储路径");
+          await setUserConfigValue(uid, "classStoragePath", path);
           updates.push("classStoragePath");
         }
 
         if (input.batchFilePrefix !== undefined) {
-          await setConfig("batchFilePrefix", input.batchFilePrefix.trim() || DEFAULT_CONFIG.batchFilePrefix, "批量处理文件名前缀");
+          await setUserConfigValue(uid, "batchFilePrefix", input.batchFilePrefix.trim() || DEFAULT_CONFIG.batchFilePrefix);
           updates.push("batchFilePrefix");
         }
 
         if (input.batchConcurrency !== undefined) {
           const val = parseInt(input.batchConcurrency.trim(), 10);
           if (!isNaN(val) && val >= 1 && val <= 200) {
-            await setConfig("batchConcurrency", val.toString(), "批量处理并发数");
+            await setUserConfigValue(uid, "batchConcurrency", val.toString());
             updates.push("batchConcurrency");
           }
         }
@@ -615,15 +616,15 @@ export const appRouter = router({
           if (path.endsWith('/')) {
             path = path.slice(0, -1);
           }
-          await setConfig("batchStoragePath", path, "批量处理存储路径");
+          await setUserConfigValue(uid, "batchStoragePath", path);
           updates.push("batchStoragePath");
         }
-        
+
         if (input.maxTokens !== undefined && input.maxTokens.trim()) {
           // 验证是否为有效数字
           const tokenValue = parseInt(input.maxTokens.trim(), 10);
           if (!isNaN(tokenValue) && tokenValue >= 1000 && tokenValue <= 200000) {
-            await setConfig("maxTokens", tokenValue.toString(), "AI生成的最大token数");
+            await setUserConfigValue(uid, "maxTokens", tokenValue.toString());
             updates.push("maxTokens");
           }
         }
@@ -634,7 +635,7 @@ export const appRouter = router({
           if (localPath.endsWith('/')) {
             localPath = localPath.slice(0, -1);
           }
-          await setConfig("gdriveLocalBasePath", localPath, "Google Drive本地同步路径");
+          await setUserConfigValue(uid, "gdriveLocalBasePath", localPath);
           updates.push("gdriveLocalBasePath");
         }
 
@@ -642,7 +643,7 @@ export const appRouter = router({
           let dlPath = input.gdriveDownloadsPath.trim();
           if (dlPath.startsWith('/')) dlPath = dlPath.slice(1);
           if (dlPath.endsWith('/')) dlPath = dlPath.slice(0, -1);
-          await setConfig("gdriveDownloadsPath", dlPath, "Google Drive上Downloads文件夹路径");
+          await setUserConfigValue(uid, "gdriveDownloadsPath", dlPath);
           updates.push("gdriveDownloadsPath");
         }
 
@@ -650,12 +651,12 @@ export const appRouter = router({
           let gPath = input.gradingStoragePath.trim();
           if (gPath.startsWith('/')) gPath = gPath.slice(1);
           if (gPath.endsWith('/')) gPath = gPath.slice(0, -1);
-          await setConfig("gradingStoragePath", gPath, "周打分记录存储路径");
+          await setUserConfigValue(uid, "gradingStoragePath", gPath);
           updates.push("gradingStoragePath");
         }
 
         if (input.modelPresets !== undefined) {
-          await setConfig("modelPresets", input.modelPresets, "常用模型预设列表");
+          await setUserConfigValue(uid, "modelPresets", input.modelPresets);
           updates.push("modelPresets");
         }
 
@@ -663,7 +664,7 @@ export const appRouter = router({
           // 合并密钥：如果新条目的 apiKey 为空，保留已有同名供应商的密钥
           try {
             const newPresets = JSON.parse(input.apiProviderPresets) as { name: string; apiKey: string; apiUrl: string }[];
-            const existingRaw = await getConfig("apiProviderPresets", ctx.user.id);
+            const existingRaw = await getConfig("apiProviderPresets", uid);
             let existingPresets: { name: string; apiKey: string; apiUrl: string }[] = [];
             if (existingRaw) {
               try { existingPresets = JSON.parse(existingRaw); } catch {}
@@ -677,10 +678,10 @@ export const appRouter = router({
               }
               return p;
             }).filter(p => p.name.trim()); // 过滤掉没有名称的条目
-            await setConfig("apiProviderPresets", JSON.stringify(merged), "API供应商预设列表");
+            await setUserConfigValue(uid, "apiProviderPresets", JSON.stringify(merged));
           } catch (e) {
             // 如果解析失败，直接保存原始值
-            await setConfig("apiProviderPresets", input.apiProviderPresets, "API供应商预设列表");
+            await setUserConfigValue(uid, "apiProviderPresets", input.apiProviderPresets);
           }
           updates.push("apiProviderPresets");
         }
@@ -688,18 +689,18 @@ export const appRouter = router({
         // 应用选中供应商的密钥和地址
         // 注意：必须从数据库读取已合并的预设（不能用 input.apiProviderPresets，那是客户端发来的原始数据，密钥为空）
         if (input.applyProviderKey) {
-          const presetsRaw = await getConfig("apiProviderPresets", ctx.user.id);
+          const presetsRaw = await getConfig("apiProviderPresets", uid);
           if (presetsRaw) {
             try {
               const presets = JSON.parse(presetsRaw) as { name: string; apiKey: string; apiUrl: string }[];
               const provider = presets.find(p => p.name === input.applyProviderKey);
               if (provider) {
                 if (provider.apiKey) {
-                  await setConfig("apiKey", provider.apiKey, "API密钥");
+                  await setUserConfigValue(uid, "apiKey", provider.apiKey);
                   updates.push("apiKey(fromProvider)");
                 }
                 if (provider.apiUrl) {
-                  await setConfig("apiUrl", provider.apiUrl, "API地址");
+                  await setUserConfigValue(uid, "apiUrl", provider.apiUrl);
                   updates.push("apiUrl(fromProvider)");
                 }
               }
@@ -718,22 +719,21 @@ export const appRouter = router({
         };
       }),
 
-    // 重置为默认值（仅管理员）
+    // 重置为默认值（仅管理员）—— 删除当前用户的 user_config 记录，回退到系统默认
     reset: adminProcedure
       .input(z.object({
         keys: z.array(z.enum(["apiModel", "apiKey", "apiUrl", "currentYear", "roadmap", "driveBasePath"])),
       }))
-      .mutation(async ({ input }) => {
-        const db = await getDb();
-        if (!db) throw new Error("数据库不可用");
+      .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
         for (const key of input.keys) {
           try {
-            await db.delete(systemConfig).where(eq(systemConfig.key, key));
+            await deleteUserConfigValue(uid, key);
           } catch (e) {
             console.error(`重置配置 ${key} 失败:`, e);
           }
         }
-        
+
         return {
           success: true,
           reset: input.keys,

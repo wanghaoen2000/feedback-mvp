@@ -87,17 +87,20 @@ export async function ensureCorrectionTable(): Promise<void> {
       \`ai_model\` varchar(128),
       \`task_status\` varchar(20) NOT NULL DEFAULT 'pending',
       \`error_message\` text,
+      \`streaming_chars\` int DEFAULT 0,
       \`auto_imported\` int DEFAULT 0,
       \`import_entry_id\` int,
       \`created_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
       \`updated_at\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      \`completed_at\` timestamp,
+      \`completed_at\` timestamp NULL,
       PRIMARY KEY (\`id\`)
     )`);
-    // 安全添加新列
+    // 安全添加新列（兼容从旧版迁移创建的表）
     try { await db.execute(sql`ALTER TABLE \`correction_tasks\` ADD COLUMN \`streaming_chars\` INT DEFAULT 0`); } catch (e: any) { if (!e?.message?.includes("Duplicate column")) console.warn("[作业批改] ALTER TABLE 警告:", e?.message); }
-    try { await db.execute(sql`ALTER TABLE \`correction_tasks\` ADD COLUMN \`user_id\` INT NOT NULL DEFAULT 0`); } catch { /* 列可能已存在 */ }
+    try { await db.execute(sql`ALTER TABLE \`correction_tasks\` ADD COLUMN \`user_id\` INT NOT NULL DEFAULT 0`); } catch (e: any) { if (!e?.message?.includes("Duplicate column")) console.warn("[作业批改] ALTER TABLE 警告:", e?.message); }
     try { await db.execute(sql.raw(`ALTER TABLE \`correction_tasks\` ADD INDEX \`idx_corr_userId\` (\`user_id\`)`)); } catch { /* 索引可能已存在 */ }
+    // 修复 completed_at 列：确保在所有 MySQL 配置下都是 nullable
+    try { await db.execute(sql.raw(`ALTER TABLE \`correction_tasks\` MODIFY COLUMN \`completed_at\` TIMESTAMP NULL`)); } catch { /* 可能无需修改 */ }
     tableEnsured = true;
     console.log("[作业批改] 表已就绪");
 
