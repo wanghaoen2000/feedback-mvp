@@ -495,8 +495,15 @@ export default function Home() {
   }, [activeTaskId, activeTaskMonitor.data]);
 
   // ========== 学生课次记忆功能 ==========
-  const STUDENT_LESSON_STORAGE_KEY = `studentLessonHistoryV2_${authUser?.id || 'default'}`;
+  // 只有在用户已认证时才生成有效的 localStorage key，避免跨用户数据泄露
+  const currentUserId = authUser?.id;
+  const STUDENT_LESSON_STORAGE_KEY = currentUserId ? `studentLessonHistoryV2_${currentUserId}` : null;
   const MAX_RECENT_STUDENTS = 30; // 最多保存30个最近学生
+
+  // 一次性清理旧版不带用户 ID 的 'default' key（修复之前的跨用户数据泄露）
+  useEffect(() => {
+    try { localStorage.removeItem('studentLessonHistoryV2_default'); } catch {}
+  }, []);
 
   // 学生记录类型
   interface StudentRecord {
@@ -508,9 +515,20 @@ export default function Home() {
   // 从服务器获取学生历史记录（首次加载）
   const [studentHistoryCache, setStudentHistoryCache] = useState<Record<string, StudentRecord>>({});
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyUserId, setHistoryUserId] = useState<number | undefined>(undefined);
 
-  // 从服务器获取历史记录
+  // 用户切换时重置缓存，防止跨用户数据泄露
+  useEffect(() => {
+    if (currentUserId !== historyUserId) {
+      setStudentHistoryCache({});
+      setHistoryLoaded(false);
+      setHistoryUserId(currentUserId);
+    }
+  }, [currentUserId, historyUserId]);
+
+  // 从服务器获取历史记录（仅在用户已认证时启用）
   const { data: serverHistory } = trpc.config.getStudentHistory.useQuery(undefined, {
+    enabled: !!currentUserId,
     refetchOnWindowFocus: false,
     staleTime: Infinity, // 不自动重新获取
   });
@@ -520,7 +538,7 @@ export default function Home() {
 
   // 当服务器数据返回时，更新缓存
   useEffect(() => {
-    if (serverHistory && !historyLoaded) {
+    if (serverHistory && !historyLoaded && STUDENT_LESSON_STORAGE_KEY) {
       setStudentHistoryCache(serverHistory as Record<string, StudentRecord>);
       setHistoryLoaded(true);
       // 同步到 localStorage 作为离线缓存
@@ -530,15 +548,18 @@ export default function Home() {
         console.warn('同步到 localStorage 失败:', e);
       }
     }
-  }, [serverHistory, historyLoaded]);
+  }, [serverHistory, historyLoaded, STUDENT_LESSON_STORAGE_KEY]);
 
   // 从缓存或 localStorage 获取学生课次历史
   const getStudentLessonHistory = (): Record<string, StudentRecord> => {
+    // 用户未认证时不返回任何数据
+    if (!currentUserId) return {};
     // 优先使用缓存（已从服务器加载）
     if (historyLoaded && Object.keys(studentHistoryCache).length > 0) {
       return studentHistoryCache;
     }
     // 回退到 localStorage（离线或首次加载）
+    if (!STUDENT_LESSON_STORAGE_KEY) return {};
     try {
       const data = localStorage.getItem(STUDENT_LESSON_STORAGE_KEY);
       return data ? JSON.parse(data) : {};
@@ -574,6 +595,7 @@ export default function Home() {
   // 保存学生课次到服务器和 localStorage
   // classStudents: 班级记录时传入本次出勤学生名单，会与历史合并去重
   const saveStudentLesson = (name: string, lesson: number, classStudents?: string[]) => {
+    if (!currentUserId || !STUDENT_LESSON_STORAGE_KEY) return; // 未认证时不保存
     try {
       const history = getStudentLessonHistory();
       const existing = history[name];
