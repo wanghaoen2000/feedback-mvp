@@ -36,8 +36,11 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
+      // 清除缓存的用户信息
+      localStorage.removeItem("manus-runtime-user-info");
       utils.auth.me.setData(undefined, null);
-      await utils.auth.me.invalidate();
+      // 使所有查询缓存失效，防止切换用户后残留上一个用户的数据
+      await utils.invalidate();
     }
   }, [logoutMutation, utils]);
 
