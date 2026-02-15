@@ -31,6 +31,7 @@ export interface GenerationLog {
   startTime: string;
   endTime?: string;
   studentName: string;
+  userId?: number;
   lessonNumber?: string;
   lessonDate?: string;
   
@@ -108,14 +109,16 @@ export function createLogSession(
     lastFeedbackLength: number;
   },
   lessonNumber?: string,
-  lessonDate?: string
+  lessonDate?: string,
+  userId?: number
 ): GenerationLog {
   const sessionId = generateSessionId();
-  
+
   const log: GenerationLog = {
     sessionId,
     startTime: formatTimestamp(),
     studentName,
+    userId,
     lessonNumber,
     lessonDate,
     config,
@@ -279,14 +282,29 @@ export function endLogSession(log: GenerationLog): GenerationLog {
 }
 
 /**
- * 保存日志到文件
+ * 获取用户日志目录（按 userId 隔离）
+ */
+function getUserLogDir(userId?: number): string {
+  if (userId) {
+    const userDir = path.join(LOG_DIR, `user_${userId}`);
+    if (!fs.existsSync(userDir)) {
+      fs.mkdirSync(userDir, { recursive: true });
+    }
+    return userDir;
+  }
+  return LOG_DIR;
+}
+
+/**
+ * 保存日志到文件（按用户子目录隔离）
  */
 function saveLogToFile(log: GenerationLog) {
   const fileName = `${log.studentName}_${log.sessionId}.log`;
-  const filePath = path.join(LOG_DIR, fileName);
-  
+  const logDir = getUserLogDir(log.userId);
+  const filePath = path.join(logDir, fileName);
+
   const content = formatLogForFile(log);
-  
+
   try {
     fs.writeFileSync(filePath, content, 'utf-8');
     console.log(`[Logger] 日志已保存到: ${filePath}`);
@@ -386,19 +404,20 @@ function formatLogForFile(log: GenerationLog): string {
 }
 
 /**
- * 获取最新的日志文件路径
+ * 获取最新的日志文件路径（按用户隔离）
  */
-export function getLatestLogPath(): string | null {
+export function getLatestLogPath(userId?: number): string | null {
   try {
-    const files = fs.readdirSync(LOG_DIR)
+    const logDir = getUserLogDir(userId);
+    const files = fs.readdirSync(logDir)
       .filter(f => f.endsWith('.log'))
       .map(f => ({
         name: f,
-        path: path.join(LOG_DIR, f),
-        mtime: fs.statSync(path.join(LOG_DIR, f)).mtime
+        path: path.join(logDir, f),
+        mtime: fs.statSync(path.join(logDir, f)).mtime
       }))
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-    
+
     return files.length > 0 ? files[0].path : null;
   } catch (error) {
     console.error('[Logger] 获取日志文件失败:', error);
@@ -407,22 +426,23 @@ export function getLatestLogPath(): string | null {
 }
 
 /**
- * 根据学生名或班号获取最新的日志文件路径
+ * 根据学生名或班号获取最新的日志文件路径（按用户隔离）
  * 支持一对一（学生名）和小班课（班号）
  */
-export function getLatestLogPathByStudent(identifier: string): string | null {
+export function getLatestLogPathByStudent(identifier: string, userId?: number): string | null {
   try {
-    const files = fs.readdirSync(LOG_DIR)
+    const logDir = getUserLogDir(userId);
+    const files = fs.readdirSync(logDir)
       .filter(f => f.endsWith('.log') && f.startsWith(identifier + '_'))
       .map(f => ({
         name: f,
-        path: path.join(LOG_DIR, f),
-        mtime: fs.statSync(path.join(LOG_DIR, f)).mtime
+        path: path.join(logDir, f),
+        mtime: fs.statSync(path.join(logDir, f)).mtime
       }))
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-    
-    console.log(`[Logger] 查找日志: identifier=${identifier}, 找到${files.length}个文件`);
-    
+
+    console.log(`[Logger] 查找日志: identifier=${identifier}, userId=${userId}, 找到${files.length}个文件`);
+
     return files.length > 0 ? files[0].path : null;
   } catch (error) {
     console.error('[Logger] 根据标识符获取日志文件失败:', error);
@@ -443,16 +463,17 @@ export function getLogContent(logPath: string): string | null {
 }
 
 /**
- * 列出所有日志文件
+ * 列出日志文件（按用户隔离）
  */
-export function listLogFiles(): { name: string; path: string; mtime: Date }[] {
+export function listLogFiles(userId?: number): { name: string; path: string; mtime: Date }[] {
   try {
-    return fs.readdirSync(LOG_DIR)
+    const logDir = getUserLogDir(userId);
+    return fs.readdirSync(logDir)
       .filter(f => f.endsWith('.log'))
       .map(f => ({
         name: f,
-        path: path.join(LOG_DIR, f),
-        mtime: fs.statSync(path.join(LOG_DIR, f)).mtime
+        path: path.join(logDir, f),
+        mtime: fs.statSync(path.join(logDir, f)).mtime
       }))
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
   } catch (error) {

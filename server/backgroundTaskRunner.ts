@@ -269,7 +269,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams, userI
   const config = { apiModel, apiKey, apiUrl, roadmap };
   const taskStartTime = Date.now();
 
-  // 创建日志会话
+  // 创建日志会话（按用户隔离）
   const log = createLogSession(
     params.studentName,
     { apiUrl, apiModel, maxTokens: 64000 },
@@ -280,6 +280,7 @@ async function runOneToOneTask(taskId: string, params: OneToOneTaskParams, userI
     },
     params.lessonNumber,
     params.lessonDate,
+    userId
   );
   logInfo(log, 'task', `后台任务 ${taskId}`);
 
@@ -575,7 +576,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams, userId: num
   const folderName = `${params.classNumber}班`;
   const basePath = `${driveBasePath}/${folderName}`;
 
-  // 创建日志会话
+  // 创建日志会话（按用户隔离）
   const log = createLogSession(
     `班级${params.classNumber}`,
     { apiUrl: apiConfig.apiUrl || '', apiModel: apiConfig.apiModel || '', maxTokens: 64000 },
@@ -586,6 +587,7 @@ async function runClassTask(taskId: string, params: ClassTaskParams, userId: num
     },
     params.lessonNumber,
     params.lessonDate,
+    userId
   );
   logInfo(log, 'task', `后台任务 ${taskId}`);
 

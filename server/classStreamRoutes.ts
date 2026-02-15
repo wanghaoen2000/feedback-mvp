@@ -71,9 +71,10 @@ const classFeedbackInputSchema = z.object({
  * 注册小班课 SSE 流式端点
  */
 export function registerClassStreamRoutes(app: Express): void {
-  // 内容拉取端点：前端凭 taskId 获取完整内容（SSE 断了也能拉到）
+  // 内容拉取端点：前端凭 taskId 获取完整内容（SSE 断了也能拉到，校验 userId 归属）
   app.get("/api/feedback-content/:id", requireAuth, (req: Request, res: Response) => {
-    const result = retrieveContent(req.params.id);
+    const userId = (req as any).user?.id;
+    const result = retrieveContent(req.params.id, userId);
     if (result === null) {
       res.status(404).json({ error: "内容不存在或已过期" });
       return;
@@ -128,7 +129,7 @@ export function registerClassStreamRoutes(app: Express): void {
       const currentYear = input.currentYear || await getConfig("currentYear", userId) || DEFAULT_CONFIG.currentYear;
       const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass", userId) || "");
 
-      // 创建日志会话（小班课用班号作为学生名）
+      // 创建日志会话（小班课用班号作为学生名，按用户隔离）
       log = createLogSession(
         `班级${input.classNumber}`,
         { apiUrl, apiModel, maxTokens: 64000 },
@@ -138,7 +139,8 @@ export function registerClassStreamRoutes(app: Express): void {
           lastFeedbackLength: input.lastFeedback?.length || 0,
         },
         input.lessonNumber,
-        input.lessonDate
+        input.lessonDate,
+        userId
       );
       logInfo(log, 'session', `开始小班课学情反馈生成 (SSE)，出勤学生: ${input.attendanceStudents.join('、')}`);
       
@@ -234,9 +236,9 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       stepSuccess(log, 'feedback', cleanedContent.length);
       endLogSession(log);
 
-      // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取）
+      // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取，记录 userId 归属）
       const taskId = input.taskId || crypto.randomUUID();
-      storeContent(taskId, cleanedContent);
+      storeContent(taskId, cleanedContent, undefined, userId);
       sendEvent("complete", {
         success: true,
         contentId: taskId,
@@ -345,7 +347,7 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
       const currentYear = input.currentYear || await getConfig("currentYear", userId) || DEFAULT_CONFIG.currentYear;
       const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", userId) || "");
 
-      // 创建日志会话
+      // 创建日志会话（按用户隔离）
       log = createLogSession(
         input.studentName,
         { apiUrl, apiModel, maxTokens: 64000 },
@@ -355,7 +357,8 @@ ${classInput.specialRequirements ? `【特殊要求】\n${classInput.specialRequ
           lastFeedbackLength: input.lastFeedback?.length || 0,
         },
         input.lessonNumber,
-        input.lessonDate
+        input.lessonDate,
+        userId
       );
       logInfo(log, 'session', '开始一对一学情反馈生成 (SSE)');
       
@@ -472,7 +475,7 @@ ${input.transcript}
       // 结束日志会话（保存日志文件）
       endLogSession(log);
       
-      // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取）
+      // 内容存入暂存（用前端传入的 taskId，SSE 断了前端也能凭 taskId 拉取，记录 userId 归属）
       const taskId = input.taskId || crypto.randomUUID();
       storeContent(taskId, cleanedContent, {
         dateStr,
@@ -482,7 +485,7 @@ ${input.transcript}
           path: uploadResult.path || '',
           folderUrl: uploadResult.folderUrl || '',
         }
-      });
+      }, userId);
       sendEvent("complete", {
         success: true,
         contentId: taskId,
@@ -612,13 +615,14 @@ ${input.transcript}
       const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", userId) || "");
       const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
 
-      // 创建日志会话
+      // 创建日志会话（按用户隔离）
       log = createLogSession(
         input.studentName,
         { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
         undefined,
-        input.dateStr
+        input.dateStr,
+        userId
       );
       logInfo(log, 'session', '开始一对一复习文档生成 (SSE)');
       startStep(log, 'review');
@@ -716,7 +720,7 @@ ${input.feedbackContent}
 
       // 存入 contentStore，供前端 SSE 断连后轮询
       const reviewTaskId = input.taskId || crypto.randomUUID();
-      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: reviewContent.length });
+      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: reviewContent.length }, userId);
 
       sendEvent("complete", {
         success: true,
@@ -802,7 +806,8 @@ ${input.feedbackContent}
         { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
         undefined,
-        input.dateStr
+        input.dateStr,
+        userId
       );
       startStep(log, '测试本');
 
@@ -872,7 +877,7 @@ ${input.feedbackContent}
       };
 
       const testTaskId = input.taskId || crypto.randomUUID();
-      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testResult.textChars });
+      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testResult.textChars }, userId);
 
       stepSuccess(log, '测试本', testResult.textChars);
       endLogSession(log);
@@ -956,7 +961,8 @@ ${input.feedbackContent}
         { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
         undefined,
-        input.dateStr
+        input.dateStr,
+        userId
       );
       startStep(log, '课后信息提取');
 
@@ -1025,7 +1031,7 @@ ${input.feedbackContent}
       };
 
       const extractionTaskId = input.taskId || crypto.randomUUID();
-      storeContent(extractionTaskId, JSON.stringify(extractionUploadData), { type: 'extraction', chars: extractionContent.length });
+      storeContent(extractionTaskId, JSON.stringify(extractionUploadData), { type: 'extraction', chars: extractionContent.length }, userId);
 
       stepSuccess(log, '课后信息提取', extractionContent.length);
       endLogSession(log);
@@ -1141,13 +1147,14 @@ ${input.feedbackContent}
       const driveBasePath = classStoragePath || input.driveBasePath || await getConfig("driveBasePath", userId) || DEFAULT_CONFIG.driveBasePath;
       const currentYear = input.currentYear || await getConfig("currentYear", userId) || DEFAULT_CONFIG.currentYear;
 
-      // 创建日志会话
+      // 创建日志会话（按用户隔离）
       log = createLogSession(
         `班级${input.classNumber}`,
         { apiUrl, apiModel, maxTokens: 64000 },
         { notesLength: input.currentNotes?.length || 0, transcriptLength: 0, lastFeedbackLength: input.combinedFeedback.length },
         input.lessonNumber,
-        input.lessonDate
+        input.lessonDate,
+        userId
       );
       logInfo(log, 'session', '开始小班课复习文档生成 (SSE)');
       startStep(log, 'review');
@@ -1251,7 +1258,7 @@ ${input.currentNotes}
 
       // 存入 contentStore，供前端 SSE 断连后轮询
       const reviewTaskId = input.taskId || crypto.randomUUID();
-      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: reviewContent.length });
+      storeContent(reviewTaskId, JSON.stringify(reviewUploadData), { type: 'review', chars: reviewContent.length }, userId);
 
       sendEvent("complete", {
         success: true,
@@ -1400,7 +1407,7 @@ ${input.currentNotes}
         folderUrl: uploadResult.folderUrl || '',
       };
       const testTaskId = input.taskId || crypto.randomUUID();
-      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testResult.textChars });
+      storeContent(testTaskId, JSON.stringify(testUploadData), { type: 'test', chars: testResult.textChars }, userId);
 
       sendEvent("complete", {
         success: true,
@@ -1538,7 +1545,7 @@ ${input.currentNotes}
         folderUrl: uploadResult.folderUrl || '',
       };
       const extractTaskId = input.taskId || crypto.randomUUID();
-      storeContent(extractTaskId, JSON.stringify(extractUploadData), { type: 'extraction', chars: extractionContent.length });
+      storeContent(extractTaskId, JSON.stringify(extractUploadData), { type: 'extraction', chars: extractionContent.length }, userId);
 
       sendEvent("complete", {
         success: true,

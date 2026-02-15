@@ -981,7 +981,7 @@ export const appRouter = router({
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", ctx.user.id) || DEFAULT_CONFIG.roadmap);
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         
-        // 创建独立的日志会话（并发安全）
+        // 创建独立的日志会话（并发安全，按用户隔离）
         const log = createLogSession(
           input.studentName,
           { apiUrl, apiModel, maxTokens: 64000 },
@@ -991,9 +991,10 @@ export const appRouter = router({
             lastFeedbackLength: (input.lastFeedback || "").length,
           },
           input.lessonNumber,
-          input.lessonDate
+          input.lessonDate,
+          ctx.user.id
         );
-        
+
         startStep(log, "学情反馈");
         
         try {
@@ -1061,7 +1062,7 @@ export const appRouter = router({
 
           // taskId 容错：存入 contentStore 供前端轮询
           if (input.taskId) {
-            storeContent(input.taskId, JSON.stringify(resultPayload));
+            storeContent(input.taskId, JSON.stringify(resultPayload), undefined, ctx.user.id);
           }
 
           return resultPayload;
@@ -1101,15 +1102,16 @@ export const appRouter = router({
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", ctx.user.id) || DEFAULT_CONFIG.roadmap);
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         
-        // 创建独立的日志会话（并发安全）
+        // 创建独立的日志会话（并发安全，按用户隔离）
         const log = createLogSession(
           input.studentName,
           { apiUrl, apiModel, maxTokens: 64000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           undefined,
-          input.dateStr
+          input.dateStr,
+          ctx.user.id
         );
-        
+
         startStep(log, "复习文档");
         
         try {
@@ -1166,7 +1168,7 @@ export const appRouter = router({
 
           // 存入 contentStore，供前端代理超时后轮询
           if (input.taskId) {
-            storeContent(input.taskId, JSON.stringify(reviewResult.uploadResult), { type: 'review', chars: reviewChars });
+            storeContent(input.taskId, JSON.stringify(reviewResult.uploadResult), { type: 'review', chars: reviewChars }, ctx.user.id);
           }
 
           return reviewResult;
@@ -1206,15 +1208,16 @@ export const appRouter = router({
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", ctx.user.id) || DEFAULT_CONFIG.roadmap);
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         
-        // 创建独立的日志会话（并发安全）
+        // 创建独立的日志会话（并发安全，按用户隔离）
         const log = createLogSession(
           input.studentName,
           { apiUrl, apiModel, maxTokens: 64000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           undefined,
-          input.dateStr
+          input.dateStr,
+          ctx.user.id
         );
-        
+
         startStep(log, "测试本");
         
         try {
@@ -1270,7 +1273,7 @@ export const appRouter = router({
           };
 
           if (input.taskId) {
-            storeContent(input.taskId, JSON.stringify(testResult.uploadResult), { type: 'test', chars: testChars });
+            storeContent(input.taskId, JSON.stringify(testResult.uploadResult), { type: 'test', chars: testChars }, ctx.user.id);
           }
 
           return testResult;
@@ -1310,15 +1313,16 @@ export const appRouter = router({
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", ctx.user.id) || DEFAULT_CONFIG.roadmap);
         const driveBasePath = input.driveBasePath || await getConfig("driveBasePath", ctx.user.id) || DEFAULT_CONFIG.driveBasePath;
         
-        // 创建独立的日志会话（并发安全）
+        // 创建独立的日志会话（并发安全，按用户隔离）
         const log = createLogSession(
           input.studentName,
           { apiUrl, apiModel, maxTokens: 64000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           undefined,
-          input.dateStr
+          input.dateStr,
+          ctx.user.id
         );
-        
+
         startStep(log, "课后信息提取");
         
         try {
@@ -1373,7 +1377,7 @@ export const appRouter = router({
           };
 
           if (input.taskId) {
-            storeContent(input.taskId, JSON.stringify(extractionResult.uploadResult), { type: 'extraction', chars: extractionContent.length });
+            storeContent(input.taskId, JSON.stringify(extractionResult.uploadResult), { type: 'extraction', chars: extractionContent.length }, ctx.user.id);
           }
 
           return extractionResult;
@@ -1412,15 +1416,16 @@ export const appRouter = router({
         const apiUrl = input.apiUrl || await getConfig("apiUrl", ctx.user.id) || DEFAULT_CONFIG.apiUrl;
         const roadmap = input.roadmap !== undefined ? input.roadmap : (await getConfig("roadmap", ctx.user.id) || DEFAULT_CONFIG.roadmap);
         
-        // 创建独立的日志会话（并发安全）
+        // 创建独立的日志会话（并发安全，按用户隔离）
         const log = createLogSession(
           input.studentName,
           { apiUrl, apiModel, maxTokens: 64000 },
           { notesLength: 0, transcriptLength: 0, lastFeedbackLength: input.feedbackContent.length },
           input.lessonNumber,
-          input.dateStr
+          input.dateStr,
+          ctx.user.id
         );
-        
+
         startStep(log, "气泡图");
         
         try {
@@ -1443,7 +1448,7 @@ export const appRouter = router({
 
           // 存入 contentStore（气泡图存的是 SVG 内容）
           if (input.taskId) {
-            storeContent(input.taskId, JSON.stringify({ svgContent }), { type: 'bubbleChart', chars: svgContent.length });
+            storeContent(input.taskId, JSON.stringify({ svgContent }), { type: 'bubbleChart', chars: svgContent.length }, ctx.user.id);
           }
 
           // 返回SVG字符串，前端负责转换为PNG并上传
@@ -1555,10 +1560,10 @@ export const appRouter = router({
         };
       }),
 
-    // 获取最新日志
+    // 获取最新日志（按用户隔离）
     getLatestLog: protectedProcedure
-      .query(async () => {
-        const logPath = getLatestLogPath();
+      .query(async ({ ctx }) => {
+        const logPath = getLatestLogPath(ctx.user.id);
         if (!logPath) {
           return { success: false, message: "没有找到日志文件" };
         }
@@ -1576,10 +1581,10 @@ export const appRouter = router({
         studentName: z.string().optional(),
       }).optional())
       .mutation(async ({ input, ctx }) => {
-        // 如果提供了学生名，根据学生名查找日志；否则获取最新的日志
-        const logPath = input?.studentName 
-          ? getLatestLogPathByStudent(input.studentName) 
-          : getLatestLogPath();
+        // 如果提供了学生名，根据学生名查找日志；否则获取最新的日志（按用户隔离）
+        const logPath = input?.studentName
+          ? getLatestLogPathByStudent(input.studentName, ctx.user.id)
+          : getLatestLogPath(ctx.user.id);
         if (!logPath) {
           return { success: false, message: "没有找到日志文件，请先运行一次生成" };
         }
@@ -1619,10 +1624,10 @@ export const appRouter = router({
         }
       }),
 
-    // 列出所有日志文件
+    // 列出日志文件（按用户隔离）
     listLogs: protectedProcedure
-      .query(async () => {
-        const logs = listLogFiles();
+      .query(async ({ ctx }) => {
+        const logs = listLogFiles(ctx.user.id);
         return {
           success: true,
           logs: logs.map((l: { name: string; path: string; mtime: Date }) => ({
@@ -1687,7 +1692,7 @@ export const appRouter = router({
         const currentYear = input.currentYear || await getConfig("currentYear", ctx.user.id) || DEFAULT_CONFIG.currentYear;
         const roadmapClass = input.roadmapClass !== undefined ? input.roadmapClass : (await getConfig("roadmapClass", ctx.user.id) || "");
         
-        // 创建小班课日志会话（用班号作为标识符）
+        // 创建小班课日志会话（用班号作为标识符，按用户隔离）
         const log = createLogSession(
           `${input.classNumber}班`,
           { apiUrl, apiModel, maxTokens: 64000 },
@@ -1697,7 +1702,8 @@ export const appRouter = router({
             lastFeedbackLength: (input.lastFeedback || "").length,
           },
           input.lessonNumber,
-          input.lessonDate
+          input.lessonDate,
+          ctx.user.id
         );
         
         startStep(log, "小班课学情反馈");
