@@ -47,22 +47,24 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { loading, user } = useAuth();
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem(getSidebarWidthKey((user as any)?.id));
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
-  });
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
+  const userIdRef = useRef<number | null>(null);
 
-  // 用户加载后，重新读取该用户的 sidebar 宽度偏好
+  // 用户加载后，读取该用户的 sidebar 宽度偏好
   useEffect(() => {
-    if (user) {
+    if (user && (user as any).id) {
+      userIdRef.current = (user as any).id;
       const saved = localStorage.getItem(getSidebarWidthKey((user as any).id));
       if (saved) setSidebarWidth(parseInt(saved, 10));
     }
   }, [user]);
 
+  // 仅在用户已加载后才保存到 localStorage
   useEffect(() => {
-    localStorage.setItem(getSidebarWidthKey((user as any)?.id), sidebarWidth.toString());
-  }, [sidebarWidth, user]);
+    if (userIdRef.current) {
+      localStorage.setItem(getSidebarWidthKey(userIdRef.current), sidebarWidth.toString());
+    }
+  }, [sidebarWidth]);
 
   if (loading) {
     return <DashboardLayoutSkeleton />
