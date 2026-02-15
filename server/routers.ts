@@ -46,7 +46,7 @@ import {
   previewFeedbackPrompts,
 } from "./feedbackGenerator";
 import { storeContent } from "./contentStore";
-import { DEFAULT_CONFIG, getConfigValue as getConfig, setUserConfigValue, deleteUserConfigValue, ensureUserConfigTable } from "./core/aiClient";
+import { DEFAULT_CONFIG, getConfigValue as getConfig, getUserOnlyConfigValue, setUserConfigValue, deleteUserConfigValue, ensureUserConfigTable } from "./core/aiClient";
 import { addWeekdayToDate } from "./utils";
 import {
   listStudents,
@@ -936,9 +936,9 @@ export const appRouter = router({
         };
       }),
 
-    // 获取学生/班级历史记录
+    // 获取学生/班级历史记录（用户私有数据，不 fallback 到 systemConfig）
     getStudentHistory: protectedProcedure.query(async ({ ctx }) => {
-      const historyJson = await getConfig("studentLessonHistory", ctx.user.id);
+      const historyJson = await getUserOnlyConfigValue(ctx.user.id, "studentLessonHistory");
       if (!historyJson) {
         return {};
       }

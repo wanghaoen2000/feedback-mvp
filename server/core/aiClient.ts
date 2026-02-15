@@ -108,6 +108,27 @@ export async function getConfigValue(key: string, userId?: number): Promise<stri
 }
 
 /**
+ * 仅从 user_config 读取用户私有数据，不 fallback 到 systemConfig。
+ * 用于学生历史等用户私有数据，避免跨租户泄露。
+ */
+export async function getUserOnlyConfigValue(userId: number, key: string): Promise<string> {
+  try {
+    const db = await getDb();
+    if (!db) return "";
+    await ensureUserConfigTable();
+    const userResult = await db.select().from(userConfig)
+      .where(and(eq(userConfig.userId, userId), eq(userConfig.key, key)))
+      .limit(1);
+    if (userResult.length > 0 && userResult[0].value) {
+      return userResult[0].value;
+    }
+  } catch (e) {
+    console.error(`获取用户私有配置 ${key} 失败:`, e);
+  }
+  return "";
+}
+
+/**
  * 设置用户级配置值（INSERT ON DUPLICATE KEY UPDATE）
  */
 export async function setUserConfigValue(userId: number, key: string, value: string): Promise<void> {
