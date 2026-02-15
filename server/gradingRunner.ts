@@ -256,6 +256,7 @@ async function processGradingInBackground(userId: number, taskId: number): Promi
     const content = await invokeWhatAIStream(messages, {
       max_tokens: 16000,
       temperature: 0.3,
+      timeout: 180_000, // 打分任务输入数据量大（多学生），连接超时放宽到3分钟
       retries: 1,
     }, {
       apiModel: modelToUse,
