@@ -46,7 +46,7 @@ import {
   previewFeedbackPrompts,
 } from "./feedbackGenerator";
 import { storeContent } from "./contentStore";
-import { DEFAULT_CONFIG, getConfigValue as getConfig, setUserConfigValue, deleteUserConfigValue, ensureUserConfigTable } from "./core/aiClient";
+import { DEFAULT_CONFIG, getConfigValue as getConfig, getUserOnlyConfigValue, setUserConfigValue, deleteUserConfigValue, ensureUserConfigTable, migrateSystemConfigToAdmin } from "./core/aiClient";
 import { addWeekdayToDate } from "./utils";
 import {
   listStudents,
@@ -437,10 +437,14 @@ export const appRouter = router({
 
   // 配置管理
   config: router({
-    // 获取所有配置（返回用户级覆盖 + 全局 fallback 的合并结果）
+    // 获取所有配置（仅读取用户自己的 user_config + DEFAULT_CONFIG）
     getAll: protectedProcedure.query(async ({ ctx }) => {
       const uid = ctx.user.id;
-      // 并行查询所有配置值（用户级优先，fallback 到全局）
+      // 管理员首次访问时自动迁移 systemConfig 旧数据到 user_config
+      if (ctx.user.role === 'admin') {
+        await migrateSystemConfigToAdmin(uid);
+      }
+      // 并行查询所有配置值（仅用户级，不穿透到 systemConfig）
       const [
         apiModel, apiKey, apiUrl, currentYear,
         roadmap, roadmapClass, firstLessonTemplate, classFirstLessonTemplate,
@@ -936,9 +940,9 @@ export const appRouter = router({
         };
       }),
 
-    // 获取学生/班级历史记录
+    // 获取学生/班级历史记录（用户私有数据，不 fallback 到 systemConfig）
     getStudentHistory: protectedProcedure.query(async ({ ctx }) => {
-      const historyJson = await getConfig("studentLessonHistory", ctx.user.id);
+      const historyJson = await getUserOnlyConfigValue(ctx.user.id, "studentLessonHistory");
       if (!historyJson) {
         return {};
       }
