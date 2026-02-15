@@ -966,6 +966,13 @@ export const appRouter = router({
         await setUserConfigValue(ctx.user.id, "studentLessonHistory", JSON.stringify(input.history));
         return { success: true };
       }),
+
+    // 清除学生/班级历史记录（用于修复跨账户数据污染）
+    clearStudentHistory: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        await deleteUserConfigValue(ctx.user.id, "studentLessonHistory");
+        return { success: true };
+      }),
   }),
 
   // 学情反馈生成 - 拆分为5个独立端点
