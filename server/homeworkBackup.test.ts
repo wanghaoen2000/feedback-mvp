@@ -9,7 +9,7 @@ vi.mock("../drizzle/schema", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col, val) => ({ _eq: val })),
   desc: vi.fn(),
-  sql: vi.fn(),
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
   and: vi.fn((...args: any[]) => ({ _and: args })),
   inArray: vi.fn(),
 }));
