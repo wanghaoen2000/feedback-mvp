@@ -500,9 +500,20 @@ export default function Home() {
   const STUDENT_LESSON_STORAGE_KEY = currentUserId ? `studentLessonHistoryV2_${currentUserId}` : null;
   const MAX_RECENT_STUDENTS = 30; // 最多保存30个最近学生
 
-  // 一次性清理旧版不带用户 ID 的 'default' key（修复之前的跨用户数据泄露）
+  // 清理 localStorage 中可能残留的跨账户脏数据（一次性迁移清理）
   useEffect(() => {
-    try { localStorage.removeItem('studentLessonHistoryV2_default'); } catch {}
+    try {
+      // 清理旧版不带用户 ID 的 'default' key
+      localStorage.removeItem('studentLessonHistoryV2_default');
+      // 清理所有用户的 studentLessonHistory 缓存，强制从服务器重新加载
+      // 这样可以消除之前 systemConfig fallback 导致的跨账户数据污染
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('studentLessonHistoryV2_')) {
+          localStorage.removeItem(key);
+        }
+      }
+    } catch {}
   }, []);
 
   // 学生记录类型
@@ -550,22 +561,16 @@ export default function Home() {
     }
   }, [serverHistory, historyLoaded, STUDENT_LESSON_STORAGE_KEY]);
 
-  // 从缓存或 localStorage 获取学生课次历史
+  // 从缓存获取学生课次历史（仅信任服务器数据，不读取 localStorage 避免跨账户数据残留）
   const getStudentLessonHistory = (): Record<string, StudentRecord> => {
     // 用户未认证时不返回任何数据
     if (!currentUserId) return {};
-    // 优先使用缓存（已从服务器加载）
-    if (historyLoaded && Object.keys(studentHistoryCache).length > 0) {
+    // 服务器数据已加载时，始终使用服务器数据（即使为空也不回退到 localStorage）
+    if (historyLoaded) {
       return studentHistoryCache;
     }
-    // 回退到 localStorage（离线或首次加载）
-    if (!STUDENT_LESSON_STORAGE_KEY) return {};
-    try {
-      const data = localStorage.getItem(STUDENT_LESSON_STORAGE_KEY);
-      return data ? JSON.parse(data) : {};
-    } catch {
-      return {};
-    }
+    // 服务器尚未响应时返回空，防止 localStorage 中的跨账户脏数据泄露
+    return {};
   };
 
   // 获取最近使用的学生列表（按时间从近到远排序，最多30个）
