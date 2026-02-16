@@ -1,7 +1,7 @@
 # 新对话知识交接文档（Knowledge Handoff）
 
 > **用途：** 当开始新对话时，通过引导词让新 Claude 阅读本文档，快速了解项目全貌、积累的经验、工作流程规范。
-> **最后更新：** 2026-02-12
+> **最后更新：** 2026-02-16
 
 ---
 
@@ -66,12 +66,14 @@ feedback-mvp/
 ├── docs/                 # 项目文档
 │   ├── HANDOFF.md        # 本文档（知识交接）
 │   ├── deployment-collaboration.md  # 部署协作规范
-│   ├── 项目概述.md        # 项目功能、架构、设计决策（V1-V152）
-│   ├── 迭代记录.md        # 完整版本历史（V1-V152）
-│   ├── 技术备忘.md        # 技术细节、踩坑经验（39章）
-│   ├── 问题追踪.md        # Bug追踪（83个已解决+4个待处理）
+│   ├── 项目概述.md        # 项目功能、架构、设计决策（V1-V179）
+│   ├── 迭代记录.md        # 完整版本历史（V1-V179）
+│   ├── 技术备忘.md        # 技术细节、踩坑经验（39章+）
+│   ├── 问题追踪.md        # Bug追踪（90+个已解决+待处理）
 │   ├── Manus协作指南.md   # Manus平台操作指南（35章）
-│   └── 环境变量配置模板.md  # 环境变量和部署配置
+│   ├── 环境变量配置模板.md  # 环境变量和部署配置
+│   ├── 租户隔离改造清单.md  # 多租户隔离方案设计（已完成）
+│   └── 租户隔离测试报告.md  # 隔离测试结果（230项通过）
 ├── COLLAB.md             # 协作看板（每次开始工作先读！）
 └── package.json
 ```
@@ -113,11 +115,23 @@ feedback-mvp/
 - 表：`hw_students`（学生名册 + current_status 状态文档）、`hw_entries`（条目队列）
 - 流程：语音 → AI处理 → 预入库队列 → 入库 → 更新学生状态
 
-### 3.7 AI 配置读取
-- `getConfigValue(key)` 从 `system_config` 表读配置
-- 用于读取 API 密钥、模型预设、提示词模板等
+### 3.7 AI 配置读取（多租户隔离架构）
+- `getConfigValue(key, userId?)` 读取配置：
+  - 有 userId 时：**仅查 user_config**，不 fallback 到 systemConfig（租户隔离）
+  - 无 userId 时：查 systemConfig（仅用于系统级调用如邮箱白名单）
+- `setUserConfigValue(userId, key, value)` 写入用户级配置
+- `getUserOnlyConfigValue(userId, key)` 严格仅读 user_config（用于学生历史等私有数据）
+- **重要**：systemConfig 只保留 `allowedEmails`（邮箱白名单），所有用户配置都在 user_config 中按 userId 隔离
 
-### 3.8 文件命名约定（用户偏好）
+### 3.8 多租户数据隔离（V172-V179）
+- **user_config 表**：替代 systemConfig 作为用户级配置存储，`UNIQUE(userId, key)` 复合约束
+- **所有数据表**（hw_students, hw_entries, background_tasks, batch_tasks, correction_tasks, grading_tasks 等）均有 `userId` 列，查询时必须过滤
+- **Google Drive OAuth**：每用户独立绑定，google_tokens 表有 `UNIQUE(userId)` 约束
+- **contentStore**：SSE 中间结果暂存带 userId 校验
+- **migrateSystemConfigToAdmin**：仅对 owner（OWNER_OPEN_ID）执行一次性数据迁移，不对其他 admin 执行
+- **config.update / config.reset**：protectedProcedure，所有用户都能修改自己的配置
+
+### 3.9 文件命名约定（用户偏好）
 - 搜索云盘文件时**不加**"学情反馈"后缀：`{name}{lesson}.md`, `{name} {lesson}.md`
 - 上传文件名**要加**：`{name}{lesson}学情反馈.md`
 
@@ -187,6 +201,16 @@ git push -u origin claude/feature-name
 | Zod schema 丢弃未声明字段 | 前端传的数据如果 schema 没声明就会被静默丢弃，很难发现 |
 | AI 被语音转文字中的错误姓名误导 | 学生姓名注入系统提示词，优先级高于用户消息 |
 
+### 5.4 多租户隔离
+| 问题 | 教训 |
+|------|------|
+| getConfigValue 没有用户级配置时 fallback 到 systemConfig | **绝对不能跨租户 fallback**，没有用户配置就返回默认值 |
+| migrateSystemConfigToAdmin 对所有 admin 执行 | 迁移只能对 owner 执行，否则会把 owner 数据复制给其他 admin |
+| exportBackup 混入 systemConfig 数据 | 备份导出只包含用户自己的 user_config + DEFAULT_CONFIG |
+| localStorage 用 `\|default` 做回退 key | localStorage key 必须包含 userId，且不能有任何 fallback |
+| config.update 用 adminProcedure | 每个用户都应该能修改自己的配置，用 protectedProcedure |
+| 前端 config.getAll 返回 DEFAULT_CONFIG 作为实际值 | 默认值应作为 placeholder 灰色显示，不填入输入框 |
+
 ---
 
 ## 六、关键文件快速索引
@@ -195,12 +219,14 @@ git push -u origin claude/feature-name
 | 要了解什么 | 看哪个文档 |
 |-----------|-----------|
 | 项目功能、架构、设计决策全貌 | `docs/项目概述.md` |
-| 每个版本改了什么（V1-V152） | `docs/迭代记录.md` |
+| 每个版本改了什么（V1-V179） | `docs/迭代记录.md` |
 | 技术细节、踩坑经验、实现方案 | `docs/技术备忘.md` |
 | Bug 追踪和解决方案 | `docs/问题追踪.md` |
 | Manus 平台操作和部署指南 | `docs/Manus协作指南.md` |
 | 环境变量和部署配置 | `docs/环境变量配置模板.md` |
 | 部署协作规范（Claude↔Manus） | `docs/deployment-collaboration.md` |
+| 多租户隔离方案和改造计划 | `docs/租户隔离改造清单.md` |
+| 隔离测试报告（230项通过） | `docs/租户隔离测试报告.md` |
 | 协作状态和 Manus 反馈 | `COLLAB.md` |
 
 ### 代码索引
@@ -249,13 +275,15 @@ git push -u origin claude/feature-name
 
 | 文档 | 内容概述 | 大小 |
 |------|---------|------|
-| `docs/项目概述.md` | 功能说明、技术架构图、设计决策表、高级设置、容错机制、版本历程 | ~27KB |
-| `docs/迭代记录.md` | V1到V152每个版本的详细变更记录 | ~64KB |
-| `docs/技术备忘.md` | 39章技术细节：踩坑经验、数据库设计、SSE实现、AI提示词、Git工作流等 | ~75KB |
-| `docs/问题追踪.md` | 83个已解决Bug的详细记录 + 4个待处理问题 + 踩坑经验总结 | ~17KB |
+| `docs/项目概述.md` | 功能说明、技术架构图、设计决策表、高级设置、容错机制、版本历程 | ~30KB |
+| `docs/迭代记录.md` | V1到V179每个版本的详细变更记录 | ~70KB |
+| `docs/技术备忘.md` | 39章+技术细节：踩坑经验、数据库设计、SSE实现、AI提示词、Git工作流、租户隔离等 | ~80KB |
+| `docs/问题追踪.md` | 90+个已解决Bug的详细记录 + 待处理问题 + 踩坑经验总结 | ~20KB |
 | `docs/Manus协作指南.md` | 35章Manus平台操作指南：任务管理、构建部署、安全备份、协作流程 | ~42KB |
 | `docs/环境变量配置模板.md` | 完整的环境变量配置说明、OAuth设置步骤、部署检查清单 | ~14KB |
 | `docs/deployment-collaboration.md` | Claude↔Manus部署协作规范（Git流程、版本号规则、操作顺序） | ~5KB |
+| `docs/租户隔离改造清单.md` | 多租户隔离完整方案（Phase 1-5，已全部完成） | ~20KB |
+| `docs/租户隔离测试报告.md` | 隔离测试报告：230项测试通过 + 1个高危漏洞已修复 | ~8KB |
 
 **按需查阅：** 日常开发只需读本文档 + COLLAB.md。遇到具体技术问题时再查阅对应详细文档。
 

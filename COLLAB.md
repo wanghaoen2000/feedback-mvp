@@ -10,7 +10,7 @@
 
 ### Claude → Manus（开发端请求部署端执行）
 
-- [ ] **【部署任务】V148 ~ V169：作业管理系统 + 课后信息导入 + Bug修复 + 已入库记录浏览 + 任务记录导入按钮 + 提示词管理 + 学生姓名注入系统提示词 + 移除补充说明 + 迭代更新系统 + 导入AI处理修复 + 报错信息优化 + 作业管理UI优化 + 当前状态复制按钮 + API供应商预设 + 批量并发上限修复 + 实时进度显示修复 + 项目文档整理**
+- [x] **【已部署】V148 ~ V169：作业管理系统 + 课后信息导入 + Bug修复 + 已入库记录浏览 + 任务记录导入按钮 + 提示词管理 + 学生姓名注入系统提示词 + 移除补充说明 + 迭代更新系统 + 导入AI处理修复 + 报错信息优化 + 作业管理UI优化 + 当前状态复制按钮 + API供应商预设 + 批量并发上限修复 + 实时进度显示修复 + 项目文档整理**
 
   **分支：** `claude/auto-load-student-files-thGk8`
   **版本跨度：** V147 → V169（21个版本）
@@ -196,39 +196,45 @@
   ```
   **背景：** V134 代码将气泡图字体优先级改为 Noto Sans CJK SC（思源黑体），比 WenQuanYi Zen Hei 更美观。代码已做兜底处理——如果 Noto 字体不存在，仍然使用 WenQuanYi Zen Hei。字体文件约 20MB。
 
-- [ ] **【部署任务】V171：作业批改系统（新功能模块）**
+- [x] **【已部署】V171：作业批改系统（新功能模块）**（Manus 已部署，具体版本号待确认）
 
   **分支：** `claude/setup-feedback-mvp-6wqxE`
-  **版本跨度：** V170 → V171
-  **新增依赖：** 无（mammoth、pdf-parse 已在 package.json 中）
-  **数据库迁移：** 有（新增 `drizzle/0011_correction_tasks.sql`，CREATE TABLE IF NOT EXISTS，安全幂等，服务启动时自动创建）
 
-  **V171 变更（作业批改系统）：**
-  - 新增「作业批改」Tab 页面（顶部导航栏第四个标签，位于作业管理和批量处理之间）
-  - 新增文件：
-    - `server/correctionRunner.ts` — 批改后台运行器（复用 invokeAIStream + importFromExtraction）
-    - `client/src/components/HomeworkCorrection.tsx` — 批改前端页面
-    - `drizzle/0011_correction_tasks.sql` — 批改任务表迁移文件
-  - 修改文件：
-    - `drizzle/schema.ts` — 新增 correctionTasks 表定义
-    - `server/routers.ts` — 新增 correction 命名空间路由
-    - `client/src/pages/Home.tsx` — Tab 从3列改为4列，新增作业批改入口
-  - 功能特性：
-    - 从作业管理学生库选择学生
-    - 4种可配置的批改类型（豆包翻译/学术文章/日常文章/词汇填空），每个带专属提示词
-    - 富输入区：文字 + 拖拽/粘贴图片（多模态AI识别）+ 拖拽/粘贴文件（docx/pdf/txt 服务端提取文字）
-    - 服务端后台执行，关闭浏览器不影响
-    - AI输出分两部分：批改内容（一键复制）+ 状态更新（自动推送到作业管理系统）
-    - 批改类型和通用提示词可在页面内设置面板中管理
+- [ ] **【部署任务】多租户数据隔离深度修复 + 配置权限修复**
+
+  **分支：** `claude/fix-account-data-isolation-7GWPP`
+  **新增依赖：** 无
+  **数据库迁移：** 无
+
+  **变更内容（7 个提交）：**
+
+  1. **修复学生历史记录跨租户泄露**（6c6ee46）
+     - `getStudentHistory` 不再 fallback 到 `systemConfig`，只查 `user_config`
+  2. **彻底修复全部配置数据跨租户泄露**（84349c2）
+     - `getConfigValue(key, userId)` 有 userId 时仅查 `user_config`，永不 fallback 到 `systemConfig`
+  3. **彻底修复前端学生历史数据跨账户泄露**（fbb802f）
+     - localStorage key 不再使用 `'default'` 回退，改为按用户隔离
+  4. **修复 migrateSystemConfigToAdmin 导致数据扩散**（5adb995）
+     - 一次性迁移只对 owner 执行（`openId === ENV.ownerOpenId`），不再对所有 admin 复制 owner 数据
+     - `exportBackup` 不再读取 systemConfig 作为 fallback
+     - 新增 `clearAllMyConfig` API 端点（用于清理已污染数据）
+  5. **路径输入框默认值改为 placeholder**（b2fada9）
+     - `config.getAll` 未配置的路径字段返回空字符串，前端显示为灰色提示文字
+  6. **允许非管理员用户修改自己的配置**（dc1b2d5）
+     - `config.update` 和 `config.reset` 从 `adminProcedure` 改为 `protectedProcedure`
+  7. **全面更新 7 份核心文档至当前状态**（dd8be2a）
+     - HANDOFF.md、迭代记录.md、项目概述.md、租户隔离改造清单.md、问题追踪.md、技术备忘.md
 
   **部署操作：**
   ```bash
   git fetch origin
-  git merge origin/claude/setup-feedback-mvp-6wqxE
+  git merge origin/claude/fix-account-data-isolation-7GWPP
   npm run build
   webdev_save_checkpoint
   git push origin main
   ```
+
+- [x] **【已解决】版本号对齐 V171-V179**（Claude 从 main 的 git log 提取了 Manus 的实际部署记录，已填入版本发布记录表）
 
 ### Manus → Claude（部署端请求开发端处理）
 
@@ -387,3 +393,12 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V164 | 2026-02-11 | 批量并发上限修复(40→100) + 测试本/课后信息提取实时字符数显示 | ✅ 部署成功 |
 | V165-V169 | 2026-02-12 | 项目文档整理 — 知识交接文档+6份完整文档合并+冗余文件清理+文档维护规范 | ✅ 部署成功 |
 | V170 | 2026-02-12 | 版本号更新 + COLLAB.md 部署任务更新 | ✅ 部署成功 |
+| V171 | 2026-02-12 | 作业批改系统 — 第四个独立 Tab + correction_tasks 表 + AI模型选择器 + 任务队列UX + 3天自动清理 | ✅ 部署成功 |
+| V172 | 2026-02-15 | 多租户隔离全面改造 — 邮箱必填+确认弹窗区分+所有软配/GDrive/localStorage按用户隔离+批量任务漏洞修复+230个测试+日志隔离+ContentStore归属校验 | ✅ 部署成功 |
+| V173 | 2026-02-15 | 修复切换账户后仍看到上一用户设置 — useAuth增加userId变化监听+退出时清理本地状态 | ✅ 部署成功 |
+| V174 | 2026-02-15 | config.update改写user_config+Manus平台密钥确认任务书+修复作业批改提交失败(correction_tasks表缺列+迁移脚本) | ✅ 部署成功 |
+| V175 | 2026-02-16 | 修复作业批改图片SQL插入失败(图片改外部存储)+添加作业提醒功能(催作业)+修复localStorage key隔离+打分超时调整 | ✅ 部署成功 |
+| V176 | 2026-02-16 | 彻底修复getConfigValue/getStudentHistory不再fallback到systemConfig — 跨租户泄露根因修复 | ✅ 部署成功 |
+| V177 | 2026-02-16 | 彻底修复前端学生历史数据跨账户泄露+后端学生历史查询API新增userId校验 | ✅ 部署成功 |
+| V178 | 2026-02-16 | 修复migrateSystemConfigToAdmin只对owner执行+路径输入框默认值改为placeholder灰色提示 | ✅ 部署成功 |
+| V179 | 2026-02-16 | 允许非管理员用户修改自己的配置 — config.update/reset改为protectedProcedure | ✅ 部署成功 |
