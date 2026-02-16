@@ -66,8 +66,8 @@ feedback-mvp/
 ├── docs/                 # 项目文档
 │   ├── HANDOFF.md        # 本文档（知识交接）
 │   ├── deployment-collaboration.md  # 部署协作规范
-│   ├── 项目概述.md        # 项目功能、架构、设计决策（V1-V177）
-│   ├── 迭代记录.md        # 完整版本历史（V1-V177）
+│   ├── 项目概述.md        # 项目功能、架构、设计决策（V1-V179）
+│   ├── 迭代记录.md        # 完整版本历史（V1-V179）
 │   ├── 技术备忘.md        # 技术细节、踩坑经验（39章+）
 │   ├── 问题追踪.md        # Bug追踪（90+个已解决+待处理）
 │   ├── Manus协作指南.md   # Manus平台操作指南（35章）
@@ -123,7 +123,7 @@ feedback-mvp/
 - `getUserOnlyConfigValue(userId, key)` 严格仅读 user_config（用于学生历史等私有数据）
 - **重要**：systemConfig 只保留 `allowedEmails`（邮箱白名单），所有用户配置都在 user_config 中按 userId 隔离
 
-### 3.8 多租户数据隔离（V172-V177）
+### 3.8 多租户数据隔离（V172-V179）
 - **user_config 表**：替代 systemConfig 作为用户级配置存储，`UNIQUE(userId, key)` 复合约束
 - **所有数据表**（hw_students, hw_entries, background_tasks, batch_tasks, correction_tasks, grading_tasks 等）均有 `userId` 列，查询时必须过滤
 - **Google Drive OAuth**：每用户独立绑定，google_tokens 表有 `UNIQUE(userId)` 约束
@@ -219,7 +219,7 @@ git push -u origin claude/feature-name
 | 要了解什么 | 看哪个文档 |
 |-----------|-----------|
 | 项目功能、架构、设计决策全貌 | `docs/项目概述.md` |
-| 每个版本改了什么（V1-V177） | `docs/迭代记录.md` |
+| 每个版本改了什么（V1-V179） | `docs/迭代记录.md` |
 | 技术细节、踩坑经验、实现方案 | `docs/技术备忘.md` |
 | Bug 追踪和解决方案 | `docs/问题追踪.md` |
 | Manus 平台操作和部署指南 | `docs/Manus协作指南.md` |
@@ -276,7 +276,7 @@ git push -u origin claude/feature-name
 | 文档 | 内容概述 | 大小 |
 |------|---------|------|
 | `docs/项目概述.md` | 功能说明、技术架构图、设计决策表、高级设置、容错机制、版本历程 | ~30KB |
-| `docs/迭代记录.md` | V1到V177每个版本的详细变更记录 | ~70KB |
+| `docs/迭代记录.md` | V1到V179每个版本的详细变更记录 | ~70KB |
 | `docs/技术备忘.md` | 39章+技术细节：踩坑经验、数据库设计、SSE实现、AI提示词、Git工作流、租户隔离等 | ~80KB |
 | `docs/问题追踪.md` | 90+个已解决Bug的详细记录 + 待处理问题 + 踩坑经验总结 | ~20KB |
 | `docs/Manus协作指南.md` | 35章Manus平台操作指南：任务管理、构建部署、安全备份、协作流程 | ~42KB |
