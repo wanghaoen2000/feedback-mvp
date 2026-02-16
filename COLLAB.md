@@ -236,6 +236,27 @@
 
 - [x] **【已解决】版本号对齐 V171-V179**（Claude 从 main 的 git log 提取了 Manus 的实际部署记录，已填入版本发布记录表）
 
+- [ ] **【部署任务】V180：新增技术说明书文档**
+
+  **分支：** `claude/add-project-documentation-TLCmj`
+  **版本跨度：** V179 → V180
+  **新增依赖：** 无
+  **数据库迁移：** 无
+
+  **V180 变更：**
+  - 新增 `docs/技术说明书.md` — 完整的项目技术说明文档
+  - 内容涵盖：项目定位、技术栈、目录结构、数据库设计、核心模块详解、认证权限、前端架构、构建部署、数据流示例、版本管理、错误处理、关键设计决策
+  - **⚠️ 纯文档改动，不影响前端/后端代码、不影响构建产物**
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/add-project-documentation-TLCmj   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）
@@ -402,3 +423,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V177 | 2026-02-16 | 彻底修复前端学生历史数据跨账户泄露+后端学生历史查询API新增userId校验 | ✅ 部署成功 |
 | V178 | 2026-02-16 | 修复migrateSystemConfigToAdmin只对owner执行+路径输入框默认值改为placeholder灰色提示 | ✅ 部署成功 |
 | V179 | 2026-02-16 | 允许非管理员用户修改自己的配置 — config.update/reset改为protectedProcedure | ✅ 部署成功 |
+| V180 | 2026-02-16 | 新增技术说明书 — 完整的项目技术架构与实现说明文档 | 待部署 |
