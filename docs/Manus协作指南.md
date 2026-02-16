@@ -1,6 +1,6 @@
 # Manus 协作指南
 
-基于 feedback-mvp 项目 V1-V152 的实战经验总结。
+基于 feedback-mvp 项目 V1-V179 的实战经验总结。
 
 ---
 
@@ -1545,24 +1545,26 @@ git checkout HEAD@{N}
 
 ### 完整部署流程
 
-基于 V131-V152 的实战经验，标准部署流程如下：
+基于 V131-V179 的实战经验，标准部署流程如下：
 
-1. Claude 完成代码开发（在分支或直接在 main 上）
-2. Claude 更新 COLLAB.md（写部署任务书）
-3. Manus 执行：
-   - a. 合并分支到 main（如有分支）
-   - b. 更新 `generate-version.cjs` 版本号
-   - c. `pnpm build`（确认无报错）
-   - d. 保存 Checkpoint
-   - e. `git push origin main`
+1. Claude 完成代码开发（在功能分支上，基于最新 main）
+2. Claude 更新 `generate-version.cjs` 版本号（V128+ 新规：Claude 端负责）
+3. Claude 更新 COLLAB.md（写部署任务书）
+4. Claude 推送分支到 GitHub
+5. Manus 执行：
+   - a. `git fetch origin && git merge origin/claude/xxx`（应 fast-forward）
+   - b. `npm install`（如有依赖变更）
+   - c. `npm run build`（确认无报错）
+   - d. **先 checkpoint**（⚠️ 顺序关键！）
+   - e. **再 `git push origin main`**
    - f. 点击 Publish
-4. 验收：
+6. 验收：
    - a. 访问正式环境
    - b. 确认右上角版本号
    - c. 测试核心功能
-5. 后续（目前经常漏掉）：
+7. 后续：
    - a. 更新 COLLAB.md 状态为"已部署"
-   - b. 删除临时分支
+   - b. 删除远程功能分支（可选）
 
 ### 批量部署
 
@@ -1576,7 +1578,7 @@ V141-V152 期间验证了分批部署模式：
 
 ---
 
-## 三十四、V68-V152 新增的Manus协作经验
+## 三十四、V68-V179 Manus协作经验
 
 ### 1. 信息收集型任务
 
@@ -1621,11 +1623,26 @@ V112（后台任务表）和 V148（作业管理表）都涉及数据库迁移�
 - 字段类型要明确写（VARCHAR/MEDIUMTEXT/ENUM等）
 - 默认值和约束也要在任务书中写清楚
 
+### 4. 多租户隔离部署（V172-V179）
+
+V172-V179 是密集修复期，Manus 将同一分支的提交分批合并部署（每批 1-3 个 commit），共产生 8 个版本。
+
+**经验：**
+- 同一分支可以多次部分合并 — 不一定要等分支完成所有工作再合并
+- 每次 Manus 合并后会更新 `generate-version.cjs` 版本号并 checkpoint
+- Claude 端的版本号可能落后于 main（因为 Manus 在中间插入了版本号更新提交）
+- 修复完成后需要从 main merge 回来同步版本号
+
+**教训：**
+- Claude 开发分支的 `generate-version.cjs` 版本号在多次部分合并后会与 main 失去同步
+- 文档中使用的版本号（V172-V177）可能与 Manus 实际分配的不一致 — 应以 main 的 git log 为准
+- 版本对齐应在每次合并周期结束后做一次，避免两边越来越乱
+
 ---
 
-## 三十五、更新任务书模板（V152版）
+## 三十五、更新任务书模板（V179版）
 
-基于 V131-V152 的经验，更新后的任务书模板：
+基于 V131-V179 的经验，更新后的任务书模板：
 
 ```markdown
 # 部署任务：V{版本号}
@@ -1664,4 +1681,4 @@ V112（后台任务表）和 V148（作业管理表）都涉及数据库迁移�
 
 ---
 
-*文档版本：V152 | 最后更新：2026年2月10日*
+*文档版本：V179 | 最后更新：2026年2月16日*
