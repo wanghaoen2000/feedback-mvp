@@ -389,6 +389,30 @@
   git push origin main
   ```
 
+- [ ] **【部署任务】V188：所有AI流程统一处理开始时显示模型名**
+
+  **分支：** `claude/fix-mobile-message-counter-2EHXt`
+  **版本跨度：** V187 → V188
+  **新增依赖：** 无
+  **数据库迁移：** 有（background_tasks 添加 model 列，自动兼容）
+
+  **V188 变更：**
+  - 作业批改(correctionRunner)：处理开始时解析并写入实际使用的模型
+  - 一键打分(gradingRunner)：处理开始时写入模型（原来只在完成后写入）
+  - 作业提醒(reminderRunner)：处理开始时写入模型（原来只在完成后写入）
+  - 反馈生成(backgroundTaskRunner)：新增 model 列，运行时写入实际使用的模型
+  - 前端：打分任务处理中模型名蓝色高亮显示
+  - 前端：提醒任务新增模型名显示（处理中蓝色，完成后灰色）
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/fix-mobile-message-counter-2EHXt   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）
@@ -564,3 +588,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V183 | 2026-02-21 | 路书及范例管理按钮从系统级位置移入课堂反馈Tab内 | 待部署 |
 | V186 | 2026-02-21 | 修复手机端"已接收XX字"等信息被截断不可见 — flex-wrap修复窄屏溢出 | 待部署 |
 | V187 | 2026-02-21 | AI处理中实时显示模型名+修复重试使用旧模型 — 所有AI流程处理开始即显示模型 | 待部署 |
+| V188 | 2026-02-21 | 所有AI流程统一：批改/打分/提醒/反馈生成处理开始时写入模型+前端显示 | 待部署 |

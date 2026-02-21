@@ -88,6 +88,7 @@ export const backgroundTasks = mysqlTable("background_tasks", {
   inputParams: mediumtext("input_params").notNull(), // JSON: 所有生成参数（可能很大，含完整笔记/转录文本）
   stepResults: mediumtext("step_results"), // JSON: 每步结果
   errorMessage: text("error_message"),
+  model: varchar("model", { length: 128 }), // 实际使用的AI模型（运行时写入）
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completed_at"),

@@ -388,17 +388,24 @@ async function processCorrectionInBackground(userId: number, taskId: number): Pr
   if (!db) return;
 
   try {
-    // 更新状态为 processing，重置进度字段
-    await db.update(correctionTasks)
-      .set({ taskStatus: "processing", streamingChars: 0 })
-      .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
-
     // 读取任务数据
     const tasks = await db.select().from(correctionTasks)
       .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)))
       .limit(1);
     if (tasks.length === 0) throw new Error("任务不存在");
     const task = tasks[0];
+
+    // 在处理前先解析实际使用的模型，写入DB让前端可以立刻显示
+    const apiConfig = await getAPIConfig(userId);
+    if (task.aiModel) {
+      apiConfig.apiModel = task.aiModel;
+    }
+    const resolvedModel = apiConfig.apiModel;
+
+    // 更新状态为 processing，重置进度字段，同时写入模型
+    await db.update(correctionTasks)
+      .set({ taskStatus: "processing", streamingChars: 0, aiModel: resolvedModel })
+      .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
 
     const correctionTypes = await getCorrectionTypes(userId);
     const typeConfig = correctionTypes.find(t => t.id === task.correctionType);
@@ -450,13 +457,8 @@ async function processCorrectionInBackground(userId: number, taskId: number): Pr
       }
     }
 
-    const apiConfig = await getAPIConfig(userId);
-    if (task.aiModel) {
-      apiConfig.apiModel = task.aiModel;
-    }
-
-    // 调用 AI（带流式进度上报）
-    console.log(`[作业批改] 开始AI批改: 任务${taskId}, 图片${fileInfos.length}张`);
+    // 调用 AI（带流式进度上报），使用前面已解析的 apiConfig
+    console.log(`[作业批改] 开始AI批改: 任务${taskId}, 图片${fileInfos.length}张, 模型 ${resolvedModel}`);
     let lastProgressTime = 0;
     const onProgress = (chars: number) => {
       const now = Date.now();

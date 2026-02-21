@@ -239,8 +239,11 @@ async function runTask(taskId: string) {
     throw new Error(`任务 ${taskId} inputParams 解析失败: ${parseErr?.message}`);
   }
 
-  // 更新状态为运行中
-  await updateTask(taskId, { status: "running", currentStep: 0 });
+  // 在运行前先解析实际使用的模型，写入DB让前端立刻显示
+  const resolvedModel = params.apiModel || (await getConfig("apiModel", userId)) || DEFAULT_CONFIG.apiModel;
+
+  // 更新状态为运行中，同时写入模型
+  await updateTask(taskId, { status: "running", currentStep: 0, model: resolvedModel });
 
   if (params.courseType === "one-to-one") {
     await runOneToOneTask(taskId, params, userId);
@@ -979,6 +982,13 @@ async function ensureTable(): Promise<void> {
       console.log("[后台任务] 已添加 user_id 列和索引");
     } catch (userIdErr: any) {
       // 列已存在时会报 Duplicate column，安全忽略
+    }
+    // 兼容旧表：添加 model 列（V188: 运行时记录实际使用的AI模型）
+    try {
+      await db.execute(sql`ALTER TABLE \`background_tasks\` ADD COLUMN \`model\` VARCHAR(128) DEFAULT NULL`);
+      console.log("[后台任务] 已添加 model 列");
+    } catch {
+      // 列已存在时安全忽略
     }
     console.log("[后台任务] 表已就绪");
   } catch (err: any) {

@@ -2528,6 +2528,7 @@ export const appRouter = router({
         totalSteps: bgTasksTable.totalSteps,
         stepResults: bgTasksTable.stepResults,
         errorMessage: bgTasksTable.errorMessage,
+        modelColumn: bgTasksTable.model,
         createdAt: bgTasksTable.createdAt,
         completedAt: bgTasksTable.completedAt,
         inputParams: bgTasksTable.inputParams,
@@ -2547,15 +2548,15 @@ export const appRouter = router({
           if (stepResults?.feedback?.content) {
             delete stepResults.feedback.content;
           }
-          // 从 inputParams 中提取使用的模型名称和素材摘要
-          let model: string | null = null;
+          // 优先使用 model 列（运行时写入），其次从 inputParams 提取
+          let model: string | null = t.modelColumn || null;
           let materialsSummary: { transcriptChars: number; notesChars: number; lastFeedbackChars: number; transcriptSegments?: { count: number; chars: number[] } } | null = null;
           let classNumber: string | null = null;
           let attendanceStudents: string[] | null = null;
           try {
             const params = t.inputParams ? JSON.parse(t.inputParams) : null;
             if (params) {
-              model = params.apiModel || null;
+              if (!model) model = params.apiModel || null; // fallback: 旧任务无 model 列时从 inputParams 提取
               materialsSummary = {
                 transcriptChars: params.transcript?.length || 0,
                 notesChars: params.currentNotes?.length || 0,
