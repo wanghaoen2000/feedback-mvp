@@ -234,6 +234,8 @@ async function processReminderInBackground(userId: number, taskId: number): Prom
     // 获取API配置
     const apiKey = await getConfigValue("apiKey", userId);
     const apiUrl = await getConfigValue("apiUrl", userId);
+    const maxTokensStr = await getConfigValue("maxTokens", userId);
+    const maxTokens = parseInt(maxTokensStr || "64000", 10);
     const modelToUse = await getConfigValue("hwAiModel", userId)
       || await getConfigValue("apiModel", userId)
       || "claude-sonnet-4-5-20250929";
@@ -261,12 +263,12 @@ async function processReminderInBackground(userId: number, taskId: number): Prom
     };
 
     const content = await invokeWhatAIStream(messages, {
-      max_tokens: 64000,
       temperature: 0.3,
       retries: 1,
     }, {
       apiModel: modelToUse,
       apiKey,
+      maxTokens,
       apiUrl,
     }, onChunk);
 

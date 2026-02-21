@@ -405,7 +405,7 @@ async function compressTranscript(transcript: string, config?: APIConfig): Promi
 不要在末尾添加总结、确认、说明或emoji标记。
 直接输出压缩后的内容，第一行就是压缩内容本身，最后一行就是压缩内容的结尾。` },
       { role: "user", content: transcript },
-    ], { max_tokens: 64000 }, config, (c) => process.stdout.write('.'));
+    ], {}, config, (c) => process.stdout.write('.'));
     
     console.log(`\n[录音压缩] 压缩完成: ${transcript.length} -> ${compressed.length}字符 (压缩率${Math.round(compressed.length / transcript.length * 100)}%)`);
     return compressed;
@@ -851,7 +851,7 @@ async function invokeNonStreamWithContinuation(
 
     const streamResult = await invokeWhatAIStream(
       messages,
-      { max_tokens: 64000, timeout: 90_000, retries: 1 },
+      { timeout: 90_000, retries: 1 },
       config,
       onChunk,
     );
@@ -932,7 +932,7 @@ export async function invokeWithContinuation(
 
     const chunk = await invokeWhatAIStream(
       messages,
-      { max_tokens: 64000, signal },
+      { signal },
       config,
       onChunk
     );
@@ -1398,7 +1398,7 @@ ${feedback}
     const response = await invokeWhatAI([
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
-    ], { max_tokens: 64000, timeout: 300000, retries: 1 }, config);
+    ], { timeout: 300000, retries: 1 }, config);
     const content = response.choices?.[0]?.message?.content || '';
     console.log(`[${label}] SVG生成完成，长度: ${content.length}字符`);
 

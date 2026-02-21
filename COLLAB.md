@@ -257,10 +257,10 @@
   git push origin main
   ```
 
-- [ ] **【部署任务】V181-V182：修复全局 max_tokens 上限过低问题**
+- [ ] **【部署任务】V181-V183：修复全局 max_tokens + 改为从系统设置读取**
 
   **分支：** `claude/fix-status-max-value-miLpB`
-  **版本跨度：** V180 → V182
+  **版本跨度：** V180 → V183
   **新增依赖：** 无
   **数据库迁移：** 无
 
@@ -269,11 +269,18 @@
   - 添加截断标记清理逻辑，防止截断警告存入数据库
 
   **V182 变更（全局 max_tokens 统一为 64000）：**
-  - `whatai.ts`：默认值 32000 → 64000（4处，影响所有未显式指定 max_tokens 的调用）
+  - `whatai.ts`：默认值 32000 → 64000（4处）
   - `feedbackGenerator.ts`：录音压缩 32000 → 64000，SVG 气泡图 8000 → 64000
   - `gradingRunner.ts`：作业打分 16000 → 64000，打分同步 8000 → 64000（3处）
   - `reminderRunner.ts`：作业提醒 16000 → 64000
-  - 排除项：`systemCheck.ts` 的健康检查（max_tokens=5，故意的）、`_core/llm.ts` 的 thinking 模式（独立模块）
+
+  **V183 变更（max_tokens 改为从系统设置读取，不再硬编码）：**
+  - `whatai.ts`：APIConfig 新增 `maxTokens` 字段，fallback 链：`options.max_tokens > config.maxTokens > 64000`
+  - `feedbackGenerator.ts`：去掉 4 处硬编码 max_tokens，改走 config（已从 getAPIConfig 获取）
+  - `gradingRunner.ts`：3 处调用改为从 `getConfigValue("maxTokens", userId)` 读取
+  - `reminderRunner.ts`：1 处调用改为从 `getConfigValue("maxTokens", userId)` 读取
+  - `homeworkManager.ts`：1 处调用改为从 `getConfigValue("maxTokens", userId)` 读取
+  - 未来修改最大值只需在系统设置页面改一处即可，不用再改代码
 
   **部署操作：**
   ```bash
@@ -453,3 +460,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V180 | 2026-02-16 | 新增技术说明书 — 完整的项目技术架构与实现说明文档 | 待部署 |
 | V181 | 2026-02-21 | 修复学生状态文档截断（max_tokens 4000→64000）+ 截断标记清理 | 待部署 |
 | V182 | 2026-02-21 | 全局 max_tokens 统一为 64000 — whatai默认值+录音压缩+气泡图+打分+提醒 | 待部署 |
+| V183 | 2026-02-21 | max_tokens 改为从系统设置读取 — 去掉所有硬编码，统一走 config.maxTokens | 待部署 |

@@ -260,6 +260,8 @@ export async function processEntry(
 ): Promise<{ parsedContent: string; model: string }> {
   const apiKey = await getConfigValue("apiKey", userId);
   const apiUrl = await getConfigValue("apiUrl", userId);
+  const maxTokensStr = await getConfigValue("maxTokens", userId);
+  const maxTokens = parseInt(maxTokensStr || "64000", 10);
   const modelToUse = aiModel || await getConfigValue("apiModel", userId) || "claude-sonnet-4-5-20250929";
 
   const hwPromptTemplate = await getConfigValue("hwPromptTemplate", userId);
@@ -299,14 +301,14 @@ export async function processEntry(
     }
   } : undefined;
 
-  // 使用流式调用，避免大输入时中间层超时
+  // 使用流式调用，避免大输入时中间层超时（max_tokens 由 config.maxTokens 控制）
   const content = await invokeWhatAIStream(messages, {
-    max_tokens: 64000,
     temperature: 0.3,
     retries: 1,
   }, {
     apiModel: modelToUse,
     apiKey,
+    maxTokens,
     apiUrl,
   }, chunkCallback);
 
