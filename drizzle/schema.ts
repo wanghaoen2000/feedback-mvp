@@ -287,3 +287,28 @@ export const reminderTasks = mysqlTable("reminder_tasks", {
 
 export type ReminderTask = typeof reminderTasks.$inferSelect;
 export type InsertReminderTask = typeof reminderTasks.$inferInsert;
+
+// 备课任务表（后台执行，3天留存）
+export const lessonPrepTasks = mysqlTable("lesson_prep_tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(),
+  studentName: varchar("student_name", { length: 64 }).notNull(),
+  lessonNumber: varchar("lesson_number", { length: 20 }),
+  isNewStudent: int("is_new_student").default(0),          // 0=老生, 1=新生
+  lastLessonContent: mediumtext("last_lesson_content"),    // 上次课内容（老生）/ 学生基本情况（新生）
+  studentStatus: mediumtext("student_status"),             // 提交时的学生状态快照
+  systemPrompt: mediumtext("system_prompt"),               // 使用的完整系统提示词
+  result: mediumtext("result"),                            // AI生成的备课方案
+  aiModel: varchar("ai_model", { length: 128 }),
+  taskStatus: varchar("task_status", { length: 20 }).notNull().default("pending"), // pending | processing | completed | failed
+  errorMessage: text("error_message"),
+  streamingChars: int("streaming_chars").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_prep_userId").on(table.userId),
+]);
+
+export type LessonPrepTask = typeof lessonPrepTasks.$inferSelect;
+export type InsertLessonPrepTask = typeof lessonPrepTasks.$inferInsert;

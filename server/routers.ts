@@ -3357,6 +3357,88 @@ export const appRouter = router({
       }),
   }),
 
+  // ==================== 备课系统 ====================
+  lessonPrep: router({
+    // 获取备课配置（AI模型 + 路书）
+    getConfig: protectedProcedure
+      .query(async ({ ctx }) => {
+        const uid = ctx.user.id;
+        const prepAiModel = await getConfig("prepAiModel", uid);
+        const lessonPrepRoadmap = await getConfig("lessonPrepRoadmap", uid);
+        const modelPresets = await getConfig("modelPresets", uid);
+        return {
+          prepAiModel: prepAiModel || "",
+          lessonPrepRoadmap: lessonPrepRoadmap || "",
+          modelPresets: modelPresets || "",
+        };
+      }),
+
+    // 更新备课配置
+    updateConfig: protectedProcedure
+      .input(z.object({
+        prepAiModel: z.string().optional(),
+        lessonPrepRoadmap: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const uid = ctx.user.id;
+        if (input.prepAiModel !== undefined) {
+          await setUserConfigValue(uid, "prepAiModel", input.prepAiModel);
+        }
+        if (input.lessonPrepRoadmap !== undefined) {
+          await setUserConfigValue(uid, "lessonPrepRoadmap", input.lessonPrepRoadmap);
+        }
+        return { success: true };
+      }),
+
+    // 提交备课任务
+    submit: protectedProcedure
+      .input(z.object({
+        studentName: z.string().min(1, "请选择学生"),
+        lessonNumber: z.string().optional(),
+        isNewStudent: z.boolean().default(false),
+        lastLessonContent: z.string().optional(),
+        aiModel: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { submitLessonPrep } = await import("./lessonPrepRunner");
+        return submitLessonPrep(ctx.user.id, input);
+      }),
+
+    // 查询单个任务
+    getTask: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getLessonPrepTask } = await import("./lessonPrepRunner");
+        return getLessonPrepTask(ctx.user.id, input.id);
+      }),
+
+    // 列出备课任务
+    listTasks: protectedProcedure
+      .input(z.object({
+        limit: z.number().min(1).max(100).default(20),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        const { listLessonPrepTasks } = await import("./lessonPrepRunner");
+        return listLessonPrepTasks(ctx.user.id, input?.limit);
+      }),
+
+    // 重试备课任务
+    retry: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { retryLessonPrep } = await import("./lessonPrepRunner");
+        return retryLessonPrep(ctx.user.id, input.id);
+      }),
+
+    // 删除备课任务
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { deleteLessonPrep } = await import("./lessonPrepRunner");
+        return deleteLessonPrep(ctx.user.id, input.id);
+      }),
+  }),
+
   // ==================== 作业批改系统 ====================
   correction: router({
     // 提交批改任务

@@ -343,6 +343,40 @@
   git push origin main
   ```
 
+- [ ] **【部署任务】V186：备课系统（新功能模块）**
+
+  **分支：** `claude/add-lesson-prep-page-uT7NH`
+  **版本跨度：** V185 → V186
+  **新增依赖：** 无
+  **数据库迁移：** 有（新增 `lesson_prep_tasks` 表，CREATE TABLE IF NOT EXISTS，安全幂等）
+
+  **V186 变更（备课系统 MVP）：**
+  - 新增「备课」Tab 页（主界面顶部第5个标签，Tab 布局从 2x2 改为 3列）
+  - 学生列表与学生管理模块共享（hw_students），可点选学生、可添加/删除
+  - 课次自动填充（基于 studentLessonHistory，上次课次+1）
+  - 「此生为新生」勾选：新生模式下填写基本情况，老生模式下填写/加载上次课内容
+  - 从云盘加载上次课内容（复用 readLastFeedback 接口，自动搜索上次课次的反馈文件）
+  - 上传文件支持（.docx/.md/.txt，复用 FileUploadInput 组件）
+  - 备课路书配置（类似学情反馈路书，独立存储 lessonPrepRoadmap 配置键）
+  - AI 模型独立选择（prepAiModel 配置键，选择即保存，与其他模块互不影响）
+  - 后台生成（任务提交到服务器端执行，断网不影响）
+  - 实时进度显示（已接收字数 + 耗时秒数，与其他模块一致）
+  - 任务卡片（默认折叠，点击展开查看备课方案全文）
+  - 一键复制、重试、删除功能
+  - 新增数据库表：`lesson_prep_tasks`（备课任务）
+  - 新增文件：`LessonPrep.tsx`、`server/lessonPrepRunner.ts`、`drizzle/0014_lesson_prep_tasks.sql`
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/add-lesson-prep-page-uT7NH   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
+  **数据库说明：** 新表 `lesson_prep_tasks` 使用 `CREATE TABLE IF NOT EXISTS`，服务启动时自动创建，无需手动执行 SQL。
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）
@@ -516,3 +550,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V183 | 2026-02-21 | max_tokens 改为从系统设置读取 — 去掉所有硬编码，统一走 config.maxTokens | 待部署 |
 | V184 | 2026-02-21 | AI模型选择去耦合 — 打分/提醒各自独立模型设置(gradingAiModel/reminderAiModel) | 待部署 |
 | V183 | 2026-02-21 | 路书及范例管理按钮从系统级位置移入课堂反馈Tab内 | 待部署 |
+| V186 | 2026-02-21 | 备课系统 — 新增第5个Tab页，选学生→填课次→加载上次课内容→AI生成备课方案 | 待部署 |

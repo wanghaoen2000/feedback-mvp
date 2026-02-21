@@ -46,11 +46,13 @@ import {
   PenLine,
   Eye,
   LogOut,
+  Lightbulb,
 } from "lucide-react";
 import { VERSION_DISPLAY } from "../version.generated";
 import { TaskHistory } from "@/components/TaskHistory";
 import { HomeworkManagement } from "@/components/HomeworkManagement";
 import { HomeworkCorrection } from "@/components/HomeworkCorrection";
+import { LessonPrep } from "@/components/LessonPrep";
 
 // 步骤状态类型
 interface StepStatus {
@@ -3068,7 +3070,7 @@ export default function Home() {
 
         {/* 大分页 Tab 切换 */}
         <Tabs defaultValue="classroom" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 grid-rows-2 h-auto mb-6">
+          <TabsList className="grid w-full grid-cols-3 h-auto mb-6">
             <TabsTrigger value="classroom" className="text-base py-2">
               <FileText className="w-4 h-4 mr-2" />
               课堂反馈
@@ -3076,6 +3078,10 @@ export default function Home() {
             <TabsTrigger value="homework" className="text-base py-2">
               <BookOpen className="w-4 h-4 mr-2" />
               学生管理
+            </TabsTrigger>
+            <TabsTrigger value="lessonPrep" className="text-base py-2">
+              <Lightbulb className="w-4 h-4 mr-2" />
+              备课
             </TabsTrigger>
             <TabsTrigger value="correction" className="text-base py-2">
               <PenLine className="w-4 h-4 mr-2" />
@@ -4253,6 +4259,24 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <HomeworkManagement />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* 备课 Tab 内容 */}
+          <TabsContent value="lessonPrep">
+            <Card className="shadow-xl">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Lightbulb className="w-5 h-5 text-orange-600" />
+                  备课准备
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm">
+                  选择学生 → 填写/加载上次课内容 → AI生成备课方案
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <LessonPrep />
               </CardContent>
             </Card>
           </TabsContent>
