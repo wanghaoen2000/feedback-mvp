@@ -213,6 +213,9 @@ export async function ensureCorrectionTable(): Promise<void> {
     try { await db.execute(sql.raw(`ALTER TABLE \`correction_tasks\` ADD INDEX \`idx_corr_userId\` (\`user_id\`)`)); } catch { /* 索引可能已存在 */ }
     // 修复 completed_at 列：确保在所有 MySQL 配置下都是 nullable
     try { await db.execute(sql.raw(`ALTER TABLE \`correction_tasks\` MODIFY COLUMN \`completed_at\` TIMESTAMP NULL`)); } catch { /* 可能无需修改 */ }
+    // V189: 多轮对话重试支持
+    try { await db.execute(sql`ALTER TABLE \`correction_tasks\` ADD COLUMN \`retry_count\` INT DEFAULT 0`); } catch {}
+    try { await db.execute(sql`ALTER TABLE \`correction_tasks\` ADD COLUMN \`conversation_history\` MEDIUMTEXT DEFAULT NULL`); } catch {}
     tableEnsured = true;
     console.log("[作业批改] 表已就绪");
 
@@ -583,6 +586,8 @@ export async function getCorrectionTask(userId: number, taskId: number) {
     errorMessage: correctionTasks.errorMessage,
     autoImported: correctionTasks.autoImported,
     aiModel: correctionTasks.aiModel,
+    streamingChars: correctionTasks.streamingChars,
+    retryCount: correctionTasks.retryCount,
     createdAt: correctionTasks.createdAt,
     completedAt: correctionTasks.completedAt,
   }).from(correctionTasks)
@@ -610,6 +615,7 @@ export async function listCorrectionTasks(userId: number, studentName?: string, 
     aiModel: correctionTasks.aiModel,
     streamingChars: correctionTasks.streamingChars,
     autoImported: correctionTasks.autoImported,
+    retryCount: correctionTasks.retryCount,
     errorMessage: correctionTasks.errorMessage,
     createdAt: correctionTasks.createdAt,
     completedAt: correctionTasks.completedAt,
@@ -617,4 +623,217 @@ export async function listCorrectionTasks(userId: number, studentName?: string, 
     .where(condition)
     .orderBy(desc(correctionTasks.createdAt))
     .limit(limit);
+}
+
+// ============= 多轮对话重试 =============
+
+/**
+ * 重试作业批改（多轮对话模式）
+ * 将用户反馈追加到对话中，让AI重新生成批改结果
+ */
+export async function retryCorrectionTask(
+  userId: number,
+  taskId: number,
+  userFeedback: string,
+): Promise<void> {
+  await ensureCorrectionTable();
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+
+  // 读取原任务（需要完整数据）
+  const tasks = await db.select().from(correctionTasks)
+    .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)))
+    .limit(1);
+  if (tasks.length === 0) throw new Error("任务不存在");
+  const task = tasks[0];
+
+  if (task.taskStatus !== "completed" && task.taskStatus !== "failed") {
+    throw new Error("只有已完成或失败的任务可以重试");
+  }
+
+  const currentRetry = (task.retryCount || 0) + 1;
+  if (currentRetry > 5) throw new Error("已达到最大重试次数(5次)");
+
+  // 更新状态为 processing
+  const resolvedModel = task.aiModel || (await getAPIConfig(userId)).apiModel;
+  await db.update(correctionTasks)
+    .set({
+      taskStatus: "processing",
+      streamingChars: 0,
+      aiModel: resolvedModel,
+      errorMessage: null,
+      retryCount: currentRetry,
+    })
+    .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
+
+  // 异步处理
+  processCorrectionRetryInBackground(userId, taskId, userFeedback, currentRetry).catch(err => {
+    console.error(`[作业批改] 重试任务${taskId}异常:`, err?.message);
+  });
+}
+
+async function processCorrectionRetryInBackground(
+  userId: number,
+  taskId: number,
+  userFeedback: string,
+  retryCount: number,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  try {
+    const tasks = await db.select().from(correctionTasks)
+      .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)))
+      .limit(1);
+    if (tasks.length === 0) throw new Error("任务不存在");
+    const task = tasks[0];
+
+    // 恢复系统提示词
+    const systemPrompt = task.systemPrompt || "";
+    if (!systemPrompt) throw new Error("系统提示词丢失，无法重试");
+
+    // 重构原始用户消息
+    const userMessageParts: string[] = [];
+    if (task.studentStatus) userMessageParts.push(`【学生当前状态信息】\n${task.studentStatus}`);
+    if (task.rawText) userMessageParts.push(`【作业内容】\n${task.rawText}`);
+    if (task.files) {
+      try {
+        const files = JSON.parse(task.files) as Array<{ name: string; extractedText: string }>;
+        for (const f of files) userMessageParts.push(`【文件: ${f.name}】\n${f.extractedText}`);
+      } catch {}
+    }
+    const originalUserMessage = userMessageParts.join("\n\n") || "（无文本内容，请查看图片）";
+
+    // 构建图片（与原始处理相同）
+    const fileInfos: FileInfo[] = [];
+    if (task.images) {
+      try {
+        const loaded = await loadImagesForAI(task.images);
+        fileInfos.push(...loaded);
+      } catch (imgErr: any) {
+        console.error(`[作业批改] 重试加载图片失败:`, imgErr?.message);
+      }
+    }
+
+    // 解析历史对话
+    let conversationHistory: Array<{ role: "assistant" | "user"; content: string }> = [];
+    if (task.conversationHistory) {
+      try { conversationHistory = JSON.parse(task.conversationHistory); } catch {}
+    }
+
+    // 构建多轮对话的 extraMessages
+    const extraMessages: Array<{ role: "assistant" | "user"; content: string }> = [];
+
+    if (userFeedback.trim()) {
+      // 有用户反馈：构建多轮对话
+      if (conversationHistory.length > 0) {
+        // 已有历史对话，直接追加
+        extraMessages.push(...conversationHistory);
+      } else if (task.resultCorrection) {
+        // 第一次重试：把原始AI回复作为 assistant 消息
+        const aiReply = task.resultStatusUpdate
+          ? `===批改内容===\n${task.resultCorrection}\n\n===状态更新===\n${task.resultStatusUpdate}`
+          : task.resultCorrection;
+        extraMessages.push({ role: "assistant", content: aiReply });
+      }
+      // 追加本次用户反馈
+      extraMessages.push({ role: "user", content: `【教师反馈】\n${userFeedback}\n\n请根据以上反馈重新批改，输出格式与之前相同（===批改内容=== 和 ===状态更新=== 两个部分）。` });
+    }
+    // 无用户反馈时 extraMessages 为空，等于从头重新执行
+
+    const apiConfig = await getAPIConfig(userId);
+    if (task.aiModel) apiConfig.apiModel = task.aiModel;
+
+    console.log(`[作业批改] 开始第${retryCount}次重试: 任务${taskId}, ${extraMessages.length}条对话, 模型 ${apiConfig.apiModel}`);
+
+    let lastProgressTime = 0;
+    const onProgress = (chars: number) => {
+      const now = Date.now();
+      if (now - lastProgressTime >= 1000) {
+        db.update(correctionTasks)
+          .set({ streamingChars: chars })
+          .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)))
+          .catch(() => {});
+        lastProgressTime = now;
+      }
+    };
+
+    const result = await invokeAIStream(systemPrompt, originalUserMessage, onProgress, {
+      config: apiConfig,
+      maxTokens: 8000,
+      temperature: 0.5,
+      timeout: 180000,
+      retries: 1,
+      fileInfos: fileInfos.length > 0 ? fileInfos : undefined,
+      extraMessages,
+    });
+
+    if (!result.content || !result.content.trim()) {
+      throw new Error("AI 返回空内容");
+    }
+
+    const { correction, statusUpdate } = parseAIResult(result.content);
+
+    // 更新对话历史（保存完整的多轮记录）
+    const newHistory = [...extraMessages, { role: "assistant" as const, content: result.content }];
+
+    // 删除旧的自动导入条目（如果有）
+    if (task.importEntryId) {
+      try {
+        const { deleteEntry } = await import("./homeworkManager");
+        await deleteEntry(userId, task.importEntryId);
+        console.log(`[作业批改] 已删除旧导入条目: ${task.importEntryId}`);
+      } catch (delErr: any) {
+        console.warn(`[作业批改] 删除旧导入条目失败:`, delErr?.message);
+      }
+    }
+
+    // 保存结果
+    await db.update(correctionTasks)
+      .set({
+        resultCorrection: correction,
+        resultStatusUpdate: statusUpdate,
+        taskStatus: "completed",
+        streamingChars: result.content.length,
+        completedAt: new Date(),
+        conversationHistory: JSON.stringify(newHistory),
+        autoImported: 0,
+        importEntryId: null,
+      })
+      .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
+
+    console.log(`[作业批改] 重试任务${taskId}完成, 批改${correction.length}字, 状态更新${statusUpdate.length}字`);
+
+    // 重新自动推送到学生管理
+    try {
+      const correctionTypes = await getCorrectionTypes(userId);
+      const typeConfig = correctionTypes.find(t => t.id === task.correctionType);
+      const importContent = statusUpdate.trim()
+        ? statusUpdate
+        : `作业批改完成摘要：\n批改时间：${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}\n\n${correction}`;
+      const importResult = await importFromExtraction(
+        userId,
+        task.studentName,
+        importContent,
+        `[从作业批改导入(第${retryCount}次重试)]\n批改类型：${typeConfig?.name || task.correctionType}`,
+      );
+      await db.update(correctionTasks)
+        .set({ autoImported: 1, importEntryId: importResult.id })
+        .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
+      console.log(`[作业批改] 重试后已自动推送到学生管理: 条目ID=${importResult.id}`);
+    } catch (importErr: any) {
+      console.error(`[作业批改] 重试后自动推送失败:`, importErr?.message);
+    }
+
+  } catch (err: any) {
+    console.error(`[作业批改] 重试任务${taskId}失败:`, err?.message);
+    try {
+      await db.update(correctionTasks)
+        .set({
+          taskStatus: "failed",
+          errorMessage: err?.message || "未知错误",
+        })
+        .where(and(eq(correctionTasks.id, taskId), eq(correctionTasks.userId, userId)));
+    } catch {}
+  }
 }

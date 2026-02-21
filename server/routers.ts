@@ -2697,6 +2697,18 @@ export const appRouter = router({
         }
         return { success: true, message: "取消请求已发送" };
       }),
+
+    // 重试单个失败步骤（不重新生成学情反馈）
+    retryStep: protectedProcedure
+      .input(z.object({
+        taskId: z.string(),
+        stepName: z.enum(["review", "test", "extraction", "bubbleChart"]),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { retryTaskStep } = await import("./backgroundTaskRunner");
+        await retryTaskStep(input.taskId, input.stepName, ctx.user.id);
+        return { success: true };
+      }),
   }),
 
   // 批量任务管理（后台执行）
@@ -3465,6 +3477,18 @@ export const appRouter = router({
         if (input.corrAiModel !== undefined) {
           await setUserConfigValue(uid, "corrAiModel", input.corrAiModel);
         }
+        return { success: true };
+      }),
+
+    // 多轮对话重试批改
+    retry: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        feedback: z.string().optional().default(""),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { retryCorrectionTask } = await import("./correctionRunner");
+        await retryCorrectionTask(ctx.user.id, input.id, input.feedback);
         return { success: true };
       }),
   }),

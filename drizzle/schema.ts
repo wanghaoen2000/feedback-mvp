@@ -200,6 +200,8 @@ export const correctionTasks = mysqlTable("correction_tasks", {
   streamingChars: int("streaming_chars").default(0),  // 流式接收字符数（实时更新）
   autoImported: int("auto_imported").default(0),      // 是否已自动推送到学生管理
   importEntryId: int("import_entry_id"),              // 推送后的条目ID
+  retryCount: int("retry_count").default(0),          // 重试次数
+  conversationHistory: mediumtext("conversation_history"), // JSON: 多轮对话历史
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completed_at"),

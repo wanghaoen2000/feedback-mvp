@@ -68,6 +68,237 @@ export function cancelBackgroundTask(taskId: string): boolean {
   return false;
 }
 
+type RetryableStep = "review" | "test" | "extraction" | "bubbleChart";
+
+/**
+ * 重试单个失败步骤（不重新生成学情反馈）
+ * 依赖已完成的步骤1（feedbackContent 从 stepResults.feedback.content 读取）
+ */
+export async function retryTaskStep(taskId: string, stepName: RetryableStep, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+
+  const tasks = await db.select().from(backgroundTasks).where(eq(backgroundTasks.id, taskId)).limit(1);
+  if (tasks.length === 0) throw new Error("任务不存在");
+  const task = tasks[0];
+  if (task.userId !== userId) throw new Error("无权操作此任务");
+
+  let params: TaskParams;
+  try { params = JSON.parse(task.inputParams); } catch { throw new Error("任务参数损坏"); }
+
+  let stepResults: StepResults;
+  try { stepResults = task.stepResults ? JSON.parse(task.stepResults) : {}; } catch { stepResults = {}; }
+
+  // 步骤1必须已完成，否则无法重试后续步骤
+  const feedbackContent = stepResults.feedback?.content;
+  if (!feedbackContent) throw new Error("学情反馈未完成，无法重试后续步骤");
+
+  // 要重试的步骤必须是失败状态
+  const currentStatus = stepResults[stepName]?.status;
+  if (currentStatus !== "failed" && currentStatus !== "truncated") {
+    throw new Error(`步骤"${stepName}"当前状态为"${currentStatus}"，无需重试`);
+  }
+
+  // 提取日期
+  const currentYear = params.currentYear || DEFAULT_CONFIG.currentYear;
+  const dateStr = params.lessonDate || (() => {
+    const dateMatch = feedbackContent.match(/(\d{1,2}月\d{1,2}日)/);
+    return dateMatch ? dateMatch[1] : new Date().toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }).replace("/", "月") + "日";
+  })();
+
+  // 解析配置（使用当前配置）
+  const apiModel = await getConfig("apiModel", userId) || DEFAULT_CONFIG.apiModel;
+  const apiKey = params.apiKey || (await getConfig("apiKey", userId)) || DEFAULT_CONFIG.apiKey;
+  const apiUrl = params.apiUrl || (await getConfig("apiUrl", userId)) || DEFAULT_CONFIG.apiUrl;
+
+  // 标记步骤为重试中
+  stepResults[stepName] = { status: "running" };
+  await updateStepResults(taskId, stepResults);
+  await updateTask(taskId, { status: "running" });
+
+  console.log(`[后台任务] ${taskId} 重试步骤: ${stepName}`);
+
+  try {
+    if (params.courseType === "one-to-one") {
+      const roadmap = params.roadmap !== undefined ? params.roadmap : ((await getConfig("roadmap", userId)) || DEFAULT_CONFIG.roadmap);
+      const driveBasePath = params.driveBasePath || (await getConfig("driveBasePath", userId)) || DEFAULT_CONFIG.driveBasePath;
+      const config = { apiModel, apiKey, apiUrl, roadmap };
+      const lessonDate = params.lessonDate ? addWeekdayToDate(params.lessonDate.includes('年') ? params.lessonDate : `${currentYear}年${params.lessonDate}`) : "";
+      const feedbackInput: FeedbackInput = {
+        studentName: params.studentName, lessonNumber: params.lessonNumber || "", lessonDate,
+        nextLessonDate: "", lastFeedback: params.lastFeedback || "", currentNotes: params.currentNotes,
+        transcript: params.transcript, isFirstLesson: params.isFirstLesson ?? false,
+        specialRequirements: params.specialRequirements || "",
+      };
+      const basePath = `${driveBasePath}/${params.studentName}`;
+
+      const result = await runSingleStep(stepName, {
+        taskId, stepResults, feedbackContent, dateStr, config, feedbackInput, basePath,
+        studentName: params.studentName, lessonNumber: params.lessonNumber || "", userId,
+        courseType: "one-to-one",
+      });
+      stepResults[stepName] = result;
+
+    } else {
+      // 小班课
+      const roadmapClass = params.roadmapClass !== undefined ? params.roadmapClass : ((await getConfig("roadmapClass", userId)) || "");
+      const classStoragePath = params.classStoragePath || (await getConfig("classStoragePath", userId));
+      const driveBasePath = classStoragePath || params.driveBasePath || (await getConfig("driveBasePath", userId)) || DEFAULT_CONFIG.driveBasePath;
+      const apiConfig = { apiModel, apiKey, apiUrl };
+      const folderName = `${params.classNumber}班`;
+      const basePath = `${driveBasePath}/${folderName}`;
+      const classInput: ClassFeedbackInput = {
+        classNumber: params.classNumber, lessonNumber: params.lessonNumber || "",
+        lessonDate: params.lessonDate ? addWeekdayToDate(params.lessonDate.includes('年') ? params.lessonDate : `${currentYear}年${params.lessonDate}`) : "",
+        nextLessonDate: "", attendanceStudents: params.attendanceStudents, lastFeedback: params.lastFeedback || "",
+        currentNotes: params.currentNotes, transcript: params.transcript, specialRequirements: params.specialRequirements || "",
+      };
+
+      const result = await runSingleStep(stepName, {
+        taskId, stepResults, feedbackContent, dateStr, config: apiConfig, basePath,
+        studentName: folderName, lessonNumber: params.lessonNumber || "", userId,
+        courseType: "class", classInput, roadmapClass, attendanceStudents: params.attendanceStudents,
+        classNumber: params.classNumber,
+      });
+      stepResults[stepName] = result;
+    }
+
+    console.log(`[后台任务] ${taskId} 步骤 ${stepName} 重试成功`);
+  } catch (err: any) {
+    stepResults[stepName] = { status: "failed", error: err?.message || String(err) };
+    console.error(`[后台任务] ${taskId} 步骤 ${stepName} 重试失败:`, err?.message || err);
+  }
+
+  // 重新计算最终状态
+  const stepNames: (keyof StepResults)[] = ["feedback", "review", "test", "extraction", "bubbleChart"];
+  const failCount = stepNames.filter(s => stepResults[s]?.status === "failed" || stepResults[s]?.status === "truncated").length;
+  const completedCount = stepNames.filter(s => stepResults[s]?.status === "completed").length;
+  const finalStatus = failCount === 0 ? "completed" : completedCount > 0 ? "partial" : "failed";
+
+  await updateTask(taskId, {
+    status: finalStatus,
+    stepResults: JSON.stringify(stepResults),
+    errorMessage: failCount > 0 ? `${failCount} 个步骤失败` : null,
+  });
+}
+
+/** 执行单个步骤并返回 StepResult */
+async function runSingleStep(
+  stepName: RetryableStep,
+  ctx: {
+    taskId: string; stepResults: StepResults; feedbackContent: string; dateStr: string;
+    config: any; basePath: string; studentName: string; lessonNumber: string; userId: number;
+    courseType: "one-to-one" | "class";
+    feedbackInput?: FeedbackInput; classInput?: ClassFeedbackInput;
+    roadmapClass?: string; attendanceStudents?: string[]; classNumber?: string;
+  },
+): Promise<StepResult> {
+  const t = Date.now();
+  const { taskId, stepResults, feedbackContent, dateStr, config, basePath, userId } = ctx;
+
+  const makeOnChunk = () => {
+    let chars = 0, lastUpdate = 0;
+    return (chunk: string) => {
+      chars += chunk.length;
+      const now = Date.now();
+      if (now - lastUpdate >= 1000) {
+        stepResults[stepName] = { ...stepResults[stepName]!, status: "running", chars };
+        updateStepResults(taskId, stepResults).catch(() => {});
+        lastUpdate = now;
+      }
+    };
+  };
+
+  if (stepName === "review") {
+    const onChunk = makeOnChunk();
+    const reviewResult = ctx.courseType === "one-to-one"
+      ? await generateReviewContent('oneToOne', ctx.feedbackInput!, feedbackContent, dateStr, config, onChunk)
+      : await generateClassReviewContent(ctx.classInput!, feedbackContent, ctx.roadmapClass || "", config, onChunk);
+    if (!reviewResult.buffer || reviewResult.buffer.length === 0) throw new Error("复习文档生成为空");
+    const fileName = `${ctx.studentName}${ctx.lessonNumber}复习文档.docx`;
+    const folderPath = `${basePath}/复习文档`;
+    const uploadResult = await uploadBinaryToGoogleDrive(userId, reviewResult.buffer, fileName, folderPath);
+    assertUploadSuccess(uploadResult, "复习文档");
+    return { status: "completed", fileName, url: uploadResult.url || "", path: uploadResult.path || "",
+      ...(uploadResult.folderUrl ? { folderUrl: uploadResult.folderUrl } : {}),
+      chars: reviewResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
+  }
+
+  if (stepName === "test") {
+    const onChunk = makeOnChunk();
+    const testResult = ctx.courseType === "one-to-one"
+      ? await generateTestContent('oneToOne', ctx.feedbackInput!, feedbackContent, dateStr, config, onChunk)
+      : await generateClassTestContent(ctx.classInput!, feedbackContent, ctx.roadmapClass || "", config, onChunk);
+    if (!testResult.buffer || testResult.buffer.length === 0) throw new Error("测试本生成为空");
+    const fileName = `${ctx.studentName}${ctx.lessonNumber}测试文档.docx`;
+    const folderPath = `${basePath}/复习文档`;
+    const uploadResult = await uploadBinaryToGoogleDrive(userId, testResult.buffer, fileName, folderPath);
+    assertUploadSuccess(uploadResult, "测试文档");
+    return { status: "completed", fileName, url: uploadResult.url || "", path: uploadResult.path || "",
+      ...(uploadResult.folderUrl ? { folderUrl: uploadResult.folderUrl } : {}),
+      chars: testResult.textChars, duration: Math.round((Date.now() - t) / 1000) };
+  }
+
+  if (stepName === "extraction") {
+    const onChunk = makeOnChunk();
+    const extractionContent = ctx.courseType === "one-to-one"
+      ? await generateExtractionContent('oneToOne', ctx.feedbackInput!, feedbackContent, config, onChunk)
+      : await generateClassExtractionContent(ctx.classInput!, feedbackContent, ctx.roadmapClass || "", config, onChunk);
+    if (!extractionContent || !extractionContent.trim()) throw new Error("课后信息提取生成为空");
+    const fileName = `${ctx.studentName}${ctx.lessonNumber}课后信息提取.md`;
+    const folderPath = `${basePath}/课后信息`;
+    const uploadResult = await uploadToGoogleDrive(userId, extractionContent, fileName, folderPath);
+    assertUploadSuccess(uploadResult, "课后信息提取");
+    return { status: "completed", fileName, url: uploadResult.url || "", path: uploadResult.path || "",
+      ...(uploadResult.folderUrl ? { folderUrl: uploadResult.folderUrl } : {}),
+      chars: extractionContent.length, duration: Math.round((Date.now() - t) / 1000), content: extractionContent };
+  }
+
+  if (stepName === "bubbleChart") {
+    if (ctx.courseType === "one-to-one") {
+      // 一对一：单张气泡图
+      const pngBuffer = await generateBubbleChart(feedbackContent, ctx.studentName, dateStr, ctx.lessonNumber, config);
+      if (!pngBuffer || pngBuffer.length === 0) throw new Error("气泡图生成为空");
+      const fileName = `${ctx.studentName}${ctx.lessonNumber}气泡图.png`;
+      const folderPath = `${basePath}/气泡图`;
+      const uploadResult = await uploadBinaryToGoogleDrive(userId, pngBuffer, fileName, folderPath);
+      assertUploadSuccess(uploadResult, "气泡图");
+      return { status: "completed", fileName, url: uploadResult.url || "", path: uploadResult.path || "",
+        ...(uploadResult.folderUrl ? { folderUrl: uploadResult.folderUrl } : {}),
+        chars: pngBuffer.length, duration: Math.round((Date.now() - t) / 1000) };
+    } else {
+      // 小班课：每个学生一张
+      const students = (ctx.attendanceStudents || []).filter(s => s.trim());
+      let successCount = 0;
+      const perStudentFiles: { fileName: string; url: string; path: string }[] = [];
+      for (const studentName of students) {
+        try {
+          const svgContent = await generateClassBubbleChartSVG(
+            feedbackContent, studentName, ctx.classNumber!, dateStr, ctx.lessonNumber,
+            { ...config, roadmapClass: ctx.roadmapClass },
+          );
+          const pngBuffer = await svgToPng(svgContent);
+          const fileName = `${studentName}${ctx.lessonNumber}气泡图.png`;
+          const folderPath = `${basePath}/气泡图`;
+          const uploadResult = await uploadBinaryToGoogleDrive(userId, pngBuffer, fileName, folderPath);
+          assertUploadSuccess(uploadResult, `气泡图(${studentName})`);
+          perStudentFiles.push({ fileName, url: uploadResult.url || "", path: uploadResult.path || "" });
+          successCount++;
+        } catch (err: any) {
+          console.error(`[后台任务] ${taskId} 重试气泡图 ${studentName} 失败:`, err?.message);
+        }
+      }
+      if (successCount === 0 && students.length > 0) throw new Error(`全部${students.length}个学生气泡图重试失败`);
+      const failedCount = students.length - successCount;
+      if (failedCount > 0) throw new Error(`气泡图部分失败(${successCount}/${students.length}成功)`);
+      return { status: "completed", fileName: `气泡图(${successCount}/${students.length}成功)`,
+        url: "", path: "", chars: successCount, duration: Math.round((Date.now() - t) / 1000), files: perStudentFiles };
+    }
+  }
+
+  throw new Error(`未知步骤: ${stepName}`);
+}
+
 /** 检查任务是否已被取消 */
 function isCancelled(taskId: string): boolean {
   return _cancelSignals.get(taskId)?.signal.aborted ?? false;
@@ -167,11 +398,10 @@ async function updateTask(taskId: string, updates: Record<string, any>) {
 }
 
 // 更新步骤结果
-async function updateStepResults(taskId: string, stepResults: StepResults, currentStep: number) {
-  await updateTask(taskId, {
-    stepResults: JSON.stringify(stepResults),
-    currentStep,
-  });
+async function updateStepResults(taskId: string, stepResults: StepResults, currentStep?: number) {
+  const updates: Record<string, any> = { stepResults: JSON.stringify(stepResults) };
+  if (currentStep !== undefined) updates.currentStep = currentStep;
+  await updateTask(taskId, updates);
 }
 
 /**

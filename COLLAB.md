@@ -389,6 +389,31 @@
   git push origin main
   ```
 
+- [ ] **【部署任务】V189：反馈生成步骤重试 + 作业批改多轮对话重试**
+
+  **分支：** `claude/fix-mobile-message-counter-2EHXt`
+  **版本跨度：** V188 → V189
+  **新增依赖：** 无
+  **数据库迁移：** 有（correction_tasks 添加 retry_count, conversation_history 列，自动兼容）
+
+  **V189 变更：**
+  - 反馈生成：后4步骤（复习文档/测试本/课后信息/气泡图）失败后支持独立重试，无需重新生成学情反馈
+  - 作业批改：完成后可"补充说明"进行多轮对话重试，AI根据上下文重新批改
+  - 作业批改：失败任务显示"重试"按钮一键重跑
+  - 作业批改：重试后自动删除旧导入条目并重新推送到学生管理
+  - aiClient: invokeAIStream 新增 extraMessages 参数支持多轮对话
+  - 前端：TaskHistory 失败步骤旁显示重试按钮
+  - 前端：HomeworkCorrection 已完成任务底部显示"补充说明后重新生成"交互
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/fix-mobile-message-counter-2EHXt   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
 - [ ] **【部署任务】V188：所有AI流程统一处理开始时显示模型名**
 
   **分支：** `claude/fix-mobile-message-counter-2EHXt`
@@ -589,3 +614,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V186 | 2026-02-21 | 修复手机端"已接收XX字"等信息被截断不可见 — flex-wrap修复窄屏溢出 | 待部署 |
 | V187 | 2026-02-21 | AI处理中实时显示模型名+修复重试使用旧模型 — 所有AI流程处理开始即显示模型 | 待部署 |
 | V188 | 2026-02-21 | 所有AI流程统一：批改/打分/提醒/反馈生成处理开始时写入模型+前端显示 | 待部署 |
+| V189 | 2026-02-21 | 反馈生成后4步骤独立重试+作业批改多轮对话重试 | 待部署 |

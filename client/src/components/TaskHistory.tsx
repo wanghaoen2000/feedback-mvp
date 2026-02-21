@@ -526,6 +526,18 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
     },
   });
 
+  // 重试单个失败步骤
+  const [retryingStep, setRetryingStep] = useState<string | null>(null); // "taskId:stepName"
+  const retryStepMutation = trpc.bgTask.retryStep.useMutation({
+    onSuccess: () => {
+      setRetryingStep(null);
+      historyQuery.refetch();
+    },
+    onError: () => {
+      setRetryingStep(null);
+    },
+  });
+
   // 清理指向已消失任务的引用
   useEffect(() => {
     if (viewingFeedbackTaskId && !tasks.find((t) => t.id === viewingFeedbackTaskId)) {
@@ -796,7 +808,24 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                                     )}
                                   </div>
                                   {stepResult.error && (
-                                    <p className="text-xs text-red-400 mt-0.5 pl-5 break-words whitespace-pre-wrap">{stepResult.error}</p>
+                                    <div className="flex items-start gap-1.5 mt-0.5 pl-5">
+                                      <p className="text-xs text-red-400 break-words whitespace-pre-wrap flex-1">{stepResult.error}</p>
+                                      {stepResult.status === "failed" && stepKey !== "feedback" && (task.stepResults?.feedback?.status === "completed" || task.stepResults?.feedback?.status === "truncated") && (
+                                        <button
+                                          className="text-xs text-blue-500 hover:text-blue-700 shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-blue-50 transition-colors"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const key = `${task.id}:${stepKey}`;
+                                            setRetryingStep(key);
+                                            retryStepMutation.mutate({ taskId: task.id, stepName: stepKey as any });
+                                          }}
+                                          disabled={retryingStep === `${task.id}:${stepKey}`}
+                                        >
+                                          <RefreshCw className={`h-3 w-3 ${retryingStep === `${task.id}:${stepKey}` ? "animate-spin" : ""}`} />
+                                          {retryingStep === `${task.id}:${stepKey}` ? "重试中" : "重试"}
+                                        </button>
+                                      )}
+                                    </div>
                                   )}
                                   {/* 生成诊断信息（非流式/流式、轮次、token用量） */}
                                   {stepResult.genInfo && isExpanded && (
