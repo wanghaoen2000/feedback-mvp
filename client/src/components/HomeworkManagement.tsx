@@ -2030,6 +2030,7 @@ export function HomeworkManagement() {
                     {(entry.entryStatus === "pending" || entry.entryStatus === "processing") ? (
                       // 处理中：实时进度
                       <>
+                        {entry.aiModel && <span className="text-xs text-blue-500">({shortModelName(entry.aiModel)})</span>}
                         {(entry.streamingChars ?? 0) > 0 ? (
                           <span className="text-xs text-blue-500 tabular-nums">已接收{entry.streamingChars}字</span>
                         ) : entry.entryStatus === "processing" ? (

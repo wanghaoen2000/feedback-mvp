@@ -366,6 +366,29 @@
   git push origin main
   ```
 
+- [ ] **【部署任务】V187：AI处理中实时显示模型名 + 修复重试使用旧模型**
+
+  **分支：** `claude/fix-mobile-message-counter-2EHXt`
+  **版本跨度：** V186 → V187
+  **新增依赖：** 无
+  **数据库迁移：** 无（利用现有 ai_model 列）
+
+  **V187 变更：**
+  - 修复预入库重试使用旧模型的bug：重试现在使用当前系统配置的模型
+  - 后端：预入库AI处理开始时就写入 aiModel 到数据库（原来只在完成后写入）
+  - 前端：预入库条目处理中显示正在使用的AI模型名（蓝色）
+  - 前端：作业批改任务处理中显示正在使用的AI模型名
+  - 前端：任务记录运行中模型名蓝色高亮显示（原来是灰色不明显）
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/fix-mobile-message-counter-2EHXt   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）
@@ -540,3 +563,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V184 | 2026-02-21 | AI模型选择去耦合 — 打分/提醒各自独立模型设置(gradingAiModel/reminderAiModel) | 待部署 |
 | V183 | 2026-02-21 | 路书及范例管理按钮从系统级位置移入课堂反馈Tab内 | 待部署 |
 | V186 | 2026-02-21 | 修复手机端"已接收XX字"等信息被截断不可见 — flex-wrap修复窄屏溢出 | 待部署 |
+| V187 | 2026-02-21 | AI处理中实时显示模型名+修复重试使用旧模型 — 所有AI流程处理开始即显示模型 | 待部署 |

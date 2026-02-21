@@ -662,7 +662,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                             </span>
                           )}
                           {task.model && (
-                            <span className="text-xs text-gray-400 shrink-0">
+                            <span className={`text-xs shrink-0 ${isRunning ? "text-blue-500" : "text-gray-400"}`}>
                               ({shortModelName(task.model)})
                             </span>
                           )}

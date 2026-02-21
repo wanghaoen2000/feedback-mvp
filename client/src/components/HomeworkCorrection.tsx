@@ -786,13 +786,16 @@ function TaskCard({
           <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded">已入库</span>
         )}
         {isPending && (
-          task.streamingChars > 0 ? (
-            <span className="text-xs text-blue-500 tabular-nums">已接收{task.streamingChars}字 · {formatDuration(Math.round((now - new Date(task.createdAt).getTime()) / 1000))}</span>
-          ) : task.taskStatus === "processing" ? (
-            <span className="text-xs text-blue-400">等待AI响应... · {formatDuration(Math.round((now - new Date(task.createdAt).getTime()) / 1000))}</span>
-          ) : (
-            <span className="text-xs text-blue-500">等待处理</span>
-          )
+          <>
+            {task.aiModel && <span className="text-xs text-blue-500">({shortModelName(task.aiModel)})</span>}
+            {task.streamingChars > 0 ? (
+              <span className="text-xs text-blue-500 tabular-nums">已接收{task.streamingChars}字 · {formatDuration(Math.round((now - new Date(task.createdAt).getTime()) / 1000))}</span>
+            ) : task.taskStatus === "processing" ? (
+              <span className="text-xs text-blue-400">等待AI响应... · {formatDuration(Math.round((now - new Date(task.createdAt).getTime()) / 1000))}</span>
+            ) : (
+              <span className="text-xs text-blue-500">等待处理</span>
+            )}
+          </>
         )}
         {isCompleted && (
           <>
