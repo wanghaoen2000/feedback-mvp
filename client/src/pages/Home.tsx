@@ -3064,7 +3064,6 @@ export default function Home() {
         <div className="text-center mb-4 sm:mb-8">
           <h1 className="text-xl sm:text-3xl font-bold text-gray-800 mb-1">学情反馈系统</h1>
           <p className="text-xs sm:text-base text-gray-600 mb-2 sm:mb-4">输入课堂信息，自动生成文档并存储到Google Drive</p>
-          <RoadmapSettings disabled={isGenerating} />
         </div>
 
         {/* 大分页 Tab 切换 */}
@@ -3092,13 +3091,18 @@ export default function Home() {
           <TabsContent value="classroom">
         <Card className="shadow-xl">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-600" />
-              课堂信息录入
-            </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">
-              填写课堂信息，自动生成5个文档
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-blue-600" />
+                  课堂信息录入
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm mt-1">
+                  填写课堂信息，自动生成5个文档
+                </CardDescription>
+              </div>
+              <RoadmapSettings disabled={isGenerating} />
+            </div>
           </CardHeader>
           
           <CardContent>

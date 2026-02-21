@@ -321,6 +321,28 @@
   git push origin main
   ```
 
+- [ ] **【部署任务】V183：路书及范例管理按钮移入课堂反馈分页**
+
+  **分支：** `claude/fix-word-count-transfer-6ycjX`
+  **版本跨度：** V182 → V183
+  **新增依赖：** 无
+  **数据库迁移：** 无
+
+  **V183 变更：**
+  - 将「路书及范例管理」按钮从系统级标题区域移入「课堂反馈」Tab 的 CardHeader 中
+  - 按钮现在与「课堂信息录入」标题并排显示在右侧
+  - 路书和范例仅在学情反馈中使用，放在课堂反馈分页内更合理
+  - 纯 UI 布局调整，无功能变更
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/fix-word-count-transfer-6ycjX   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）
@@ -493,3 +515,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V182 | 2026-02-21 | 全局 max_tokens 统一为 64000 — whatai默认值+录音压缩+气泡图+打分+提醒 | 待部署 |
 | V183 | 2026-02-21 | max_tokens 改为从系统设置读取 — 去掉所有硬编码，统一走 config.maxTokens | 待部署 |
 | V184 | 2026-02-21 | AI模型选择去耦合 — 打分/提醒各自独立模型设置(gradingAiModel/reminderAiModel) | 待部署 |
+| V183 | 2026-02-21 | 路书及范例管理按钮从系统级位置移入课堂反馈Tab内 | 待部署 |
