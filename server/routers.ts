@@ -2528,6 +2528,7 @@ export const appRouter = router({
         totalSteps: bgTasksTable.totalSteps,
         stepResults: bgTasksTable.stepResults,
         errorMessage: bgTasksTable.errorMessage,
+        modelColumn: bgTasksTable.model,
         createdAt: bgTasksTable.createdAt,
         completedAt: bgTasksTable.completedAt,
         inputParams: bgTasksTable.inputParams,
@@ -2547,15 +2548,15 @@ export const appRouter = router({
           if (stepResults?.feedback?.content) {
             delete stepResults.feedback.content;
           }
-          // 从 inputParams 中提取使用的模型名称和素材摘要
-          let model: string | null = null;
+          // 优先使用 model 列（运行时写入），其次从 inputParams 提取
+          let model: string | null = t.modelColumn || null;
           let materialsSummary: { transcriptChars: number; notesChars: number; lastFeedbackChars: number; transcriptSegments?: { count: number; chars: number[] } } | null = null;
           let classNumber: string | null = null;
           let attendanceStudents: string[] | null = null;
           try {
             const params = t.inputParams ? JSON.parse(t.inputParams) : null;
             if (params) {
-              model = params.apiModel || null;
+              if (!model) model = params.apiModel || null; // fallback: 旧任务无 model 列时从 inputParams 提取
               materialsSummary = {
                 transcriptChars: params.transcript?.length || 0,
                 notesChars: params.currentNotes?.length || 0,
@@ -2695,6 +2696,18 @@ export const appRouter = router({
           }).where(and(eq(bgTasksTable.id, input.taskId), eq(bgTasksTable.userId, ctx.user.id)));
         }
         return { success: true, message: "取消请求已发送" };
+      }),
+
+    // 重试单个失败步骤（不重新生成学情反馈）
+    retryStep: protectedProcedure
+      .input(z.object({
+        taskId: z.string(),
+        stepName: z.enum(["review", "test", "extraction", "bubbleChart"]),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { retryTaskStep } = await import("./backgroundTaskRunner");
+        await retryTaskStep(input.taskId, input.stepName, ctx.user.id);
+        return { success: true };
       }),
   }),
 
@@ -3546,6 +3559,18 @@ export const appRouter = router({
         if (input.corrAiModel !== undefined) {
           await setUserConfigValue(uid, "corrAiModel", input.corrAiModel);
         }
+        return { success: true };
+      }),
+
+    // 多轮对话重试批改
+    retry: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        feedback: z.string().optional().default(""),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { retryCorrectionTask } = await import("./correctionRunner");
+        await retryCorrectionTask(ctx.user.id, input.id, input.feedback);
         return { success: true };
       }),
   }),

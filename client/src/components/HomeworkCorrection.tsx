@@ -714,6 +714,7 @@ export function HomeworkCorrection() {
               onCopy={handleCopy}
               copySuccess={copySuccess}
               now={corrNow}
+              onRetry={() => { historyQuery.refetch(); expandedTaskQuery.refetch(); }}
             />
           ))}
         </div>
@@ -749,6 +750,7 @@ function TaskCard({
   onCopy,
   copySuccess,
   now,
+  onRetry,
 }: {
   task: any;
   isExpanded: boolean;
@@ -757,10 +759,22 @@ function TaskCard({
   onCopy: (text: string) => void;
   copySuccess: boolean;
   now: number;
+  onRetry?: () => void;
 }) {
   const isPending = task.taskStatus === "pending" || task.taskStatus === "processing";
   const isCompleted = task.taskStatus === "completed";
   const isFailed = task.taskStatus === "failed";
+
+  // 重试相关状态
+  const [showRetryForm, setShowRetryForm] = useState(false);
+  const [retryFeedback, setRetryFeedback] = useState("");
+  const retryMut = trpc.correction.retry.useMutation({
+    onSuccess: () => {
+      setShowRetryForm(false);
+      setRetryFeedback("");
+      onRetry?.();
+    },
+  });
 
   return (
     <div className={`border rounded-lg overflow-hidden transition-colors ${
@@ -770,7 +784,7 @@ function TaskCard({
     }`}>
       {/* 卡片头部（始终可见） */}
       <div
-        className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50/50"
+        className="flex items-center gap-x-2 gap-y-1 flex-wrap px-3 py-2 cursor-pointer hover:bg-gray-50/50"
         onClick={onToggle}
       >
         {isCompleted ? (
@@ -785,14 +799,20 @@ function TaskCard({
         {task.autoImported === 1 && (
           <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded">已入库</span>
         )}
+        {(task.retryCount || 0) > 0 && !isPending && (
+          <span className="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded">修改{task.retryCount}次</span>
+        )}
         {isPending && (
-          task.streamingChars > 0 ? (
-            <span className="text-xs text-blue-500 tabular-nums">已接收{task.streamingChars}字 · {formatDuration(Math.round((now - new Date(task.createdAt).getTime()) / 1000))}</span>
-          ) : task.taskStatus === "processing" ? (
-            <span className="text-xs text-blue-400">等待AI响应... · {formatDuration(Math.round((now - new Date(task.createdAt).getTime()) / 1000))}</span>
-          ) : (
-            <span className="text-xs text-blue-500">等待处理</span>
-          )
+          <>
+            {task.aiModel && <span className="text-xs text-blue-500">({shortModelName(task.aiModel)})</span>}
+            {task.streamingChars > 0 ? (
+              <span className="text-xs text-blue-500 tabular-nums">已接收{task.streamingChars}字 · {formatDuration(Math.round((now - new Date(task.createdAt).getTime()) / 1000))}</span>
+            ) : task.taskStatus === "processing" ? (
+              <span className="text-xs text-blue-400">等待AI响应... · {formatDuration(Math.round((now - new Date(task.createdAt).getTime()) / 1000))}</span>
+            ) : (
+              <span className="text-xs text-blue-500">等待处理</span>
+            )}
+          </>
         )}
         {isCompleted && (
           <>
@@ -806,7 +826,19 @@ function TaskCard({
           </>
         )}
         {isFailed && (
-          <span className="text-xs text-red-500 truncate max-w-[150px]">{task.errorMessage}</span>
+          <>
+            <span className="text-xs text-red-500 truncate max-w-[150px]">{task.errorMessage}</span>
+            <button
+              className="text-xs text-blue-500 hover:text-blue-700 shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                retryMut.mutate({ id: task.id, feedback: "" });
+              }}
+              disabled={retryMut.isPending}
+            >
+              {retryMut.isPending ? <Loader2 className="w-3 h-3 animate-spin inline" /> : "重试"}
+            </button>
+          </>
         )}
         <span className="text-[10px] text-gray-300 ml-auto shrink-0">
           {new Date(task.createdAt).toLocaleString("zh-CN", {
@@ -862,6 +894,53 @@ function TaskCard({
               </div>
               <div className="p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-[200px] overflow-y-auto">
                 {expandedData.resultStatusUpdate}
+              </div>
+            </div>
+          )}
+
+          {/* 重试区域 */}
+          {!showRetryForm ? (
+            <button
+              className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"
+              onClick={(e) => { e.stopPropagation(); setShowRetryForm(true); }}
+            >
+              <Send className="w-3 h-3" />
+              {(expandedData.retryCount || 0) > 0 ? `继续修改（已修改${expandedData.retryCount}次）` : "批改不满意？补充说明后重新生成"}
+            </button>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+              <p className="text-xs text-amber-700 font-medium">
+                补充说明（告诉AI哪里批改有误、需要怎么调整）
+              </p>
+              <Textarea
+                placeholder="例如：第3题孩子其实选对了，是B选项；第5题的解释太复杂了，简单点说就行..."
+                value={retryFeedback}
+                onChange={(e) => setRetryFeedback(e.target.value)}
+                rows={3}
+                className="text-sm resize-none"
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  className="bg-amber-500 hover:bg-amber-600 text-white h-7 text-xs"
+                  onClick={() => retryMut.mutate({ id: task.id, feedback: retryFeedback })}
+                  disabled={!retryFeedback.trim() || retryMut.isPending}
+                >
+                  {retryMut.isPending ? (
+                    <><Loader2 className="w-3 h-3 mr-1 animate-spin" />重新生成中...</>
+                  ) : (
+                    <><Send className="w-3 h-3 mr-1" />重新生成</>
+                  )}
+                </Button>
+                <button
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                  onClick={() => { setShowRetryForm(false); setRetryFeedback(""); }}
+                >
+                  取消
+                </button>
+                {retryMut.isError && (
+                  <span className="text-xs text-red-500">{(retryMut.error as any)?.message || "重试失败"}</span>
+                )}
               </div>
             </div>
           )}

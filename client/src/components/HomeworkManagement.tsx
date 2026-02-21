@@ -1169,7 +1169,7 @@ export function HomeworkManagement() {
                           )}
                           <span className="text-sm font-medium">{task.startDate} ~ {task.endDate}</span>
                           <span className="text-xs text-gray-500">{task.studentCount || 0}人</span>
-                          {task.aiModel && <span className="text-xs text-gray-400">({shortModelName(task.aiModel)})</span>}
+                          {task.aiModel && <span className={`text-xs ${task.taskStatus === "pending" || task.taskStatus === "processing" ? "text-blue-500" : "text-gray-400"}`}>({shortModelName(task.aiModel)})</span>}
                           {(task.taskStatus === "pending" || task.taskStatus === "processing") && (task.streamingChars ?? 0) > 0 && (
                             <span className="text-xs text-blue-500">已生成{task.streamingChars}字</span>
                           )}
@@ -1743,6 +1743,11 @@ export function HomeworkManagement() {
                   {(reminderTaskQuery.data.studentCount ?? 0) > 0 && (
                     <span className="text-xs text-gray-500">{reminderTaskQuery.data.studentCount}个学生</span>
                   )}
+                  {reminderTaskQuery.data.aiModel && (
+                    <span className={`text-xs ${reminderTaskQuery.data.taskStatus === "pending" || reminderTaskQuery.data.taskStatus === "processing" ? "text-blue-500" : "text-gray-400"}`}>
+                      ({shortModelName(reminderTaskQuery.data.aiModel)})
+                    </span>
+                  )}
                   {(reminderTaskQuery.data.taskStatus === "pending" || reminderTaskQuery.data.taskStatus === "processing") && (reminderTaskQuery.data.streamingChars ?? 0) > 0 && (
                     <span className="text-xs text-blue-500">已生成{reminderTaskQuery.data.streamingChars}字</span>
                   )}
@@ -2030,6 +2035,7 @@ export function HomeworkManagement() {
                     {(entry.entryStatus === "pending" || entry.entryStatus === "processing") ? (
                       // 处理中：实时进度
                       <>
+                        {entry.aiModel && <span className="text-xs text-blue-500">({shortModelName(entry.aiModel)})</span>}
                         {(entry.streamingChars ?? 0) > 0 ? (
                           <span className="text-xs text-blue-500 tabular-nums">已接收{entry.streamingChars}字</span>
                         ) : entry.entryStatus === "processing" ? (

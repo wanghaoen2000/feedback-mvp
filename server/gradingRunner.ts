@@ -234,6 +234,11 @@ async function processGradingInBackground(userId: number, taskId: number): Promi
       || await getConfigValue("apiModel", userId)
       || "claude-sonnet-4-5-20250929";
 
+    // 处理开始时就写入模型，让前端立刻显示
+    await db.update(gradingTasks)
+      .set({ aiModel: modelToUse })
+      .where(eq(gradingTasks.id, taskId));
+
     const messages = [
       { role: "system" as const, content: systemPrompt },
       { role: "user" as const, content: userMessage },

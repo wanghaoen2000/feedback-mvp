@@ -376,9 +376,13 @@ async function processEntryInBackground(
   const db = await getDb();
   if (!db) return;
 
-  // Update status to processing, record start time
+  // 在开始处理前先解析实际使用的模型，写入DB让前端可以立刻显示
+  const { getConfigValue } = await import("./core/aiClient");
+  const resolvedModel = aiModel || await getConfigValue("apiModel", userId) || "claude-sonnet-4-5-20250929";
+
+  // Update status to processing, record start time AND model
   await db.update(hwEntries)
-    .set({ entryStatus: "processing", startedAt: new Date(), streamingChars: 0 })
+    .set({ entryStatus: "processing", startedAt: new Date(), streamingChars: 0, aiModel: resolvedModel })
     .where(eq(hwEntries.id, id));
 
   try {
@@ -390,8 +394,8 @@ async function processEntryInBackground(
         .catch(() => {}); // 进度更新失败不影响主流程
     };
 
-    // Process with AI
-    const { parsedContent, model } = await processEntry(userId, studentName, rawInput, aiModel, onProgress);
+    // Process with AI（传入已解析的模型，避免重复解析）
+    const { parsedContent, model } = await processEntry(userId, studentName, rawInput, resolvedModel, onProgress);
 
     // Validate: check for empty fields
     const hasEmptyFields = parsedContent.includes("【】") || /【[^】]+】\s*\n\s*\n/.test(parsedContent);
@@ -485,9 +489,13 @@ export async function retryEntry(userId: number, id: number) {
     throw new Error(`条目当前状态为「${entry.entryStatus}」，只能重试失败或待入库的条目`);
   }
 
-  // Reset to processing, clear old progress data
+  // 重试时使用当前配置的模型（而非原来记录的模型），这样用户切换模型后重试能生效
+  const { getConfigValue } = await import("./core/aiClient");
+  const resolvedModel = await getConfigValue("apiModel", userId) || "claude-sonnet-4-5-20250929";
+
+  // Reset to processing, clear old progress data, 写入新模型让前端立刻显示
   await db.update(hwEntries)
-    .set({ entryStatus: "processing", errorMessage: null, streamingChars: 0, startedAt: new Date(), completedAt: null })
+    .set({ entryStatus: "processing", errorMessage: null, streamingChars: 0, startedAt: new Date(), completedAt: null, aiModel: resolvedModel })
     .where(eq(hwEntries.id, id));
 
   try {
@@ -503,7 +511,7 @@ export async function retryEntry(userId: number, id: number) {
       userId,
       entry.studentName,
       entry.rawInput,
-      entry.aiModel || undefined,
+      resolvedModel,
       onProgress,
     );
 

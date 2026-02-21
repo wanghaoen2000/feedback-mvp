@@ -268,6 +268,7 @@ export async function invokeAIStream(
     retries?: number;
     fileInfo?: FileInfo;  // 单文件信息（向后兼容）
     fileInfos?: FileInfo[];  // 多文件信息（新增）
+    extraMessages?: Array<{ role: "assistant" | "user"; content: string }>;  // 多轮对话用：附加在首条user消息之后
   }
 ): Promise<AIStreamResult> {
   // 获取配置
@@ -337,10 +338,18 @@ export async function invokeAIStream(
     userContent = userMessage;
   }
 
-  const messages = [
-    { role: "system" as const, content: systemPrompt },
-    { role: "user" as const, content: userContent },
+  const messages: Array<{ role: string; content: any }> = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userContent },
   ];
+
+  // 多轮对话：在首条 user 消息后追加 assistant/user 交替消息
+  if (options?.extraMessages?.length) {
+    for (const msg of options.extraMessages) {
+      messages.push({ role: msg.role, content: msg.content });
+    }
+    console.log(`[AIClient] 多轮对话: 共${messages.length}条消息 (含${options.extraMessages.length}条追加)`);
+  }
 
   console.log(`[AIClient] 调用模型: ${config.apiModel}`);
   console.log(`[AIClient] API地址: ${config.apiUrl}`);

@@ -365,17 +365,102 @@
   - 一键复制、重试、删除功能
   - 新增数据库表：`lesson_prep_tasks`（备课任务）
   - 新增文件：`LessonPrep.tsx`、`server/lessonPrepRunner.ts`、`drizzle/0014_lesson_prep_tasks.sql`
+- [ ] **【部署任务】V186：修复手机端"已接收XX字"等信息被截断不可见**
+
+  **分支：** `claude/fix-mobile-message-counter-2EHXt`
+  **版本跨度：** V185 → V186
+  **新增依赖：** 无
+  **数据库迁移：** 无
+
+  **V186 变更：**
+  - 修复任务记录元数据行（时间/耗时/已接收字数）在手机窄屏上溢出不可见
+  - 修复作业批改任务卡片头部信息在手机上被截断
+  - 修复步骤进度标题行（步骤名+完成耗时）在手机上溢出
+  - 原因：flex 布局未设置 `flex-wrap`，窄屏幕上后面的元素被挤出可见区域
+  - 纯前端 CSS 修复，无功能变更
 
   **部署操作：**
   ```bash
   git fetch origin
   git merge origin/claude/add-lesson-prep-page-uT7NH   # 应直接 fast-forward
+  git merge origin/claude/fix-mobile-message-counter-2EHXt   # 应直接 fast-forward
   npm run build
   webdev_save_checkpoint
   git push origin main
   ```
 
   **数据库说明：** 新表 `lesson_prep_tasks` 使用 `CREATE TABLE IF NOT EXISTS`，服务启动时自动创建，无需手动执行 SQL。
+- [ ] **【部署任务】V187：AI处理中实时显示模型名 + 修复重试使用旧模型**
+
+  **分支：** `claude/fix-mobile-message-counter-2EHXt`
+  **版本跨度：** V186 → V187
+  **新增依赖：** 无
+  **数据库迁移：** 无（利用现有 ai_model 列）
+
+  **V187 变更：**
+  - 修复预入库重试使用旧模型的bug：重试现在使用当前系统配置的模型
+  - 后端：预入库AI处理开始时就写入 aiModel 到数据库（原来只在完成后写入）
+  - 前端：预入库条目处理中显示正在使用的AI模型名（蓝色）
+  - 前端：作业批改任务处理中显示正在使用的AI模型名
+  - 前端：任务记录运行中模型名蓝色高亮显示（原来是灰色不明显）
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/fix-mobile-message-counter-2EHXt   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
+- [ ] **【部署任务】V189：反馈生成步骤重试 + 作业批改多轮对话重试**
+
+  **分支：** `claude/fix-mobile-message-counter-2EHXt`
+  **版本跨度：** V188 → V189
+  **新增依赖：** 无
+  **数据库迁移：** 有（correction_tasks 添加 retry_count, conversation_history 列，自动兼容）
+
+  **V189 变更：**
+  - 反馈生成：后4步骤（复习文档/测试本/课后信息/气泡图）失败后支持独立重试，无需重新生成学情反馈
+  - 作业批改：完成后可"补充说明"进行多轮对话重试，AI根据上下文重新批改
+  - 作业批改：失败任务显示"重试"按钮一键重跑
+  - 作业批改：重试后自动删除旧导入条目并重新推送到学生管理
+  - aiClient: invokeAIStream 新增 extraMessages 参数支持多轮对话
+  - 前端：TaskHistory 失败步骤旁显示重试按钮
+  - 前端：HomeworkCorrection 已完成任务底部显示"补充说明后重新生成"交互
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/fix-mobile-message-counter-2EHXt   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
+- [ ] **【部署任务】V188：所有AI流程统一处理开始时显示模型名**
+
+  **分支：** `claude/fix-mobile-message-counter-2EHXt`
+  **版本跨度：** V187 → V188
+  **新增依赖：** 无
+  **数据库迁移：** 有（background_tasks 添加 model 列，自动兼容）
+
+  **V188 变更：**
+  - 作业批改(correctionRunner)：处理开始时解析并写入实际使用的模型
+  - 一键打分(gradingRunner)：处理开始时写入模型（原来只在完成后写入）
+  - 作业提醒(reminderRunner)：处理开始时写入模型（原来只在完成后写入）
+  - 反馈生成(backgroundTaskRunner)：新增 model 列，运行时写入实际使用的模型
+  - 前端：打分任务处理中模型名蓝色高亮显示
+  - 前端：提醒任务新增模型名显示（处理中蓝色，完成后灰色）
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/fix-mobile-message-counter-2EHXt   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
 
 ### Manus → Claude（部署端请求开发端处理）
 
@@ -551,3 +636,7 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V184 | 2026-02-21 | AI模型选择去耦合 — 打分/提醒各自独立模型设置(gradingAiModel/reminderAiModel) | 待部署 |
 | V183 | 2026-02-21 | 路书及范例管理按钮从系统级位置移入课堂反馈Tab内 | 待部署 |
 | V186 | 2026-02-21 | 备课系统 — 新增第5个Tab页，选学生→填课次→加载上次课内容→AI生成备课方案 | 待部署 |
+| V186 | 2026-02-21 | 修复手机端"已接收XX字"等信息被截断不可见 — flex-wrap修复窄屏溢出 | 待部署 |
+| V187 | 2026-02-21 | AI处理中实时显示模型名+修复重试使用旧模型 — 所有AI流程处理开始即显示模型 | 待部署 |
+| V188 | 2026-02-21 | 所有AI流程统一：批改/打分/提醒/反馈生成处理开始时写入模型+前端显示 | 待部署 |
+| V189 | 2026-02-21 | 反馈生成后4步骤独立重试+作业批改多轮对话重试 | 待部署 |
