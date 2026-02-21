@@ -180,6 +180,7 @@ export function HomeworkManagement() {
   const [localPrompt, setLocalPrompt] = useState("");
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
   const [statusCopied, setStatusCopied] = useState(false);
+  const [copiedEntryId, setCopiedEntryId] = useState<number | null>(null);
   const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   // --- 数据备份相关 ---
@@ -1891,6 +1892,9 @@ export function HomeworkManagement() {
             <div className="flex items-center gap-2">
               <History className="w-4 h-4" />
               <span>{selectedStudent} 的当前状态</span>
+              {studentStatusQuery.data?.currentStatus && (
+                <span className="text-xs text-gray-400">{studentStatusQuery.data.currentStatus.length}字</span>
+              )}
             </div>
             {studentStatusQuery.data?.currentStatus && (
               <Button
@@ -1997,9 +2001,11 @@ export function HomeworkManagement() {
                             {formatDuration(Math.round((new Date(entry.completedAt).getTime() - new Date(entry.startedAt).getTime()) / 1000))}
                           </span>
                         )}
-                        {(entry.streamingChars ?? 0) > 0 && (
+                        {entry.parsedContent ? (
+                          <span className="text-xs text-gray-400">结果{entry.parsedContent.length}字</span>
+                        ) : (entry.streamingChars ?? 0) > 0 ? (
                           <span className="text-xs text-gray-400">{entry.streamingChars}字</span>
-                        )}
+                        ) : null}
                       </>
                     )}
                     <span className="text-xs text-gray-400">
@@ -2059,7 +2065,49 @@ export function HomeworkManagement() {
                   <div className="mt-2 space-y-2">
                     {/* AI处理结果（放在最上面，这是用户最关心的） */}
                     <div>
-                      <p className="text-sm font-semibold text-blue-700 mb-1">AI处理结果：</p>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-blue-700">AI处理结果：</p>
+                          {entry.parsedContent && (
+                            <span className="text-xs text-gray-400">{entry.parsedContent.length}字</span>
+                          )}
+                        </div>
+                        {entry.parsedContent && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={`h-6 px-2 text-xs ${copiedEntryId === entry.id ? "text-green-600" : "text-blue-600 hover:text-blue-800"}`}
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(entry.parsedContent!);
+                                setCopiedEntryId(entry.id);
+                                setTimeout(() => setCopiedEntryId(prev => prev === entry.id ? null : prev), 2000);
+                              } catch {
+                                try {
+                                  const ta = document.createElement("textarea");
+                                  ta.value = entry.parsedContent!;
+                                  ta.style.position = "fixed";
+                                  ta.style.opacity = "0";
+                                  document.body.appendChild(ta);
+                                  ta.select();
+                                  const ok = document.execCommand("copy");
+                                  document.body.removeChild(ta);
+                                  if (ok) {
+                                    setCopiedEntryId(entry.id);
+                                    setTimeout(() => setCopiedEntryId(prev => prev === entry.id ? null : prev), 2000);
+                                  } else {
+                                    alert("复制失败，请手动选中文本复制");
+                                  }
+                                } catch {
+                                  alert("复制失败，请手动选中文本复制");
+                                }
+                              }
+                            }}
+                          >
+                            {copiedEntryId === entry.id ? <><Check className="w-3 h-3 mr-1" />已复制</> : <><Copy className="w-3 h-3 mr-1" />复制</>}
+                          </Button>
+                        )}
+                      </div>
                       {entry.parsedContent ? (
                         <pre className="text-xs text-gray-700 bg-white rounded p-2 whitespace-pre-wrap font-sans border border-blue-100">{entry.parsedContent}</pre>
                       ) : (entry.entryStatus === "pending" || entry.entryStatus === "processing") ? (

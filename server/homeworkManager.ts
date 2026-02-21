@@ -606,6 +606,7 @@ export async function importFromExtraction(
   userId: number,
   studentName: string,
   extractionContent: string,
+  sourceTag: string = "[从课后信息提取导入]",
 ): Promise<{ id: number; studentCreated: boolean }> {
   await ensureHwTables();
   const db = await getDb();
@@ -630,9 +631,9 @@ export async function importFromExtraction(
     console.log(`[学生管理] 重新激活学生: ${studentName}`);
   }
 
-  const rawInput = `[从课后信息提取导入]\n${extractionContent.trim()}`;
+  const rawInput = `${sourceTag}\n${extractionContent.trim()}`;
   const { id } = await createEntry(userId, studentName, rawInput);
-  console.log(`[学生管理] 从课后信息提取导入: ${studentName}, 条目ID: ${id}, 将进行AI处理`);
+  console.log(`[学生管理] 导入: ${studentName}, 来源: ${sourceTag}, 条目ID: ${id}, 将进行AI处理`);
 
   processEntryInBackground(userId, id, studentName, rawInput);
 
