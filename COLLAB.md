@@ -301,6 +301,28 @@
   git push origin main
   ```
 
+- [ ] **【部署任务】V183：路书及范例管理按钮移入课堂反馈分页**
+
+  **分支：** `claude/fix-word-count-transfer-6ycjX`
+  **版本跨度：** V182 → V183
+  **新增依赖：** 无
+  **数据库迁移：** 无
+
+  **V183 变更：**
+  - 将「路书及范例管理」按钮从系统级标题区域移入「课堂反馈」Tab 的 CardHeader 中
+  - 按钮现在与「课堂信息录入」标题并排显示在右侧
+  - 路书和范例仅在学情反馈中使用，放在课堂反馈分页内更合理
+  - 纯 UI 布局调整，无功能变更
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/fix-word-count-transfer-6ycjX   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）
@@ -470,3 +492,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V180 | 2026-02-16 | 新增技术说明书 — 完整的项目技术架构与实现说明文档 | 待部署 |
 | V181 | 2026-02-21 | 修复学生状态文档截断（max_tokens 4000→64000）+ 截断标记清理 | 待部署 |
 | V182 | 2026-02-21 | 修复批改→待入库内容截断(.slice(0,500))+双标签修复+待入库一键复制+字数显示 | 待部署 |
+| V183 | 2026-02-21 | 路书及范例管理按钮从系统级位置移入课堂反馈Tab内 | 待部署 |
