@@ -377,6 +377,30 @@
 
   **数据库说明：** 新表 `lesson_prep_tasks` 使用 `CREATE TABLE IF NOT EXISTS`，服务启动时自动创建，无需手动执行 SQL。
 
+- [ ] **【部署任务】V187：备课预览功能（子弹上膛式确认）**
+
+  **分支：** `claude/add-lesson-prep-page-uT7NH`
+  **版本跨度：** V186 → V187
+  **新增依赖：** 无
+  **数据库迁移：** 无
+
+  **V187 变更（备课预览功能）：**
+  - 新增「预览并生成备课方案」功能：点击按钮后先展示将发送给AI的完整数据，确认后再提交
+  - 预览面板分三个区域展示：系统提示词（含备课路书）、学生总体状态（来自学生情况模块）、用户消息（课次+状态+上次课内容+指令）
+  - 学生状态标注优化：提示词中明确标注「以下是本学生在「学生情况」模块中记录的总体状态描述，包含已学知识点、薄弱环节、学习进度等」
+  - 修复云盘加载路由名错误：`trpc.drive.readLastFeedback` → `trpc.localFile.readLastFeedback`
+  - 后端提示词构建逻辑抽取为共享函数 `buildLessonPrepPrompts`，预览和提交复用同一套构建逻辑
+  - 新增 `lessonPrep.preview` tRPC 端点
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/add-lesson-prep-page-uT7NH   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）
@@ -551,3 +575,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V184 | 2026-02-21 | AI模型选择去耦合 — 打分/提醒各自独立模型设置(gradingAiModel/reminderAiModel) | 待部署 |
 | V183 | 2026-02-21 | 路书及范例管理按钮从系统级位置移入课堂反馈Tab内 | 待部署 |
 | V186 | 2026-02-21 | 备课系统 — 新增第5个Tab页，选学生→填课次→加载上次课内容→AI生成备课方案 | 待部署 |
+| V187 | 2026-02-21 | 备课预览功能 — 子弹上膛式确认，发送前展示完整AI数据（系统提示词+学生状态+用户消息） | 待部署 |

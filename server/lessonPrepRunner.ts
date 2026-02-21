@@ -66,6 +66,110 @@ async function cleanupOldTasks(): Promise<void> {
   }
 }
 
+// ============= 提示词构建（共享逻辑）=============
+
+interface BuiltPrompts {
+  systemPrompt: string;
+  userMessage: string;
+  studentStatus: string | null;
+}
+
+async function buildLessonPrepPrompts(
+  userId: number,
+  studentName: string,
+  lessonNumber: string | null | undefined,
+  isNewStudent: boolean,
+  lastLessonContent: string | null | undefined,
+): Promise<BuiltPrompts> {
+  const studentStatus = await getStudentLatestStatus(userId, studentName);
+  const prepRoadmap = await getConfigValue("lessonPrepRoadmap", userId) || "";
+  const timeContext = getBeijingTimeContext();
+
+  // 构建系统提示词
+  let systemPrompt = "";
+  if (prepRoadmap.trim()) {
+    systemPrompt = `${timeContext}\n\n学生姓名：${studentName}\n\n${prepRoadmap}`;
+  } else {
+    systemPrompt = `${timeContext}\n\n学生姓名：${studentName}\n\n你是一位经验丰富的教师，正在为下一节课做备课准备。请根据提供的信息，生成一份详细的备课方案。
+
+【输出格式要求】
+1. 不要使用任何markdown标记（不要用#、**、*、\`\`\`等）
+2. 不要用表格格式
+3. 用中括号【】标记章节标题
+4. 可以用空行分隔段落
+5. 直接输出纯文本
+
+【备课方案应包含】
+1. 本次课教学目标
+2. 重点难点分析
+3. 教学内容安排与时间分配
+4. 课堂练习/活动设计
+5. 课后作业布置建议`;
+  }
+
+  systemPrompt += `\n\n【重要】不要与用户互动，不要等待确认，不要询问任何问题。
+不要输出任何前言、寒暄、自我描述或元评论。
+直接输出备课方案正文内容。`;
+
+  // 构建用户消息
+  const userMessageParts: string[] = [];
+
+  if (lessonNumber) {
+    userMessageParts.push(`本次课次：第${lessonNumber}次课`);
+  }
+
+  if (studentStatus) {
+    userMessageParts.push(`【以下是本学生在「学生情况」模块中记录的总体状态描述，包含已学知识点、薄弱环节、学习进度等】\n${studentStatus}`);
+  }
+
+  if (isNewStudent) {
+    userMessageParts.push(`【注意】这是一位新生，首次上课。`);
+    if (lastLessonContent) {
+      userMessageParts.push(`【新生基本情况】\n${lastLessonContent}`);
+    }
+    userMessageParts.push(`请为这位新生设计首次课的备课方案，重点关注：
+1. 摸底评估（了解学生当前水平）
+2. 建立学习计划框架
+3. 首次课内容设计（难度适中，让学生有获得感）`);
+  } else {
+    if (lastLessonContent) {
+      userMessageParts.push(`【上次课内容/反馈】\n${lastLessonContent}`);
+    }
+    userMessageParts.push(`请根据以上信息，为下一节课生成备课方案。确保：
+1. 与上次课内容衔接
+2. 针对学生薄弱环节安排训练
+3. 合理安排教学进度`);
+  }
+
+  const userMessage = userMessageParts.join("\n\n");
+
+  return { systemPrompt, userMessage, studentStatus };
+}
+
+// ============= 预览接口 =============
+
+export interface PreviewLessonPrepParams {
+  studentName: string;
+  lessonNumber?: string;
+  isNewStudent?: boolean;
+  lastLessonContent?: string;
+}
+
+export async function previewLessonPrep(userId: number, params: PreviewLessonPrepParams): Promise<{
+  systemPrompt: string;
+  userMessage: string;
+  studentStatus: string | null;
+}> {
+  const { systemPrompt, userMessage, studentStatus } = await buildLessonPrepPrompts(
+    userId,
+    params.studentName.trim(),
+    params.lessonNumber || null,
+    params.isNewStudent || false,
+    params.lastLessonContent || null,
+  );
+  return { systemPrompt, userMessage, studentStatus };
+}
+
 // ============= 任务提交 =============
 
 export interface SubmitLessonPrepParams {
@@ -122,71 +226,14 @@ async function processLessonPrepInBackground(userId: number, taskId: number): Pr
     if (tasks.length === 0) throw new Error("任务不存在");
     const task = tasks[0];
 
-    // 获取备课路书
-    const prepRoadmap = await getConfigValue("lessonPrepRoadmap", userId) || "";
-    const timeContext = getBeijingTimeContext();
-
-    // 构建系统提示词
-    let systemPrompt = "";
-    if (prepRoadmap.trim()) {
-      systemPrompt = `${timeContext}\n\n学生姓名：${task.studentName}\n\n${prepRoadmap}`;
-    } else {
-      systemPrompt = `${timeContext}\n\n学生姓名：${task.studentName}\n\n你是一位经验丰富的教师，正在为下一节课做备课准备。请根据提供的信息，生成一份详细的备课方案。
-
-【输出格式要求】
-1. 不要使用任何markdown标记（不要用#、**、*、\`\`\`等）
-2. 不要用表格格式
-3. 用中括号【】标记章节标题
-4. 可以用空行分隔段落
-5. 直接输出纯文本
-
-【备课方案应包含】
-1. 本次课教学目标
-2. 重点难点分析
-3. 教学内容安排与时间分配
-4. 课堂练习/活动设计
-5. 课后作业布置建议`;
-    }
-
-    systemPrompt += `\n\n【重要】不要与用户互动，不要等待确认，不要询问任何问题。
-不要输出任何前言、寒暄、自我描述或元评论。
-直接输出备课方案正文内容。`;
-
-    // 构建用户消息
-    const userMessageParts: string[] = [];
-
-    // 课次信息
-    if (task.lessonNumber) {
-      userMessageParts.push(`本次课次：第${task.lessonNumber}次课`);
-    }
-
-    // 学生状态（来自学生管理系统）
-    if (task.studentStatus) {
-      userMessageParts.push(`【学生当前状态信息】\n${task.studentStatus}`);
-    }
-
-    if (task.isNewStudent) {
-      // 新生模式
-      userMessageParts.push(`【注意】这是一位新生，首次上课。`);
-      if (task.lastLessonContent) {
-        userMessageParts.push(`【新生基本情况】\n${task.lastLessonContent}`);
-      }
-      userMessageParts.push(`请为这位新生设计首次课的备课方案，重点关注：
-1. 摸底评估（了解学生当前水平）
-2. 建立学习计划框架
-3. 首次课内容设计（难度适中，让学生有获得感）`);
-    } else {
-      // 老生模式
-      if (task.lastLessonContent) {
-        userMessageParts.push(`【上次课内容/反馈】\n${task.lastLessonContent}`);
-      }
-      userMessageParts.push(`请根据以上信息，为下一节课生成备课方案。确保：
-1. 与上次课内容衔接
-2. 针对学生薄弱环节安排训练
-3. 合理安排教学进度`);
-    }
-
-    const userMessage = userMessageParts.join("\n\n");
+    // 使用共享的提示词构建逻辑
+    const { systemPrompt, userMessage } = await buildLessonPrepPrompts(
+      userId,
+      task.studentName,
+      task.lessonNumber,
+      !!task.isNewStudent,
+      task.lastLessonContent,
+    );
 
     // 保存系统提示词
     await db.update(lessonPrepTasks)

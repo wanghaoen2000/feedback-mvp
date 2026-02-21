@@ -3390,6 +3390,19 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    // 预览备课数据（子弹上膛）
+    preview: protectedProcedure
+      .input(z.object({
+        studentName: z.string().min(1, "请选择学生"),
+        lessonNumber: z.string().optional(),
+        isNewStudent: z.boolean().default(false),
+        lastLessonContent: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { previewLessonPrep } = await import("./lessonPrepRunner");
+        return previewLessonPrep(ctx.user.id, input);
+      }),
+
     // 提交备课任务
     submit: protectedProcedure
       .input(z.object({

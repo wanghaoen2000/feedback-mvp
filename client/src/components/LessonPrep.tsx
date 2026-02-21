@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Trash2,
   Save,
+  Eye,
 } from "lucide-react";
 
 // ============= 类型定义 =============
@@ -109,6 +110,13 @@ export function LessonPrep() {
   const [showRoadmapEditor, setShowRoadmapEditor] = useState(false);
   const [roadmapText, setRoadmapText] = useState("");
   const [roadmapSaving, setRoadmapSaving] = useState(false);
+
+  // 预览（子弹上膛）
+  const [previewData, setPreviewData] = useState<{
+    systemPrompt: string;
+    userMessage: string;
+    studentStatus: string | null;
+  } | null>(null);
 
   // UI 状态
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
@@ -202,7 +210,10 @@ export function LessonPrep() {
   });
 
   // 从云盘读取上次反馈
-  const readLastFeedbackMut = trpc.drive.readLastFeedback.useMutation();
+  const readLastFeedbackMut = trpc.localFile.readLastFeedback.useMutation();
+
+  // 预览（子弹上膛）
+  const previewMut = trpc.lessonPrep.preview.useMutation();
 
   // ============= 事件处理 =============
 
@@ -226,8 +237,8 @@ export function LessonPrep() {
     setIsNewStudent(false);
   }, [selectedStudent, studentHistory]);
 
-  // 提交备课
-  const handleSubmit = useCallback(async () => {
+  // 预览备课数据（子弹上膛）
+  const handlePreview = useCallback(async () => {
     if (!selectedStudent) return alert("请先选择学生");
 
     let finalLastLessonContent = lastLessonContent;
@@ -249,14 +260,31 @@ export function LessonPrep() {
       }
     }
 
+    try {
+      const preview = await previewMut.mutateAsync({
+        studentName: selectedStudent.trim(),
+        lessonNumber: lessonNumber.trim() || undefined,
+        isNewStudent,
+        lastLessonContent: finalLastLessonContent.trim() || undefined,
+      });
+      setPreviewData(preview);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "预览失败";
+      alert(`预览失败: ${message}`);
+    }
+  }, [selectedStudent, lessonNumber, isNewStudent, lastLessonContent, loadFromDrive, previewMut, readLastFeedbackMut]);
+
+  // 确认发送（从预览状态提交）
+  const handleConfirmSubmit = useCallback(() => {
     submitMut.mutate({
       studentName: selectedStudent.trim(),
       lessonNumber: lessonNumber.trim() || undefined,
       isNewStudent,
-      lastLessonContent: finalLastLessonContent.trim() || undefined,
+      lastLessonContent: lastLessonContent.trim() || undefined,
       aiModel: localModel || undefined,
     });
-  }, [selectedStudent, lessonNumber, isNewStudent, lastLessonContent, loadFromDrive, localModel, submitMut, readLastFeedbackMut]);
+    setPreviewData(null);
+  }, [selectedStudent, lessonNumber, isNewStudent, lastLessonContent, localModel, submitMut]);
 
   // 复制
   const handleCopy = useCallback(async (text: string) => {
@@ -575,26 +603,121 @@ export function LessonPrep() {
             )}
           </div>
 
-          {/* 提交按钮 */}
+          {/* 预览按钮 */}
           <Button
             type="button"
-            onClick={handleSubmit}
-            disabled={submitMut.isPending || readLastFeedbackMut.isPending || !selectedStudent}
+            onClick={handlePreview}
+            disabled={previewMut.isPending || readLastFeedbackMut.isPending || !selectedStudent}
             className="w-full bg-orange-600 hover:bg-orange-700"
           >
-            {submitMut.isPending || readLastFeedbackMut.isPending ? (
+            {previewMut.isPending || readLastFeedbackMut.isPending ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                {readLastFeedbackMut.isPending ? "正在加载云盘文件..." : "提交中..."}
+                {readLastFeedbackMut.isPending ? "正在加载云盘文件..." : "正在组装数据..."}
               </>
             ) : (
               <>
-                <Send className="w-4 h-4 mr-2" />
-                开始生成备课方案
+                <Eye className="w-4 h-4 mr-2" />
+                预览并生成备课方案
               </>
             )}
           </Button>
         </div>
+      )}
+
+      {/* 预览面板（子弹上膛） */}
+      {previewData && (
+        <Card className="border-orange-400 bg-orange-50/50 shadow-lg">
+          <CardHeader className="py-3 px-4 border-b border-orange-200">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-bold text-orange-700">
+                发送数据预览
+              </CardTitle>
+              <button type="button" onClick={() => setPreviewData(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-orange-600 mt-1">
+              以下是即将发送给AI的完整数据，请确认无误后点击「确认发送」。
+            </p>
+          </CardHeader>
+          <CardContent className="px-4 py-3 space-y-4 max-h-[60vh] overflow-y-auto">
+            {/* 系统提示词 */}
+            <div>
+              <div className="text-xs font-bold text-gray-500 mb-1 flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
+                系统提示词（含备课路书）
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-[200px] overflow-y-auto font-mono">
+                {previewData.systemPrompt}
+              </div>
+            </div>
+
+            {/* 学生总体状态 */}
+            <div>
+              <div className="text-xs font-bold text-gray-500 mb-1 flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-purple-500"></span>
+                学生总体状态（来自「学生情况」模块）
+              </div>
+              {previewData.studentStatus ? (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-[200px] overflow-y-auto">
+                  {previewData.studentStatus}
+                </div>
+              ) : (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-400 italic">
+                  该学生暂无状态记录。如需AI参考学生历史信息，请先在「学生情况」模块中添加。
+                </div>
+              )}
+            </div>
+
+            {/* 用户消息 */}
+            <div>
+              <div className="text-xs font-bold text-gray-500 mb-1 flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+                用户消息（课次 + 学生状态 + 上次课内容 + 指令）
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-[200px] overflow-y-auto font-mono">
+                {previewData.userMessage}
+              </div>
+            </div>
+
+            {/* AI模型 */}
+            <div className="text-xs text-gray-400">
+              AI 模型：{localModel || "默认模型"}
+            </div>
+          </CardContent>
+
+          {/* 确认/取消按钮 */}
+          <div className="border-t border-orange-200 px-4 py-3 flex gap-3">
+            <Button
+              type="button"
+              onClick={handleConfirmSubmit}
+              disabled={submitMut.isPending}
+              className="flex-1 bg-orange-600 hover:bg-orange-700"
+            >
+              {submitMut.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  提交中...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  确认发送
+                </>
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPreviewData(null)}
+              disabled={submitMut.isPending}
+              className="flex-1"
+            >
+              取消
+            </Button>
+          </div>
+        </Card>
       )}
 
       {/* 备课任务列表 */}
