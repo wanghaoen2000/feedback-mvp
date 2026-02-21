@@ -3926,7 +3926,7 @@ export default function Home() {
                         <div className="flex items-center gap-3">
                           <StatusIcon status={step.status} />
                           <div className="flex-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-x-2 gap-y-0 flex-wrap">
                               <span className="font-medium">{step.step}. {step.name}</span>
                               {step.status === 'success' && step.message && (
                                 <span className="text-xs text-green-600">{step.message}</span>

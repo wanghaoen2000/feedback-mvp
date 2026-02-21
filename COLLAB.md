@@ -343,6 +343,29 @@
   git push origin main
   ```
 
+- [ ] **【部署任务】V186：修复手机端"已接收XX字"等信息被截断不可见**
+
+  **分支：** `claude/fix-mobile-message-counter-2EHXt`
+  **版本跨度：** V185 → V186
+  **新增依赖：** 无
+  **数据库迁移：** 无
+
+  **V186 变更：**
+  - 修复任务记录元数据行（时间/耗时/已接收字数）在手机窄屏上溢出不可见
+  - 修复作业批改任务卡片头部信息在手机上被截断
+  - 修复步骤进度标题行（步骤名+完成耗时）在手机上溢出
+  - 原因：flex 布局未设置 `flex-wrap`，窄屏幕上后面的元素被挤出可见区域
+  - 纯前端 CSS 修复，无功能变更
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/fix-mobile-message-counter-2EHXt   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）
@@ -516,3 +539,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V183 | 2026-02-21 | max_tokens 改为从系统设置读取 — 去掉所有硬编码，统一走 config.maxTokens | 待部署 |
 | V184 | 2026-02-21 | AI模型选择去耦合 — 打分/提醒各自独立模型设置(gradingAiModel/reminderAiModel) | 待部署 |
 | V183 | 2026-02-21 | 路书及范例管理按钮从系统级位置移入课堂反馈Tab内 | 待部署 |
+| V186 | 2026-02-21 | 修复手机端"已接收XX字"等信息被截断不可见 — flex-wrap修复窄屏溢出 | 待部署 |

@@ -667,7 +667,7 @@ export function TaskHistory({ activeTaskId }: TaskHistoryProps) {
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
+                        <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-x-2 gap-y-0 flex-wrap">
                           <span>{formatTime(task.createdAt)}</span>
                           {task.courseType === "class" && <span>· 班课</span>}
                           {/* 耗时显示：运行中实时更新，完成后固定 */}
