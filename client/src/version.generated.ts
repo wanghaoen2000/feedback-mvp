@@ -1,7 +1,7 @@
 // 此文件由构建脚本自动生成，请勿手动修改
-// 生成时间: 2026-02-21T18:58:29.541Z
+// 生成时间: 2026-02-21T19:03:20.919Z
 
-export const VERSION = 'V190';
-export const COMMIT_HASH = '943965e';
-export const BUILD_TIME = '2026-02-21T18:58:29.541Z';
-export const VERSION_DISPLAY = 'V190 (943965e)';
+export const VERSION = 'V191';
+export const COMMIT_HASH = '4e26927';
+export const BUILD_TIME = '2026-02-21T19:03:20.919Z';
+export const VERSION_DISPLAY = 'V191 (4e26927)';
