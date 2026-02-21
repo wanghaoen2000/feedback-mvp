@@ -148,6 +148,7 @@ export interface SubmitGradingParams {
   endDate: string;
   gradingPrompt: string;
   userNotes?: string;
+  aiModel?: string; // 前端选择的模型（可选，优先级最高）
 }
 
 export async function submitGrading(userId: number, params: SubmitGradingParams): Promise<{ id: number }> {
@@ -227,7 +228,9 @@ async function processGradingInBackground(userId: number, taskId: number): Promi
     // 获取API配置
     const apiKey = await getConfigValue("apiKey", userId);
     const apiUrl = await getConfigValue("apiUrl", userId);
-    const modelToUse = await getConfigValue("hwAiModel", userId)
+    const maxTokensStr = await getConfigValue("maxTokens", userId);
+    const maxTokens = parseInt(maxTokensStr || "64000", 10);
+    const modelToUse = await getConfigValue("gradingAiModel", userId)
       || await getConfigValue("apiModel", userId)
       || "claude-sonnet-4-5-20250929";
 
@@ -254,13 +257,13 @@ async function processGradingInBackground(userId: number, taskId: number): Promi
     };
 
     const content = await invokeWhatAIStream(messages, {
-      max_tokens: 16000,
       temperature: 0.3,
       retries: 1,
     }, {
       apiModel: modelToUse,
       apiKey,
       apiUrl,
+      maxTokens,
     }, onChunk);
 
     if (!content || !content.trim()) {
@@ -493,7 +496,9 @@ async function processGradingSyncInBackground(
   // 获取API配置
   const apiKey = await getConfigValue("apiKey", userId);
   const apiUrl = await getConfigValue("apiUrl", userId);
-  const modelToUse = await getConfigValue("hwAiModel", userId)
+  const maxTokensStr = await getConfigValue("maxTokens", userId);
+  const maxTokens = parseInt(maxTokensStr || "64000", 10);
+  const modelToUse = await getConfigValue("gradingAiModel", userId)
     || await getConfigValue("apiModel", userId)
     || "claude-sonnet-4-5-20250929";
 
@@ -567,13 +572,13 @@ ${currentStatus}
         };
 
         const content = await invokeWhatAIStream(messages, {
-          max_tokens: 8000,
           temperature: 0.2,
           retries: 1,
         }, {
           apiModel: modelToUse,
           apiKey,
           apiUrl,
+          maxTokens,
         }, onChunk);
 
         if (!content || !content.trim()) {
@@ -726,7 +731,9 @@ export async function retrySyncItem(userId: number, taskId: number, itemId: numb
     // 获取API配置
     const apiKey = await getConfigValue("apiKey", userId);
     const apiUrl = await getConfigValue("apiUrl", userId);
-    const modelToUse = await getConfigValue("hwAiModel", userId)
+    const maxTokensStr = await getConfigValue("maxTokens", userId);
+    const maxTokens = parseInt(maxTokensStr || "64000", 10);
+    const modelToUse = await getConfigValue("gradingAiModel", userId)
       || await getConfigValue("apiModel", userId)
       || "claude-sonnet-4-5-20250929";
 
@@ -785,13 +792,13 @@ ${currentStatus}
       };
 
       const content = await invokeWhatAIStream(messages, {
-        max_tokens: 8000,
         temperature: 0.2,
         retries: 1,
       }, {
         apiModel: modelToUse,
         apiKey,
         apiUrl,
+        maxTokens,
       }, onChunk);
 
       if (!content || !content.trim()) {

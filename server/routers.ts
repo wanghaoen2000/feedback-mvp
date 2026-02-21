@@ -3109,7 +3109,9 @@ export const appRouter = router({
         const gradingYear = await getConfig("gradingYear", uid);
         const gradingSyncPrompt = await getConfig("gradingSyncPrompt", uid);
         const gradingSyncConcurrency = await getConfig("gradingSyncConcurrency", uid);
+        const gradingAiModel = await getConfig("gradingAiModel", uid);
         const reminderPrompt = await getConfig("reminderPrompt", uid);
+        const reminderAiModel = await getConfig("reminderAiModel", uid);
         return {
           hwAiModel: hwAiModel || "",
           hwPromptTemplate: hwPromptTemplate || "",
@@ -3118,7 +3120,9 @@ export const appRouter = router({
           gradingYear: gradingYear || "",
           gradingSyncPrompt: gradingSyncPrompt || "",
           gradingSyncConcurrency: gradingSyncConcurrency || "20",
+          gradingAiModel: gradingAiModel || "",
           reminderPrompt: reminderPrompt || "",
+          reminderAiModel: reminderAiModel || "",
         };
       }),
 
@@ -3130,7 +3134,9 @@ export const appRouter = router({
         gradingYear: z.string().optional(),
         gradingSyncPrompt: z.string().optional(),
         gradingSyncConcurrency: z.string().optional(),
+        gradingAiModel: z.string().optional(),
         reminderPrompt: z.string().optional(),
+        reminderAiModel: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const uid = ctx.user.id;
@@ -3152,8 +3158,14 @@ export const appRouter = router({
         if (input.gradingSyncConcurrency !== undefined) {
           await setUserConfigValue(uid, "gradingSyncConcurrency", input.gradingSyncConcurrency);
         }
+        if (input.gradingAiModel !== undefined) {
+          await setUserConfigValue(uid, "gradingAiModel", input.gradingAiModel);
+        }
         if (input.reminderPrompt !== undefined) {
           await setUserConfigValue(uid, "reminderPrompt", input.reminderPrompt);
+        }
+        if (input.reminderAiModel !== undefined) {
+          await setUserConfigValue(uid, "reminderAiModel", input.reminderAiModel);
         }
         return { success: true };
       }),
@@ -3165,6 +3177,7 @@ export const appRouter = router({
         endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         gradingPrompt: z.string().min(1, "打分提示词不能为空"),
         userNotes: z.string().optional(),
+        aiModel: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         return submitGrading(ctx.user.id, {
@@ -3172,6 +3185,7 @@ export const appRouter = router({
           endDate: input.endDate,
           gradingPrompt: input.gradingPrompt,
           userNotes: input.userNotes,
+          aiModel: input.aiModel,
         });
       }),
 
@@ -3295,10 +3309,12 @@ export const appRouter = router({
     submitReminder: protectedProcedure
       .input(z.object({
         reminderPrompt: z.string().min(1, "提示词不能为空"),
+        aiModel: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         return submitReminder(ctx.user.id, {
           reminderPrompt: input.reminderPrompt,
+          aiModel: input.aiModel,
         });
       }),
 

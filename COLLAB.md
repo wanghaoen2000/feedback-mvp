@@ -257,17 +257,37 @@
   git push origin main
   ```
 
-- [ ] **【部署任务】V181：修复学生状态文档截断问题（max_tokens 4000 → 64000）**
+- [ ] **【部署任务】V181-V184：max_tokens 修复 + AI模型选择去耦合**
 
   **分支：** `claude/fix-status-max-value-miLpB`
-  **版本跨度：** V180 → V181
+  **版本跨度：** V180 → V184
   **新增依赖：** 无
   **数据库迁移：** 无
 
-  **V181 变更：**
-  - 修复作业管理学生状态生成的 `max_tokens` 限制：从 4000 提升至 64000（与学情反馈一致）
-  - 添加截断标记清理逻辑：即使极端情况下被截断，也不会把截断警告存入数据库
-  - 根因：`homeworkManager.ts` 中 `invokeWhatAIStream` 的 `max_tokens` 被硬编码为 4000，导致较长的学生状态文档每次都在约 4000 token 处被截断
+  **V181 变更（学生状态截断修复）：**
+  - 修复作业管理学生状态生成的 `max_tokens`：4000 → 64000
+  - 添加截断标记清理逻辑
+
+  **V182 变更（全局 max_tokens 统一为 64000）：**
+  - whatai.ts 默认值 32000→64000、feedbackGenerator 录音压缩+SVG 气泡图、gradingRunner 打分+同步、reminderRunner 提醒
+
+  **V183 变更（max_tokens 改为从系统设置读取）：**
+  - whatai.ts fallback 链：`options > config.maxTokens > 64000`
+  - 各模块去掉硬编码，改走 config
+
+  **V184 变更（AI模型选择去耦合 — 各功能独立设置）：**
+  - 新增配置键 `gradingAiModel`（作业打分专用）、`reminderAiModel`（作业提醒专用）
+  - `gradingRunner.ts`：3处 `hwAiModel` → `gradingAiModel`
+  - `reminderRunner.ts`：1处 `hwAiModel` → `reminderAiModel`
+  - `routers.ts`：hwConfig 查询/保存 + submit schema 加入 `aiModel`
+  - `HomeworkManagement.tsx`：打分面板和提醒面板各加独立的模型下拉选择器，选择即保存
+  - 改后各功能模型配置完全独立：
+    - 学情反馈 → `apiModel`
+    - 批量任务 → `apiModel`（创建时快照）
+    - 作业管理 → `hwAiModel`
+    - 作业批改 → `corrAiModel`
+    - 作业打分 → `gradingAiModel`（新增）
+    - 作业提醒 → `reminderAiModel`（新增）
 
   **部署操作：**
   ```bash
@@ -470,3 +490,6 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V180 | 2026-02-16 | 新增技术说明书 — 完整的项目技术架构与实现说明文档 | 待部署 |
 | V181 | 2026-02-21 | 修复学生状态文档截断（max_tokens 4000→64000）+ 截断标记清理 | 待部署 |
 | V182 | 2026-02-21 | 修复批改→待入库内容截断(.slice(0,500))+双标签修复+待入库一键复制+字数显示 | 待部署 |
+| V182 | 2026-02-21 | 全局 max_tokens 统一为 64000 — whatai默认值+录音压缩+气泡图+打分+提醒 | 待部署 |
+| V183 | 2026-02-21 | max_tokens 改为从系统设置读取 — 去掉所有硬编码，统一走 config.maxTokens | 待部署 |
+| V184 | 2026-02-21 | AI模型选择去耦合 — 打分/提醒各自独立模型设置(gradingAiModel/reminderAiModel) | 待部署 |

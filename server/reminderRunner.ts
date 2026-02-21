@@ -171,6 +171,7 @@ function buildReminderSystemPrompt(timeContext: string, userPrompt: string): str
 
 export interface SubmitReminderParams {
   reminderPrompt: string;
+  aiModel?: string; // 前端选择的模型（可选，优先级最高）
 }
 
 export async function submitReminder(userId: number, params: SubmitReminderParams): Promise<{ id: number }> {
@@ -234,7 +235,9 @@ async function processReminderInBackground(userId: number, taskId: number): Prom
     // 获取API配置
     const apiKey = await getConfigValue("apiKey", userId);
     const apiUrl = await getConfigValue("apiUrl", userId);
-    const modelToUse = await getConfigValue("hwAiModel", userId)
+    const maxTokensStr = await getConfigValue("maxTokens", userId);
+    const maxTokens = parseInt(maxTokensStr || "64000", 10);
+    const modelToUse = await getConfigValue("reminderAiModel", userId)
       || await getConfigValue("apiModel", userId)
       || "claude-sonnet-4-5-20250929";
 
@@ -261,12 +264,12 @@ async function processReminderInBackground(userId: number, taskId: number): Prom
     };
 
     const content = await invokeWhatAIStream(messages, {
-      max_tokens: 16000,
       temperature: 0.3,
       retries: 1,
     }, {
       apiModel: modelToUse,
       apiKey,
+      maxTokens,
       apiUrl,
     }, onChunk);
 
