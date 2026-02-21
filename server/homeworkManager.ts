@@ -301,7 +301,7 @@ export async function processEntry(
 
   // 使用流式调用，避免大输入时中间层超时
   const content = await invokeWhatAIStream(messages, {
-    max_tokens: 4000,
+    max_tokens: 64000,
     temperature: 0.3,
     retries: 1,
   }, {
@@ -314,10 +314,19 @@ export async function processEntry(
     throw new Error("AI 返回空内容");
   }
 
-  // 最终上报确保字符数准确
-  if (onProgress) onProgress(content.length);
+  // 清理截断标记（由 invokeWhatAIStream 在 finish_reason=length 时追加）
+  const TRUNCATION_MARKER = '【⚠️ 内容截断警告】';
+  let cleanContent = content;
+  const markerIdx = cleanContent.indexOf(TRUNCATION_MARKER);
+  if (markerIdx >= 0) {
+    console.warn(`[作业管理] ⚠️ AI输出被截断，已清理截断标记（原始长度: ${cleanContent.length}字符）`);
+    cleanContent = cleanContent.substring(0, markerIdx).trimEnd();
+  }
 
-  return { parsedContent: content.trim(), model: modelToUse };
+  // 最终上报确保字符数准确
+  if (onProgress) onProgress(cleanContent.length);
+
+  return { parsedContent: cleanContent.trim(), model: modelToUse };
 }
 
 // ============= 条目管理（预入库队列） =============
