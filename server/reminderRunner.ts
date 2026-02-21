@@ -261,7 +261,7 @@ async function processReminderInBackground(userId: number, taskId: number): Prom
     };
 
     const content = await invokeWhatAIStream(messages, {
-      max_tokens: 16000,
+      max_tokens: 64000,
       temperature: 0.3,
       retries: 1,
     }, {

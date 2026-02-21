@@ -105,7 +105,7 @@ export async function invokeWhatAI(
   const baseUrl = config?.apiUrl || DEFAULT_BASE_URL;
   const model = config?.apiModel || options?.model || DEFAULT_MODEL;
   
-  const max_tokens = options?.max_tokens || 32000;
+  const max_tokens = options?.max_tokens || 64000;
   const temperature = options?.temperature ?? 0.7;
   const timeout = options?.timeout || 600000; // 默认10分钟
   const maxRetries = options?.retries ?? 2; // 默认重试2次
@@ -205,7 +205,7 @@ export async function invokeWhatAIStream(
   const baseUrl = config?.apiUrl || DEFAULT_BASE_URL;
   const model = config?.apiModel || options?.model || DEFAULT_MODEL;
 
-  const max_tokens = options?.max_tokens || 32000;
+  const max_tokens = options?.max_tokens || 64000;
   const temperature = options?.temperature ?? 0.7;
   // 连接超时：等待 HTTP 响应头（不含AI思考时间）
   const connectTimeout = options?.timeout || 90_000; // 默认90秒（原来10分钟太长了）
@@ -406,7 +406,7 @@ export async function invokeWhatAISimple(
 ): Promise<WhatAIResponse> {
   return invokeWhatAI(messages, {
     model: config?.apiModel || MODELS.HAIKU,
-    max_tokens: max_tokens || 32000,
+    max_tokens: max_tokens || 64000,
     timeout: 180000, // 简单任务3分钟超时
     retries: 1,
   }, config);
@@ -422,7 +422,7 @@ export async function invokeWhatAIComplex(
 ): Promise<WhatAIResponse> {
   return invokeWhatAI(messages, {
     model: config?.apiModel || MODELS.DEFAULT,
-    max_tokens: max_tokens || 32000,
+    max_tokens: max_tokens || 64000,
     timeout: 600000, // 复杂任务10分钟超时
     retries: 2,
   }, config);

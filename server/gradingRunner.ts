@@ -254,7 +254,7 @@ async function processGradingInBackground(userId: number, taskId: number): Promi
     };
 
     const content = await invokeWhatAIStream(messages, {
-      max_tokens: 16000,
+      max_tokens: 64000,
       temperature: 0.3,
       retries: 1,
     }, {
@@ -567,7 +567,7 @@ ${currentStatus}
         };
 
         const content = await invokeWhatAIStream(messages, {
-          max_tokens: 8000,
+          max_tokens: 64000,
           temperature: 0.2,
           retries: 1,
         }, {
@@ -785,7 +785,7 @@ ${currentStatus}
       };
 
       const content = await invokeWhatAIStream(messages, {
-        max_tokens: 8000,
+        max_tokens: 64000,
         temperature: 0.2,
         retries: 1,
       }, {
