@@ -213,6 +213,7 @@ export function HomeworkManagement() {
 
   // --- 一键打分相关 ---
   const [showGrading, setShowGrading] = useState(false);
+  const [localGradingModel, setLocalGradingModel] = useState("");
   const [gradingYear, setGradingYear] = useState("");
   const [gradingStartMonth, setGradingStartMonth] = useState("");
   const [gradingStartDay, setGradingStartDay] = useState("");
@@ -315,6 +316,7 @@ export function HomeworkManagement() {
 
   // --- 作业提醒相关 ---
   const [showReminder, setShowReminder] = useState(false);
+  const [localReminderModel, setLocalReminderModel] = useState("");
   const [reminderPrompt, setReminderPrompt] = useState("");
   const [showReminderPreview, setShowReminderPreview] = useState(false);
   const [activeReminderId, setActiveReminderId] = useState<number | null>(null);
@@ -399,7 +401,9 @@ export function HomeworkManagement() {
       if (hwConfigQuery.data.gradingPrompt) setGradingPrompt(hwConfigQuery.data.gradingPrompt);
       if (hwConfigQuery.data.gradingSyncPrompt) setSyncPromptText(hwConfigQuery.data.gradingSyncPrompt);
       setSyncConcurrency(hwConfigQuery.data.gradingSyncConcurrency || "20");
+      setLocalGradingModel(hwConfigQuery.data.gradingAiModel || "");
       if (hwConfigQuery.data.reminderPrompt) setReminderPrompt(hwConfigQuery.data.reminderPrompt);
+      setLocalReminderModel(hwConfigQuery.data.reminderAiModel || "");
     }
   }, [hwConfigQuery.data]);
 
@@ -1046,7 +1050,30 @@ export function HomeworkManagement() {
             </div>
 
             {/* 操作按钮 */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {presetList.length > 0 && (
+                <>
+                  <span className="text-xs text-gray-500 shrink-0">模型</span>
+                  <Select
+                    value={localGradingModel || "__default__"}
+                    onValueChange={(val) => {
+                      const newModel = val === "__default__" ? "" : val;
+                      setLocalGradingModel(newModel);
+                      updateHwConfigMut.mutate({ gradingAiModel: newModel });
+                    }}
+                  >
+                    <SelectTrigger className="h-7 text-xs max-w-[180px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__default__">默认模型</SelectItem>
+                      {presetList.map((model) => (
+                        <SelectItem key={model} value={model}>{model}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
               <Button
                 size="sm"
                 onClick={async () => {
@@ -1059,6 +1086,7 @@ export function HomeworkManagement() {
                       endDate: `${y}-${em}-${ed}`,
                       gradingPrompt: gradingPrompt.trim(),
                       userNotes: gradingNotes.trim(),
+                      aiModel: localGradingModel || undefined,
                     });
                     setActiveGradingId(res.id);
                     gradingHistoryQuery.refetch();
@@ -1593,6 +1621,29 @@ export function HomeworkManagement() {
 
             {/* 操作按钮 */}
             <div className="flex items-center gap-2 flex-wrap">
+              {presetList.length > 0 && (
+                <>
+                  <span className="text-xs text-gray-500 shrink-0">模型</span>
+                  <Select
+                    value={localReminderModel || "__default__"}
+                    onValueChange={(val) => {
+                      const newModel = val === "__default__" ? "" : val;
+                      setLocalReminderModel(newModel);
+                      updateHwConfigMut.mutate({ reminderAiModel: newModel });
+                    }}
+                  >
+                    <SelectTrigger className="h-7 text-xs max-w-[180px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__default__">默认模型</SelectItem>
+                      {presetList.map((model) => (
+                        <SelectItem key={model} value={model}>{model}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
               <Button
                 size="sm"
                 onClick={async () => {
@@ -1600,6 +1651,7 @@ export function HomeworkManagement() {
                   try {
                     const res = await submitReminderMut.mutateAsync({
                       reminderPrompt: reminderPrompt.trim(),
+                      aiModel: localReminderModel || undefined,
                     });
                     setActiveReminderId(res.id);
                     // 重置已复制状态（新任务重新开始）

@@ -148,6 +148,7 @@ export interface SubmitGradingParams {
   endDate: string;
   gradingPrompt: string;
   userNotes?: string;
+  aiModel?: string; // 前端选择的模型（可选，优先级最高）
 }
 
 export async function submitGrading(userId: number, params: SubmitGradingParams): Promise<{ id: number }> {
@@ -229,7 +230,7 @@ async function processGradingInBackground(userId: number, taskId: number): Promi
     const apiUrl = await getConfigValue("apiUrl", userId);
     const maxTokensStr = await getConfigValue("maxTokens", userId);
     const maxTokens = parseInt(maxTokensStr || "64000", 10);
-    const modelToUse = await getConfigValue("hwAiModel", userId)
+    const modelToUse = await getConfigValue("gradingAiModel", userId)
       || await getConfigValue("apiModel", userId)
       || "claude-sonnet-4-5-20250929";
 
@@ -497,7 +498,7 @@ async function processGradingSyncInBackground(
   const apiUrl = await getConfigValue("apiUrl", userId);
   const maxTokensStr = await getConfigValue("maxTokens", userId);
   const maxTokens = parseInt(maxTokensStr || "64000", 10);
-  const modelToUse = await getConfigValue("hwAiModel", userId)
+  const modelToUse = await getConfigValue("gradingAiModel", userId)
     || await getConfigValue("apiModel", userId)
     || "claude-sonnet-4-5-20250929";
 
@@ -732,7 +733,7 @@ export async function retrySyncItem(userId: number, taskId: number, itemId: numb
     const apiUrl = await getConfigValue("apiUrl", userId);
     const maxTokensStr = await getConfigValue("maxTokens", userId);
     const maxTokens = parseInt(maxTokensStr || "64000", 10);
-    const modelToUse = await getConfigValue("hwAiModel", userId)
+    const modelToUse = await getConfigValue("gradingAiModel", userId)
       || await getConfigValue("apiModel", userId)
       || "claude-sonnet-4-5-20250929";
 

@@ -257,30 +257,37 @@
   git push origin main
   ```
 
-- [ ] **【部署任务】V181-V183：修复全局 max_tokens + 改为从系统设置读取**
+- [ ] **【部署任务】V181-V184：max_tokens 修复 + AI模型选择去耦合**
 
   **分支：** `claude/fix-status-max-value-miLpB`
-  **版本跨度：** V180 → V183
+  **版本跨度：** V180 → V184
   **新增依赖：** 无
   **数据库迁移：** 无
 
   **V181 变更（学生状态截断修复）：**
   - 修复作业管理学生状态生成的 `max_tokens`：4000 → 64000
-  - 添加截断标记清理逻辑，防止截断警告存入数据库
+  - 添加截断标记清理逻辑
 
   **V182 变更（全局 max_tokens 统一为 64000）：**
-  - `whatai.ts`：默认值 32000 → 64000（4处）
-  - `feedbackGenerator.ts`：录音压缩 32000 → 64000，SVG 气泡图 8000 → 64000
-  - `gradingRunner.ts`：作业打分 16000 → 64000，打分同步 8000 → 64000（3处）
-  - `reminderRunner.ts`：作业提醒 16000 → 64000
+  - whatai.ts 默认值 32000→64000、feedbackGenerator 录音压缩+SVG 气泡图、gradingRunner 打分+同步、reminderRunner 提醒
 
-  **V183 变更（max_tokens 改为从系统设置读取，不再硬编码）：**
-  - `whatai.ts`：APIConfig 新增 `maxTokens` 字段，fallback 链：`options.max_tokens > config.maxTokens > 64000`
-  - `feedbackGenerator.ts`：去掉 4 处硬编码 max_tokens，改走 config（已从 getAPIConfig 获取）
-  - `gradingRunner.ts`：3 处调用改为从 `getConfigValue("maxTokens", userId)` 读取
-  - `reminderRunner.ts`：1 处调用改为从 `getConfigValue("maxTokens", userId)` 读取
-  - `homeworkManager.ts`：1 处调用改为从 `getConfigValue("maxTokens", userId)` 读取
-  - 未来修改最大值只需在系统设置页面改一处即可，不用再改代码
+  **V183 变更（max_tokens 改为从系统设置读取）：**
+  - whatai.ts fallback 链：`options > config.maxTokens > 64000`
+  - 各模块去掉硬编码，改走 config
+
+  **V184 变更（AI模型选择去耦合 — 各功能独立设置）：**
+  - 新增配置键 `gradingAiModel`（作业打分专用）、`reminderAiModel`（作业提醒专用）
+  - `gradingRunner.ts`：3处 `hwAiModel` → `gradingAiModel`
+  - `reminderRunner.ts`：1处 `hwAiModel` → `reminderAiModel`
+  - `routers.ts`：hwConfig 查询/保存 + submit schema 加入 `aiModel`
+  - `HomeworkManagement.tsx`：打分面板和提醒面板各加独立的模型下拉选择器，选择即保存
+  - 改后各功能模型配置完全独立：
+    - 学情反馈 → `apiModel`
+    - 批量任务 → `apiModel`（创建时快照）
+    - 作业管理 → `hwAiModel`
+    - 作业批改 → `corrAiModel`
+    - 作业打分 → `gradingAiModel`（新增）
+    - 作业提醒 → `reminderAiModel`（新增）
 
   **部署操作：**
   ```bash
@@ -461,3 +468,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V181 | 2026-02-21 | 修复学生状态文档截断（max_tokens 4000→64000）+ 截断标记清理 | 待部署 |
 | V182 | 2026-02-21 | 全局 max_tokens 统一为 64000 — whatai默认值+录音压缩+气泡图+打分+提醒 | 待部署 |
 | V183 | 2026-02-21 | max_tokens 改为从系统设置读取 — 去掉所有硬编码，统一走 config.maxTokens | 待部署 |
+| V184 | 2026-02-21 | AI模型选择去耦合 — 打分/提醒各自独立模型设置(gradingAiModel/reminderAiModel) | 待部署 |
