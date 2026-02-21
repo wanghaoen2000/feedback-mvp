@@ -278,6 +278,29 @@
   git push origin main
   ```
 
+- [ ] **【部署任务】V182：修复作业批改→待入库内容截断 + 一键复制 + 字数显示**
+
+  **分支：** `claude/fix-word-count-transfer-6ycjX`
+  **版本跨度：** V181 → V182
+  **新增依赖：** 无
+  **数据库迁移：** 无
+
+  **V182 变更：**
+  - **修复批改内容截断**：去除 `correction.slice(0, 500)` 硬截断，批改全文完整传递到待入库
+  - **修复双标签问题**：去除 `[从课后信息提取导入]` 多余标签，批改导入只显示 `[从作业批改导入]`
+  - **修复"批改类型"重复**：去除 importContent 中重复的批改类型行
+  - **待入库一键复制**：预入库条目展开后，AI处理结果标题栏新增「复制」按钮
+  - **字数显示**：待入库条目（折叠/展开均显示）和学生当前状态均显示总字数
+
+  **部署操作：**
+  ```bash
+  git fetch origin
+  git merge origin/claude/fix-word-count-transfer-6ycjX   # 应直接 fast-forward
+  npm run build
+  webdev_save_checkpoint
+  git push origin main
+  ```
+
 ### Manus → Claude（部署端请求开发端处理）
 
 （暂无）
@@ -446,3 +469,4 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V179 | 2026-02-16 | 允许非管理员用户修改自己的配置 — config.update/reset改为protectedProcedure | ✅ 部署成功 |
 | V180 | 2026-02-16 | 新增技术说明书 — 完整的项目技术架构与实现说明文档 | 待部署 |
 | V181 | 2026-02-21 | 修复学生状态文档截断（max_tokens 4000→64000）+ 截断标记清理 | 待部署 |
+| V182 | 2026-02-21 | 修复批改→待入库内容截断(.slice(0,500))+双标签修复+待入库一键复制+字数显示 | 待部署 |

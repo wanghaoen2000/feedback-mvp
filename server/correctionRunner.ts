@@ -501,11 +501,12 @@ async function processCorrectionInBackground(userId: number, taskId: number): Pr
     try {
       const importContent = statusUpdate.trim()
         ? statusUpdate
-        : `作业批改完成摘要：\n批改类型：${typeConfig.name}\n批改时间：${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}\n\n${correction.slice(0, 500)}`;
+        : `作业批改完成摘要：\n批改时间：${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}\n\n${correction}`;
       const importResult = await importFromExtraction(
         userId,
         task.studentName,
-        `[从作业批改导入]\n批改类型：${typeConfig.name}\n${importContent}`,
+        importContent,
+        `[从作业批改导入]\n批改类型：${typeConfig.name}`,
       );
       await db.update(correctionTasks)
         .set({
