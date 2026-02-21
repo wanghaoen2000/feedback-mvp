@@ -1,10 +1,9 @@
-import React, { useState, useCallback, useEffect, useRef, memo } from "react";
+import React, { useState, useCallback, useEffect, useRef, memo, lazy, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { BatchProcess } from "@/components/BatchProcess";
 import { GlobalSettings } from "@/components/GlobalSettings";
 import { RoadmapSettings } from "@/components/RoadmapSettings";
 import { FileUploadInput } from "@/components/FileUploadInput";
@@ -50,9 +49,22 @@ import {
 } from "lucide-react";
 import { VERSION_DISPLAY } from "../version.generated";
 import { TaskHistory } from "@/components/TaskHistory";
-import { HomeworkManagement } from "@/components/HomeworkManagement";
-import { HomeworkCorrection } from "@/components/HomeworkCorrection";
-import { LessonPrep } from "@/components/LessonPrep";
+
+// 懒加载非首屏 Tab 组件，减少初始 bundle 体积
+const HomeworkManagement = lazy(() => import("@/components/HomeworkManagement").then(m => ({ default: m.HomeworkManagement })));
+const HomeworkCorrection = lazy(() => import("@/components/HomeworkCorrection").then(m => ({ default: m.HomeworkCorrection })));
+const LessonPrep = lazy(() => import("@/components/LessonPrep").then(m => ({ default: m.LessonPrep })));
+const BatchProcess = lazy(() => import("@/components/BatchProcess").then(m => ({ default: m.BatchProcess })));
+
+// 懒加载占位
+function TabLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+      <span className="ml-2 text-sm text-gray-500">加载中…</span>
+    </div>
+  );
+}
 
 // 步骤状态类型
 interface StepStatus {
@@ -4258,7 +4270,9 @@ export default function Home() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <HomeworkManagement />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <HomeworkManagement />
+                </Suspense>
               </CardContent>
             </Card>
           </TabsContent>
@@ -4276,7 +4290,9 @@ export default function Home() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <LessonPrep />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <LessonPrep />
+                </Suspense>
               </CardContent>
             </Card>
           </TabsContent>
@@ -4294,14 +4310,18 @@ export default function Home() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <HomeworkCorrection />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <HomeworkCorrection />
+                </Suspense>
               </CardContent>
             </Card>
           </TabsContent>
 
           {/* 批量处理 Tab 内容 */}
           <TabsContent value="batch">
-            <BatchProcess />
+            <Suspense fallback={<TabLoadingFallback />}>
+              <BatchProcess />
+            </Suspense>
           </TabsContent>
         </Tabs>
       </div>
