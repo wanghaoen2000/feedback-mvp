@@ -202,7 +202,7 @@ export function LessonPrep() {
   });
 
   // 从云盘读取上次反馈
-  const readLastFeedbackMut = trpc.drive.readLastFeedback.useMutation();
+  const readLastFeedbackMut = trpc.localFile.readLastFeedback.useMutation();
 
   // ============= 事件处理 =============
 

@@ -640,3 +640,46 @@ checkpoint 会把 origin 切换到 S3 地址。如果先推了 GitHub，本地�
 | V187 | 2026-02-21 | AI处理中实时显示模型名+修复重试使用旧模型 — 所有AI流程处理开始即显示模型 | 待部署 |
 | V188 | 2026-02-21 | 所有AI流程统一：批改/打分/提醒/反馈生成处理开始时写入模型+前端显示 | 待部署 |
 | V189 | 2026-02-21 | 反馈生成后4步骤独立重试+作业批改多轮对话重试 | 待部署 |
+
+- [x] **【已合并】V190：整合两分支(add-lesson-prep-page + fix-mobile-message-counter) + 修复合并冲突**
+
+  **合并方：** Manus
+  **合并到：** main
+  **版本跨度：** V185 → V190（统一版本号）
+
+  **合并修复内容：**
+  1. **修复 tRPC Router 引用错误：** `LessonPrep.tsx` 第205行 `trpc.drive.readLastFeedback` → `trpc.localFile.readLastFeedback`（`drive` 命名空间不存在，实际方法在 `localFile` router 中）
+  2. **清理冗余迁移文件：** 删除 drizzle 自动生成的 `0009_wild_shinobi_shaw.sql`（包含所有表的 CREATE 语句，与已存在的表冲突）+ 清理 journal 和 snapshot
+  3. **版本号统一：** 两分支各自使用了 V186，合并后统一为 V190
+
+---
+
+## ⚠️ 多分支协作注意事项（V190 合并教训）
+
+### 本次合并发现的三类问题
+
+**问题1：tRPC Router 命名引用错误**
+- **现象：** `LessonPrep.tsx` 调用了 `trpc.drive.readLastFeedback`，但 `drive` 这个 router 命名空间不存在，实际方法在 `localFile` router 中。
+- **根因：** `add-lesson-prep-page` 分支开发时笔误，且分支内未执行 TypeScript 全量检查。
+- **修复：** 1行改动，`trpc.drive` → `trpc.localFile`。
+
+**问题2：Drizzle 迁移文件冲突**
+- **现象：** 两分支各自添加了编号重叠的迁移文件（都用了 0014），合并后 `drizzle-kit generate` 产生了包含所有表的冗余迁移文件，与数据库已有表冲突。
+- **根因：** 两分支基于同一 main 分叉，各自独立添加迁移文件，编号不协调。
+- **修复：** 删除冗余迁移文件 + 清理 journal。
+
+**问题3：版本号重复**
+- **现象：** COLLAB.md 中出现两条 V182、两条 V183、两条 V186。
+- **根因：** 两分支独立递增版本号，无协调机制。
+- **修复：** 合并后统一为 V190。
+
+### 给 Claude 技术负责的规范要求（后续分支开发必须遵守）
+
+1. **tRPC Router 引用必须与 `server/routers.ts` 中的命名空间一致。** 新增前端组件调用 tRPC 方法时，先 `grep -n "方法名" server/routers.ts` 确认所在 router 名称，不要凭记忆写。
+
+2. **分支开发完成后，必须执行 `npx tsc --noEmit` 全量 TypeScript 检查。** 跨文件引用错误在 IDE 中可能不立即显示，必须用命令行确认。
+
+3. **版本号协调：** 如果同时有多个分支在开发，分支内部使用临时版本号（如 `V-dev-xxx`），合并到 main 时由合并方统一分配正式版本号，避免重复。
+
+4. **Drizzle 迁移文件编号：** 多分支不要使用相同的迁移文件编号前缀。如果无法协调，合并时需手动重命名并更新 journal。
+

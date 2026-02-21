@@ -1,0 +1,55 @@
+{
+  "query": "SELECT * FROM __drizzle_migrations ORDER BY created_at;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2MZtV6wEbn7VDxk.root --database i28QGEfQiub7RkxMVRZYkr --execute SELECT * FROM __drizzle_migrations ORDER BY created_at;",
+  "rows": [
+    {
+      "id": "1",
+      "hash": "814a08e40d7fc2bcfd458759d18319198ca8ae394f2fa15617a78678e9c9c93b",
+      "created_at": "1767591031107"
+    },
+    {
+      "id": "1089929",
+      "hash": "a92b4f1de296f1156b7a2ed3699873f0b07d06611d5c89fcac2fac4f2d1ceaf1",
+      "created_at": "1767612892294"
+    },
+    {
+      "id": "1350295",
+      "hash": "d8defb6c65e2d0e66d9c0b0fefef1952362666a86a98080b0d4c5f5db35c99df",
+      "created_at": "1767622109576"
+    },
+    {
+      "id": "1350296",
+      "hash": "2cfa2870660de572e37993a5a52451c685e4a173588ff5e3ea6b911fd55da032",
+      "created_at": "1767622676562"
+    },
+    {
+      "id": "1350297",
+      "hash": "c060bc80374cd6f5e1dd449c1d8e6924756a843d0b3a0dc3cd904712cd0b0b23",
+      "created_at": "1767624131166"
+    },
+    {
+      "id": "1350298",
+      "hash": "a92b4f1de296f1156b7a2ed3699873f0b07d06611d5c89fcac2fac4f2d1ceaf1",
+      "created_at": "1767624847749"
+    },
+    {
+      "id": "1350299",
+      "hash": "b3da2dd7b18291c33d4eecf248e09ac3b2df31b19cfe24ba4f39e447ced1d7af",
+      "created_at": "1767624948293"
+    },
+    {
+      "id": "1380295",
+      "hash": "a92b4f1de296f1156b7a2ed3699873f0b07d06611d5c89fcac2fac4f2d1ceaf1",
+      "created_at": "1767627140958"
+    },
+    {
+      "id": "1410295",
+      "hash": "a32539fa97fc78c7152d52895e95bf436b9d5630a33a6e8033ff8a88720210ca",
+      "created_at": "1767931126699"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\thash\tcreated_at\n1\t814a08e40d7fc2bcfd458759d18319198ca8ae394f2fa15617a78678e9c9c93b\t1767591031107\n1089929\ta92b4f1de296f1156b7a2ed3699873f0b07d06611d5c89fcac2fac4f2d1ceaf1\t1767612892294\n1350295\td8defb6c65e2d0e66d9c0b0fefef1952362666a86a98080b0d4c5f5db35c99df\t1767622109576\n1350296\t2cfa2870660de572e37993a5a52451c685e4a173588ff5e3ea6b911fd55da032\t1767622676562\n1350297\tc060bc80374cd6f5e1dd449c1d8e6924756a843d0b3a0dc3cd904712cd0b0b23\t1767624131166\n1350298\ta92b4f1de296f1156b7a2ed3699873f0b07d06611d5c89fcac2fac4f2d1ceaf1\t1767624847749\n1350299\tb3da2dd7b18291c33d4eecf248e09ac3b2df31b19cfe24ba4f39e447ced1d7af\t1767624948293\n1380295\ta92b4f1de296f1156b7a2ed3699873f0b07d06611d5c89fcac2fac4f2d1ceaf1\t1767627140958\n1410295\ta32539fa97fc78c7152d52895e95bf436b9d5630a33a6e8033ff8a88720210ca\t1767931126699\n",
+  "stderr": "",
+  "execution_time_ms": 399
+}
